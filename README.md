@@ -10,6 +10,8 @@
 
 相关设计见 [`spec/design.md`](spec/design.md)。
 
+Kubernetes 资源清单见 [`spec/k8s-resources.md`](spec/k8s-resources.md)。
+
 ## 当前架构
 
 当前实现由四部分组成：
