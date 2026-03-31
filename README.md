@@ -12,6 +12,19 @@
 
 Kubernetes 资源清单见 [`spec/k8s-resources.md`](spec/k8s-resources.md)。
 
+## Kubernetes 支持区间
+
+- 声明支持区间：`1.23 ~ 1.34`
+- 当前已验证版本（`FrontendIntegration` 创建/修改/禁用/启用/删除全链路）：
+  - `1.23`
+  - `1.26`
+  - `1.28`
+  - `1.30`
+  - `1.34`
+  - `1.32`
+
+多版本测试流程见 [`spec/k8s 构建流程`](spec/k8s%20构建流程)。
+
 ## 当前架构
 
 当前实现由四部分组成：
