@@ -36,7 +36,6 @@ mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
 ```
 
-远端示例统一使用 `root@<remote-host>` 占位，不在 skill 中暴露真实地址。
 
 ## 当前架构
 
