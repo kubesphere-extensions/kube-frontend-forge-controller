@@ -1,0 +1,21 @@
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendIntegration
+metadata:
+  name: fi-lifecycle-smoke
+  annotations:
+    kubesphere.io/description: FrontendIntegration lifecycle smoke test
+spec:
+  displayName: FI Lifecycle Smoke
+  enabled: true
+  menus:
+    - displayName: Lifecycle Smoke
+      key: lifecycle-smoke
+      placement: global
+      type: page
+  pages:
+    - key: lifecycle-smoke
+      type: iframe
+      iframe:
+        src: http://example.test/v1
+  builder:
+    engineVersion: v1

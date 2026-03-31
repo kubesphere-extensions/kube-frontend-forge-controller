@@ -50,7 +50,7 @@ Usage:
   scripts/dev-webhook.sh logs cloudflared
 
 Required environment:
-  REMOTE_SSH_TARGET        Example: root@172.31.19.2
+  REMOTE_SSH_TARGET        Example: root@<remote-host>
 
 Optional environment:
   REMOTE_CONTEXT           Remote kubectl context to use
