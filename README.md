@@ -23,7 +23,7 @@ Kubernetes 资源清单见 [`spec/k8s-resources.md`](spec/k8s-resources.md)。
   - `1.34`
   - `1.32`
 
-多版本测试流程见 [`spec/k8s 构建流程`](spec/k8s%20构建流程)。
+多版本测试流程见 [`spec/k8s 构建流程`](spec/k8s-matrix-plan.md)。
 
 ## Project Skills
 
