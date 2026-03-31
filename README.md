@@ -25,6 +25,19 @@ Kubernetes 资源清单见 [`spec/k8s-resources.md`](spec/k8s-resources.md)。
 
 多版本测试流程见 [`spec/k8s 构建流程`](spec/k8s%20构建流程)。
 
+## Project Skills
+
+仓库内置的 repo-local skills 放在 [`.codex/skills/`](.codex/skills/)。
+
+这些目录是版本化真相源；如果要让 Codex 自动发现它们，请手动复制或软链到 `${CODEX_HOME:-$HOME/.codex}/skills`。示例需要在仓库根目录执行：
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
+```
+
+远端示例统一使用 `root@<remote-host>` 占位，不在 skill 中暴露真实地址。
+
 ## 当前架构
 
 当前实现由四部分组成：
