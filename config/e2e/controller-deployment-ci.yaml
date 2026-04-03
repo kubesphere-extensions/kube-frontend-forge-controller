@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-forge-controller
+  namespace: extension-frontend-forge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: frontend-forge
+      app.kubernetes.io/name: frontend-forge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: frontend-forge
+        app.kubernetes.io/name: frontend-forge
+    spec:
+      serviceAccountName: frontend-forge
+      containers:
+        - name: frontend-forge
+          image: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          env:
+            - name: WORK_NAMESPACE
+              value: extension-frontend-forge
+            - name: RUNNER_IMAGE
+              value: ${FRONTEND_FORGE_RUNNER_IMAGE}
+            - name: RUNNER_SERVICE_ACCOUNT
+              value: frontend-forge-runner
+            - name: BUILD_SERVICE_BASE_URL
+              value: http://frontend-forge.extension-frontend-forge.svc
+            - name: JSBUNDLE_CONFIGMAP_NAMESPACE
+              value: extension-frontend-forge
+            - name: JSBUNDLE_CONFIG_KEY
+              value: index.js
+            - name: BUILD_SERVICE_TIMEOUT_SECONDS
+              value: "600"
+            - name: STALE_CHECK_GRACE_SECONDS
+              value: "30"
+            - name: RECONCILE_REQUEUE_SECONDS
+              value: "5"
+            - name: JOB_ACTIVE_DEADLINE_SECONDS
+              value: "300"
+            - name: JOB_TTL_SECONDS_AFTER_FINISHED
+              value: "3600"
+            - name: WEBHOOK_ENABLED
+              value: "false"

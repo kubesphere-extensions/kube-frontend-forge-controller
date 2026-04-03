@@ -229,8 +229,8 @@ write_summary() {
 - remote_host: ${REMOTE_SSH_TARGET}
 - remote_kubeconfig: ${CURRENT_REMOTE_KUBECONFIG}
 - exposed_console_port: ${KIND_EXPOSE_30880_HOST_PORT}
-- next_step_2: 用户手动安装 frontend-forge
-- next_step_3: scripts/k8s-matrix-step3-fi-test.sh ${version}
+- next_step_2: REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh ${version}
+- next_step_3: REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step3-fi-test.sh ${version}
 EOF
 }
 
@@ -254,7 +254,7 @@ main() {
   install_ks
   write_summary "$version"
 
-  log "Step1 完成。请先做手动安装 frontend-forge，然后执行：scripts/k8s-matrix-step3-fi-test.sh ${version}"
+  log "Step1 完成。继续执行：REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh ${version}"
 }
 
 main "$@"

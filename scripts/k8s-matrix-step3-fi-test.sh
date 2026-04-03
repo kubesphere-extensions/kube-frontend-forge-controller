@@ -168,7 +168,7 @@ wait_until() {
 }
 
 wait_for_frontend_forge_readiness() {
-  log "等待 frontend-forge 就绪（手动安装后）"
+  log "等待 frontend-forge 就绪（Step2 安装后）"
   run_remote_logged "${CURRENT_ARTIFACT_DIR}/step3-readiness.log" <<EOF
 deadline=\$((SECONDS + ${READINESS_TIMEOUT_SECONDS}))
 

@@ -5,7 +5,7 @@
 原先的一体化方案假设“安装 KS 后会自动安装 frontend-forge”，在新建测试集群上不稳定成立。当前统一采用 3 步流程：
 
 1. Step1：安装 K8s + KS（脚本）
-2. Step2：用户手动安装 frontend-forge（人工）
+2. Step2：apply `InstallPlan/frontend-forge`（脚本）
 3. Step3：执行 FrontendIntegration 生命周期自动化测试（脚本）
 
 兼容入口：
@@ -25,7 +25,7 @@
 ## 固定约束
 
 - 单版本单次执行，避免多套 KS 同时占用远程资源
-- Step2 必须人工介入，Step3 不会自动安装 frontend-forge
+- Step2 通过脚本 apply 固定的 `InstallPlan/frontend-forge`
 - `frontend-forge` webhook 当前跳过
 - 不接管默认 `kind-kind` 集群
 - 远端示例统一使用 `root@<remote-host>` 占位
@@ -78,14 +78,43 @@ REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step1-install-ks.sh 1.
 REMOTE_SSH_TARGET=root@<remote-host> KIND_EXPOSE_30880_HOST_PORT=38080 ./scripts/k8s-matrix-step1-install-ks.sh 1.32
 ```
 
-## Step2：手动安装 frontend-forge
+## Step2：安装 frontend-forge
 
-Step1 完成后，用户在当前测试集群内手动安装 frontend-forge。
+入口：
+
+```bash
+REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh <version>
+```
+
+示例：
+
+```bash
+REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh 1.32
+```
+
+行为：
+
+- 向当前测试集群 apply 固定的 `InstallPlan/frontend-forge`
+- 默认内容如下：
+
+```yaml
+apiVersion: kubesphere.io/v1alpha1
+kind: InstallPlan
+metadata:
+  name: frontend-forge
+  annotations:
+    kubesphere.io/creator: admin
+spec:
+  enabled: true
+  extension:
+    name: frontend-forge
+    version: 1.0.0-rc.1
+```
 
 说明：
 
-- Step3 不会自动创建 `InstallPlan/frontend-forge`
-- Step3 只等待并校验 frontend-forge 已安装且 Ready
+- Step2 只负责 apply `InstallPlan`
+- Step3 负责等待 frontend-forge Ready 并继续生命周期测试
 
 ## Step3：执行生命周期自动化测试
 
@@ -134,6 +163,9 @@ artifacts/k8s-matrix/<version>/
 - Step1：
   - `step1-install.log`
   - `step1-summary.md`
+- Step2：
+  - `step2-install.log`
+  - `step2-summary.md`
 - Step3：
   - `step3-readiness.log`
   - `fi-*.yaml`
