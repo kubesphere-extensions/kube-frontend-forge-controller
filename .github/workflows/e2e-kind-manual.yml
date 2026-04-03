@@ -38,8 +38,8 @@ jobs:
 
     env:
       KIND_CLUSTER_NAME: frontend-forge-e2e-${{ matrix.arch }}
-      ARTIFACT_DIR: ${{ runner.temp }}/e2e-artifacts/${{ matrix.arch }}
-      RENDERED_MANIFEST_DIR: ${{ runner.temp }}/e2e-manifests/${{ matrix.arch }}
+      ARTIFACT_DIR: ${{ github.workspace }}/.tmp/e2e-artifacts/${{ matrix.arch }}
+      RENDERED_MANIFEST_DIR: ${{ github.workspace }}/.tmp/e2e-manifests/${{ matrix.arch }}
       FRONTEND_FORGE_CONTROLLER_IMAGE: ${{ inputs.frontend_forge_controller_image }}
       FRONTEND_FORGE_RUNNER_IMAGE: ${{ inputs.frontend_forge_runner_image }}
       FRONTEND_FORGE_IMAGE: ${{ inputs.frontend_forge_image }}
