@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-forge
+  namespace: extension-frontend-forge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: frontend-forge
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: frontend-forge
+        app.kubernetes.io/name: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ${FRONTEND_FORGE_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-forge
+  namespace: extension-frontend-forge
+spec:
+  selector:
+    app.kubernetes.io/instance: frontend-forge
+    app.kubernetes.io/name: frontend
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 3000
