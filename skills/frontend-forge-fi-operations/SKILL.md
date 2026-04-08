@@ -1,6 +1,6 @@
 ---
 name: frontend-forge-fi-operations
-description: Operate FrontendIntegration (FI) resources: create, update, enable, disable, delete, and inspect the generated Job, JSBundle, ConfigMap, and manifest. Use this skill when managing FI lifecycle with kubectl, checking FI status, tracing build jobs, reading manifest and source-spec annotations from JSBundle, or debugging missing jobs, missing bundles, incorrect state, or stuck reconciliation.
+description: "Operate FrontendIntegration (FI) resources: create, update, enable, disable, delete, and inspect the generated Job, JSBundle, ConfigMap, and manifest. Use this skill when managing FI lifecycle with kubectl, checking FI status, tracing build jobs, reading manifest and source-spec annotations from JSBundle, or debugging missing jobs, missing bundles, incorrect state, or stuck reconciliation."
 ---
 
 # Frontend Forge FI Operations
