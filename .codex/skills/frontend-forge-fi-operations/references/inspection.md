@@ -1,60 +1,62 @@
-# FI 运行时观察索引
+# FI Runtime Inspection Reference
 
-核心来源：
+Primary sources:
 
-- `crates/common/src/lib.rs`
-- `crates/api/src/lib.rs`
-- `crates/controller/src/main.rs`
-- `crates/runner/src/main.rs`
+- FI, JSBundle, Job, and ConfigMap objects from the live cluster
+- deployment manifests and environment variables for the running controller and runner
+- workspace docs, if the current repo includes operations or architecture notes
 
-## 默认命名规则
+## Default Naming Rules
 
-- 默认 bundle 名：
+- default bundle name:
   - `fi-<fi-name>`
-- 默认 Job 名前缀：
+- default Job name prefix:
   - `fi-<fi-name>-build-<hash8>`
-- 默认 ConfigMap 名：
+- default ConfigMap name:
   - `<bundle-name>-config`
 
-这些是当前默认值。若部署层改了运行时环境变量，要先回查 controller 配置。
+These are common defaults. If runtime environment variables changed at deployment time, inspect controller configuration first. When using this skill outside this repository, prefer observed cluster object names over assumed defaults.
 
-## 关联资源查询
+## Query Related Resources
 
-查看 FI：
+Inspect FI:
 
 ```bash
 kubectl get fi <fi-name> -o yaml
 ```
 
-查看 Job：
+Inspect Job:
 
 ```bash
 kubectl get jobs -n extension-frontend-forge -l frontend-forge.io/fi-name=<fi-name>
+kubectl get fi <fi-name> -o jsonpath='{.status.last_build.job_ref.name}{"\n"}'
 kubectl describe job -n extension-frontend-forge <job-name>
+kubectl logs -n extension-frontend-forge job/<job-name>
 ```
 
-查看 JSBundle：
+Inspect JSBundle:
 
 ```bash
+kubectl get fi <fi-name> -o jsonpath='{.status.bundle_ref.name}{"\n"}'
 kubectl get jsbundle fi-<fi-name> -o yaml
 ```
 
-查看 ConfigMap：
+Inspect ConfigMap:
 
 ```bash
 kubectl get configmap -n extension-frontend-forge fi-<fi-name>-config -o yaml
 ```
 
-## 重点标签与注解
+## Important Labels and Annotations
 
-常用标签：
+Common labels:
 
 - `frontend-forge.io/fi-name`
 - `frontend-forge.io/spec-hash`
 - `frontend-forge.io/manifest-hash`
 - `frontend-forge.io/enabled`
 
-常用注解：
+Common annotations:
 
 - `frontend-forge.io/build-job`
 - `frontend-forge.io/manifest-hash`
@@ -63,29 +65,30 @@ kubectl get configmap -n extension-frontend-forge fi-<fi-name>-config -o yaml
 - `frontend-forge.io/source-spec-hash`
 - `frontend-forge.io/source-generation`
 
-## 直接查看 Manifest 和来源 spec
+## Inspect Manifest and Source Spec Directly
 
-查看 Manifest：
+Inspect the manifest:
 
 ```bash
 kubectl get jsbundle fi-<fi-name> -o jsonpath='{.metadata.annotations.frontend-forge\.io/manifest-content}'
+kubectl get jsbundle fi-<fi-name> -o jsonpath='{.metadata.annotations.frontend-forge\.io/manifest-content}' | python3 -m json.tool
 ```
 
-查看来源 spec：
+Inspect the source spec:
 
 ```bash
 kubectl get jsbundle fi-<fi-name> -o jsonpath='{.metadata.annotations.frontend-forge\.io/source-spec}'
 ```
 
-查看 build Job：
+Inspect the build Job:
 
 ```bash
 kubectl get jsbundle fi-<fi-name> -o jsonpath='{.metadata.annotations.frontend-forge\.io/build-job}'
 ```
 
-## 关键状态字段
+## Key Status Fields
 
-FI status：
+FI status:
 
 - `.status.phase`
 - `.status.observed_spec_hash`
@@ -96,14 +99,14 @@ FI status：
 - `.status.bundle_ref.name`
 - `.status.message`
 
-JSBundle status：
+JSBundle status:
 
 - `.status.state`
 - `.status.link`
 
-## 排障顺序
+## Troubleshooting Order
 
-1. 先看 FI `status`
-2. 再看 `bundle_ref.name` 和 `last_build.job_ref.name`
-3. 再去查 Job 日志、`JSBundle` 注解和 ConfigMap 内容
-4. 如果 FI 没出 Job，重点排查 webhook 或 controller 是否拒绝或跳过了该 spec
+1. Check FI `status` first
+2. Then check `bundle_ref.name` and `last_build.job_ref.name`
+3. Then inspect Job logs, JSBundle annotations, and ConfigMap content
+4. If FI did not create a Job, focus on whether webhook or controller rejected or skipped the spec

@@ -1,278 +1,283 @@
 ---
 name: frontend-forge-fi-operations
-description: 处理 FrontendIntegration（FI）的创建、修改、启用/禁用、删除，以及状态检查和排障。
+description: Operate FrontendIntegration (FI) resources: create, update, enable, disable, delete, and inspect the generated Job, JSBundle, ConfigMap, and manifest. Use this skill when managing FI lifecycle with kubectl, checking FI status, tracing build jobs, reading manifest and source-spec annotations from JSBundle, or debugging missing jobs, missing bundles, incorrect state, or stuck reconciliation.
 ---
 
 # Frontend Forge FI Operations
 
-## 何时使用
+## When to use
 
-- 创建或更新 `FrontendIntegration`
-- 启用、禁用或删除 FI
-- 查看 FI 状态和最近一次构建
-- 追踪关联资源：Job、`JSBundle`、ConfigMap
-- 排查这些问题：
-  - 没有触发 Job
-  - 没有生成 `JSBundle`
-  - 状态不正确或卡住
+- Create or update a `FrontendIntegration`
+- Enable, disable, or delete an FI
+- Inspect FI status and the latest build
+- Trace related resources: Job, `JSBundle`, ConfigMap, and manifest
+- Debug these cases:
+  - no Job triggered
+  - no `JSBundle` generated
+  - incorrect state or stuck status
 
 ## Quick Entry
 
-- 创建或更新 FI -> 看「创建或更新 FI」
-- 禁用 FI -> 看「禁用 FI」
-- 启用 FI -> 看「启用 FI」
-- 删除 FI -> 看「删除 FI」
-- 排查问题：
-  - 没有 Job -> 看「情况 1」
-  - 有 Job 无 Bundle -> 看「情况 2」
-  - Bundle 状态异常 -> 看「情况 3」
-  - 状态卡住 -> 看「情况 4」
+- Create or update an FI -> see "Create or Update FI"
+- Disable an FI -> see "Disable FI"
+- Enable an FI -> see "Enable FI"
+- Delete an FI -> see "Delete FI"
+- Inspect Job / JSBundle / manifest -> see "Inspect Build Output"
+- Troubleshoot:
+  - no Job -> see "Case 1"
+  - Job exists but no Bundle -> see "Case 2"
+  - Bundle state is wrong -> see "Case 3"
+  - status is stuck -> see "Case 4"
 
-## 前置条件
+## Preconditions
 
-- 当前集群可通过 `kubectl` 访问
-- 以下 CRD 已安装：
+- The current cluster is reachable through `kubectl`
+- These CRDs are installed:
   - `frontendintegrations.frontend-forge.kubesphere.io`
   - `jsbundles.extensions.kubesphere.io`
-- `frontend-forge` 和 `frontend-forge-controller` 已运行
-- 默认 namespace 可能是：
+- `frontend-forge` and `frontend-forge-controller` are running
+- The default namespace may be:
   - `extension-frontend-forge`
 
-## 先读文件
+## Read first
 
 - `references/lifecycle.md`
 - `references/inspection.md`
-- `config/samples/fi-lifecycle-smoke.yaml`
-- `crates/common/src/lib.rs`
-- `crates/api/src/lib.rs`
+- If available in the current workspace, read a sample FI manifest such as `config/samples/fi-lifecycle-smoke.yaml`
+- If workspace docs exist, prefer product docs and deployment manifests over implementation source files
 
-## 资源模型
+## Resource Model
 
 - `FrontendIntegration`
   - cluster-scoped
   - short name: `fi`
 - `JSBundle`
   - cluster-scoped
-  - 默认通常是：`fi-<fi-name>`
+  - usually named: `fi-<fi-name>`
 - ConfigMap
-  - 默认 namespace：`extension-frontend-forge`
-  - 默认通常是：`<bundle-name>-config`
+  - default namespace: `extension-frontend-forge`
+  - usually named: `<bundle-name>-config`
 - Job
-  - 默认 namespace：`extension-frontend-forge`
-  - 构建时触发
+  - default namespace: `extension-frontend-forge`
+  - triggered during build
 
-## 默认命名
+## Default Naming
 
 - bundle: `fi-<fi-name>`
 - configmap: `<bundle-name>-config`
 
-这些是当前默认值，不要无条件硬编码。运行时配置变更后，名称和 namespace 可能不同。
+These are current defaults. Do not hardcode them blindly. If runtime configuration changes, the name or namespace may differ.
+When this skill is used outside this repository, treat the live cluster state as the source of truth.
 
-## 常用命令
+## Common Commands
 
-### 查看 FI
+### Inspect FI
 
 ```bash
 kubectl get fi <name> -o yaml
 kubectl get fi <name> -o jsonpath='{.status}'
 ```
 
-### 创建或更新
+### Create or Update
 
 ```bash
 kubectl apply -f <file.yaml>
+kubectl apply -f config/samples/fi-lifecycle-smoke.yaml
 ```
 
-### 禁用
+### Disable
 
 ```bash
 kubectl patch fi <name> --type=merge -p '{"spec":{"enabled":false}}'
 ```
 
-### 启用
+### Enable
 
 ```bash
 kubectl patch fi <name> --type=merge -p '{"spec":{"enabled":true}}'
 ```
 
-### 删除
+### Delete
 
 ```bash
 kubectl delete fi <name>
 ```
 
-### 查看关联资源
+### Inspect Related Resources
 
 ```bash
 kubectl get jsbundle <bundle-name> -o yaml
 kubectl -n extension-frontend-forge get cm <bundle-name>-config -o yaml
 kubectl -n extension-frontend-forge get jobs
+kubectl get fi <name> -o jsonpath='{.status.last_build.job_ref.name}{"\n"}'
+kubectl get fi <name> -o jsonpath='{.status.bundle_ref.name}{"\n"}'
+kubectl get jsbundle <bundle-name> -o jsonpath='{.metadata.annotations.frontend-forge\.io/manifest-content}' | python3 -m json.tool
 ```
 
-## 推荐工作流
+## Recommended Workflows
 
-### 1. 创建或更新 FI
+### 1. Create or Update FI
 
-1. 应用清单：
+1. Apply the manifest:
 
    ```bash
    kubectl apply -f <file.yaml>
    ```
 
-2. 查看 FI 状态：
+2. Inspect FI status:
    - `.status.phase`
    - `.status.message`
    - `.status.observed_spec_hash`
    - `.status.last_build`
 
-3. 验证：
-   - 已创建 Job
-   - `JSBundle` 已存在
+3. Verify:
+   - a Job was created
+   - `JSBundle` exists
    - `JSBundle.status.state = Available`
 
-### 2. 禁用 FI
+### 2. Disable FI
 
-1. patch：
+1. Patch:
 
    ```bash
    kubectl patch fi <name> --type=merge -p '{"spec":{"enabled":false}}'
    ```
 
-2. 预期：
+2. Expect:
    - `status.message = Disabled`
    - `status.last_build = null`
    - `JSBundle.status.state = Disabled`
    - label `frontend-forge.io/enabled = false`
 
-### 3. 启用 FI
+### 3. Enable FI
 
-1. patch：
+1. Patch:
 
    ```bash
    kubectl patch fi <name> --type=merge -p '{"spec":{"enabled":true}}'
    ```
 
-2. 预期：
+2. Expect:
    - `JSBundle.status.state = Available`
    - label `frontend-forge.io/enabled = true`
-   - `bundle_ref.name` 正确
-   - 可能复用已有 bundle，也可能重新触发构建，取决于当前实现和现场状态
+   - `bundle_ref.name` is correct
+   - the runtime may reuse an existing bundle or trigger a rebuild, depending on current implementation and cluster state
 
-### 4. 删除 FI
+### 4. Delete FI
 
 ```bash
 kubectl delete fi <name>
 ```
 
-预期：
+Expect:
 
-- FI 被删除
-- `JSBundle` 被删除，或其残留状态可以解释
-- ConfigMap 被清理，或其残留状态可以解释
+- FI is removed
+- `JSBundle` is removed, or any leftover state is explainable
+- ConfigMap is cleaned up, or any leftover state is explainable
 
-### 5. 查看构建产物
+### 5. Inspect Build Output
 
-从 `JSBundle.metadata.annotations` 查看：
+Inspect these `JSBundle.metadata.annotations`:
 
 - `frontend-forge.io/manifest-content`
 - `frontend-forge.io/source-spec`
 - `frontend-forge.io/source-spec-hash`
 - `frontend-forge.io/build-job`
 
-它们可用于：
+Use them to:
 
-- 追溯输入 manifest
-- 核对来源 spec
-- 确认构建来自哪个 Job
+- trace the rendered manifest
+- compare the original source spec
+- confirm which Job produced the bundle
 
-## 排障
+## Troubleshooting
 
-### 情况 1：没有触发 Job
+### Case 1: No Job triggered
 
-检查：
+Check:
 
 1. `kubectl get fi <name> -o yaml`
    - `phase`
    - `message`
-2. `spec.enabled` 是否为 `true`
-3. controller 是否运行：
+2. whether `spec.enabled` is `true`
+3. whether the controller is running:
 
    ```bash
    kubectl -n extension-frontend-forge get deploy
    ```
 
-4. controller 日志
+4. controller logs
 
-### 情况 2：有 Job 但没有 JSBundle
+### Case 2: Job exists but no JSBundle
 
-检查：
+Check:
 
-1. Job 状态：
+1. Job status:
 
    ```bash
    kubectl -n extension-frontend-forge get jobs
    ```
 
-2. Job 日志
-3. runner 错误
-4. RBAC / 权限
-5. `observed_spec_hash` 或 spec stale 检查
+2. Job logs
+3. runner errors
+4. RBAC and permissions
+5. `observed_spec_hash` or stale-spec checks
 
-### 情况 3：JSBundle 存在但状态不对
+### Case 3: JSBundle exists but the state is wrong
 
-检查：
+Check:
 
 1. `JSBundle.status.state`
-2. label：
+2. label:
    - `frontend-forge.io/enabled`
-3. FI：
+3. FI:
    - `bundle_ref`
-4. 注解：
+4. annotations:
    - `source-spec`
    - `manifest-content`
 
-### 情况 4：状态不正确或卡住
+### Case 4: Status is incorrect or stuck
 
-检查：
+Check:
 
-1. FI：
+1. FI:
    - `observed_generation`
    - `observed_spec_hash`
-2. controller 日志
-3. reconcile 行为是否持续推进
+2. controller logs
+3. whether reconcile is still progressing
 
-## 验收重点
+## Validation Checklist
 
-- FI 最终进入预期 phase：
+- FI ends in the expected phase:
   - `Succeeded`
   - `Building`
   - `Failed`
   - `Pending`
-- `JSBundle` 状态与 FI 意图一致
-- 注解里的源信息与实际输入一致
-- build Job 与当前 spec 一致
+- `JSBundle` state matches the intended FI state
+- source annotations match the actual input
+- the build Job matches the current spec
 
-## 坑点
+## Pitfalls
 
-- 不要给 FI 加 `-n`；它是 cluster-scoped 资源
-- 不要盲信默认命名；若部署改了 `JSBUNDLE_CONFIGMAP_NAMESPACE` 等环境变量，先回查运行时配置
-- 不要只看 Job；最终必须同时看：
+- Do not add `-n` when operating on FI; it is cluster-scoped
+- Do not trust default naming blindly; if deployment env vars such as `JSBUNDLE_CONFIGMAP_NAMESPACE` changed, inspect runtime config first
+- Do not look only at the Job; always check:
   - `FI.status`
   - `JSBundle.status`
-  - 注解里的源数据
-- 如果 admission webhook 没启用，语义错误可能在运行期才暴露，而不是 `kubectl apply` 当场失败
+  - source annotations
+- If admission webhook is disabled, semantic errors may surface at runtime instead of failing during `kubectl apply`
 
-## 升级排查
+## Escalation
 
-如果问题仍未定位，继续看：
+If the issue is still not clear, continue with:
 
 ```bash
 kubectl -n extension-frontend-forge logs deploy/frontend-forge-controller
 kubectl -n extension-frontend-forge logs deploy/frontend-forge
 ```
 
-同时核对：
+Also verify:
 
-- deployment 环境变量
-- CRD 版本
-- 集群 RBAC
+- deployment environment variables
+- CRD versions
+- cluster RBAC

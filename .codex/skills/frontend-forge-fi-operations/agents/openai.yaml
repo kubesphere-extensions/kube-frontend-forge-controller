@@ -1,4 +1,4 @@
 interface:
   display_name: "Frontend Forge FI Operations"
-  short_description: "Help with FI lifecycle and runtime inspection"
-  default_prompt: "Use $frontend-forge-fi-operations to create, change, disable, enable, delete, or inspect FrontendIntegration resources."
+  short_description: "Operate FI lifecycle, jobs, bundles, and manifest"
+  default_prompt: "Use $frontend-forge-fi-operations to create, update, disable, enable, delete, or inspect FrontendIntegration resources, build jobs, JSBundles, and manifest annotations."

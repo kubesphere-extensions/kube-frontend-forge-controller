@@ -1,26 +1,27 @@
-# FrontendIntegration 生命周期操作索引
+# FrontendIntegration Lifecycle Reference
 
-核心来源：
+Primary sources:
 
-- `config/samples/fi-lifecycle-smoke.yaml`
-- `scripts/k8s-matrix-step3-fi-test.sh`
-- `README.md`
+- a sample FI manifest, if the current workspace provides one
+- deployment or operations docs for the current environment
+- the live cluster state from `kubectl get fi ... -o yaml`
 
-## 基本事实
+## Basics
 
-- `FrontendIntegration` 是 cluster-scoped 资源
-- 短名：`fi`
-- 建议从样例起步：
-  - `config/samples/fi-lifecycle-smoke.yaml`
+- `FrontendIntegration` is a cluster-scoped resource
+- short name: `fi`
+- start from the sample when possible:
+  - use a workspace sample such as `config/samples/fi-lifecycle-smoke.yaml` if it exists
 
-## 新建
+## Create
 
 ```bash
 kubectl apply -f config/samples/fi-lifecycle-smoke.yaml
 kubectl get fi fi-lifecycle-smoke -o yaml
+kubectl get fi fi-lifecycle-smoke -o jsonpath='{.status.bundle_ref.name}{"\n"}'
 ```
 
-常看字段：
+Fields to inspect:
 
 - `.status.phase`
 - `.status.message`
@@ -29,54 +30,56 @@ kubectl get fi fi-lifecycle-smoke -o yaml
 - `.status.last_build`
 - `.status.bundle_ref`
 
-## 修改
+## Modify
 
-推荐直接改 YAML 后重新 `apply`，或者 patch 具体字段。例如修改 iframe 地址：
+Prefer editing YAML and re-applying it, or patching a specific field. Example: change the iframe source URL:
 
 ```bash
 kubectl patch fi fi-lifecycle-smoke --type merge -p \
   '{"spec":{"pages":[{"key":"lifecycle-smoke","type":"iframe","iframe":{"src":"http://example.test/v2"}}]}}'
 ```
 
-修改后重点看：
+After modification, inspect:
 
-- `.status.observed_generation` 是否推进
-- `.status.observed_spec_hash` 是否变化
-- `.status.phase` 是否回到 `Succeeded`
+- whether `.status.observed_generation` advanced
+- whether `.status.observed_spec_hash` changed
+- whether `.status.phase` returned to `Succeeded`
+- whether `.status.last_build.job_ref.name` changed
 
-## 禁用
+## Disable
 
 ```bash
 kubectl patch fi fi-lifecycle-smoke --type merge -p '{"spec":{"enabled":false}}'
 kubectl get fi fi-lifecycle-smoke -o yaml
 ```
 
-禁用后重点看：
+After disabling, inspect:
 
 - `.status.phase`
 - `.status.message`
 - `.status.last_build`
 
-## 启用
+## Enable
 
 ```bash
 kubectl patch fi fi-lifecycle-smoke --type merge -p '{"spec":{"enabled":true}}'
 kubectl get fi fi-lifecycle-smoke -o yaml
 ```
 
-启用后重点看：
+After enabling, inspect:
 
 - `.status.phase`
 - `.status.bundle_ref.name`
-- 关联 `JSBundle.status.state`
+- `.status.last_build.job_ref.name`
+- related `JSBundle.status.state`
 
-## 删除
+## Delete
 
 ```bash
 kubectl delete fi fi-lifecycle-smoke
 ```
 
-删除后再核对：
+After deletion, verify again:
 
 - `kubectl get fi fi-lifecycle-smoke`
 - `kubectl get jsbundle fi-fi-lifecycle-smoke`
