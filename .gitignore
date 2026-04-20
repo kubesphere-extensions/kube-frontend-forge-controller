@@ -23,3 +23,5 @@ target
 .codex-debug/
 .artifacts
 artifacts/
+.agents/
+skills-lock.json
