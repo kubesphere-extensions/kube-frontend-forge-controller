@@ -116,13 +116,13 @@ impl FrontendRenderInput {
                 let inline = &fe.spec.source.inline;
 
                 Ok(Self {
-                    name: fe.name_any(),
+                    name: frontend_extension_package_name(fe),
                     display_name: inline
                         .frontend
                         .display_name
                         .clone()
-                        .or_else(|| Some(fe.spec.package.display_name.clone())),
-                    description: fe.spec.package.description.clone(),
+                        .or_else(|| localized_text(&fe.spec.package.display_name)),
+                    description: localized_text(&fe.spec.package.description),
                     schema_version: Some(inline.schema_version.clone()),
                     route_namespace: "frontendextensions".to_string(),
                     locales: inline.frontend.locales.clone(),
@@ -132,6 +132,22 @@ impl FrontendRenderInput {
             }
         }
     }
+}
+
+fn localized_text(values: &BTreeMap<String, String>) -> Option<String> {
+    values
+        .get("en")
+        .or_else(|| values.get("zh"))
+        .or_else(|| values.values().next())
+        .cloned()
+}
+
+fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
+    fe.spec
+        .package
+        .name
+        .clone()
+        .unwrap_or_else(|| fe.name_any())
 }
 
 // Rendering remains versioned so runner and webhook share the same validation semantics.
@@ -313,12 +329,17 @@ spec:
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendExtension
 metadata:
-  name: inspecttask
+  name: fe-inspecttask
 spec:
   package:
+    name: inspecttask
     version: 0.1.0
-    displayName: Inspect Task
-    description: InspectTask extension package
+    displayName:
+      zh: 巡检任务
+      en: Inspect Task
+    description:
+      zh: InspectTask extension package
+      en: InspectTask extension package
   source:
     type: Inline
     inline:
@@ -368,7 +389,10 @@ metadata:
 spec:
   package:
     version: 0.1.0
-    displayName: Inspect Task
+    displayName:
+      en: Inspect Task
+    description:
+      en: InspectTask extension package
   source:
     type: Inline
     inline:

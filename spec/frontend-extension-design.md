@@ -120,9 +120,47 @@ metadata:
   name: inspecttask
 spec:
   package:
+    name: inspecttask
     version: 0.1.0
-    displayName: Inspect Task
-    description: InspectTask extension package
+    displayName:
+      zh: 巡检任务
+      en: Inspect Task
+    description:
+      zh: InspectTask extension package
+      en: InspectTask extension package
+    category: dev-tools
+    keywords:
+      - Frontend
+    sources:
+      - https://github.com/kubesphere-extensions/frontend-forge
+    kubeVersion: ">=1.23.0-0"
+    ksVersion: ">=4.2.1-0"
+    maintainers:
+      - name: KubeSphere
+        email: kubesphere@yunify.com
+    home: https://kubesphere.com.cn/
+    provider:
+      zh:
+        name: 北京青云科技股份有限公司
+        email: kubesphere@yunify.com
+        url: https://kubesphere.com.cn/
+      en:
+        name: QingCloud Technologies
+        email: kubesphere@yunify.com
+        url: https://kubesphere.co/
+    icon: ./static/frontend-forge.ico
+    dependencies:
+      - name: frontend
+        tags:
+          - extension
+      - name: frontend-forge
+        tags:
+          - extension
+    installationMode: HostOnly
+    images:
+      - kubesphere/frontend-forge-console:v1.0.0
+      - kubesphere/frontend-forge-controller:v1.0.0
+      - kubesphere/frontend-forge-runner:v1.0.0
     charts:
       values: {}
 
@@ -191,9 +229,22 @@ spec:
 
 | 字段 | 说明 |
 | --- | --- |
+| `spec.package.name` | package 名称。生成 `extension.yaml.name`，并作为发布包内 frontend manifest 的 name/route 命名空间。可选，缺省时使用 `metadata.name`。 |
 | `spec.package.version` | extension package 版本。建议后续按 SemVer 校验。 |
-| `spec.package.displayName` | package 展示名称。 |
-| `spec.package.description` | package 描述。 |
+| `spec.package.displayName` | package 多语言展示名称，对应真实 `ksbuilder extension.yaml.displayName`。 |
+| `spec.package.description` | package 多语言描述，对应真实 `ksbuilder extension.yaml.description`。 |
+| `spec.package.category` | extension 分类，例如 `dev-tools`。 |
+| `spec.package.keywords` | extension 关键词列表。 |
+| `spec.package.sources` | extension 源码或项目地址列表。 |
+| `spec.package.kubeVersion` | Kubernetes 版本约束，原样写入 `extension.yaml.kubeVersion`。 |
+| `spec.package.ksVersion` | KubeSphere 版本约束，原样写入 `extension.yaml.ksVersion`。 |
+| `spec.package.maintainers` | extension 维护者列表。 |
+| `spec.package.home` | extension 主页。 |
+| `spec.package.provider` | provider 多语言信息。 |
+| `spec.package.icon` | extension icon 路径。 |
+| `spec.package.dependencies` | ksbuilder extension dependencies。 |
+| `spec.package.installationMode` | 安装模式，例如 `HostOnly`。 |
+| `spec.package.images` | extension 相关镜像列表。 |
 | `spec.package.charts.values` | 生成 extension chart config 时使用的 values。 |
 | `spec.source.type` | source 类型。当前先支持 `Inline`，未来可扩展 `Git`、`ConfigMap`、`OCI`。 |
 | `spec.source.inline.schemaVersion` | 发布态 source schema 版本，不使用 runtime `builder.engineVersion` 命名。 |
@@ -617,7 +668,10 @@ HTTP API 是产品 API，不应泄漏 artifact ConfigMap 的内部结构。
       "generation": 3,
       "package": {
         "version": "0.1.0",
-        "displayName": "Inspect Task"
+        "displayName": {
+          "zh": "巡检任务",
+          "en": "Inspect Task"
+        }
       },
       "phase": "Ready",
       "artifactDigest": "sha256:ddee1122...",

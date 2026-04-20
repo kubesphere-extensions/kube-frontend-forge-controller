@@ -285,13 +285,69 @@ pub struct FrontendExtensionSpec {
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct FrontendExtensionPackageSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub version: String,
     #[serde(rename = "displayName")]
-    pub display_name: String,
+    pub display_name: BTreeMap<String, String>,
+    pub description: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "kubeVersion"
+    )]
+    pub kube_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "ksVersion")]
+    pub ks_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub maintainers: Vec<ExtensionMaintainerSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub provider: BTreeMap<String, ExtensionProviderSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<ExtensionDependencySpec>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "installationMode"
+    )]
+    pub installation_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charts: Option<ExtensionChartsSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ExtensionMaintainerSpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ExtensionProviderSpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ExtensionDependencySpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
@@ -1021,9 +1077,47 @@ metadata:
   name: inspecttask
 spec:
   package:
+    name: inspecttask
     version: 0.1.0
-    displayName: Inspect Task
-    description: InspectTask extension package
+    displayName:
+      zh: 巡检任务
+      en: Inspect Task
+    description:
+      zh: InspectTask extension package
+      en: InspectTask extension package
+    category: dev-tools
+    keywords:
+      - Frontend
+    sources:
+      - https://github.com/kubesphere-extensions/frontend-forge
+    kubeVersion: ">=1.23.0-0"
+    ksVersion: ">=4.2.1-0"
+    maintainers:
+      - name: KubeSphere
+        email: kubesphere@yunify.com
+    home: https://kubesphere.com.cn/
+    provider:
+      zh:
+        name: 北京青云科技股份有限公司
+        email: kubesphere@yunify.com
+        url: https://kubesphere.com.cn/
+      en:
+        name: QingCloud Technologies
+        email: kubesphere@yunify.com
+        url: https://kubesphere.co/
+    icon: ./static/frontend-forge.ico
+    dependencies:
+      - name: frontend
+        tags:
+          - extension
+      - name: frontend-forge
+        tags:
+          - extension
+    installationMode: HostOnly
+    images:
+      - kubesphere/frontend-forge-console:v1.0.0
+      - kubesphere/frontend-forge-controller:v1.0.0
+      - kubesphere/frontend-forge-runner:v1.0.0
     charts:
       values: {}
   source:
@@ -1077,6 +1171,16 @@ spec:
         .unwrap();
 
         assert_eq!(fe.spec.package.version, "0.1.0");
+        assert_eq!(fe.spec.package.name.as_deref(), Some("inspecttask"));
+        assert_eq!(fe.spec.package.display_name["en"], "Inspect Task");
+        assert_eq!(
+            fe.spec.package.provider["en"].name,
+            "QingCloud Technologies"
+        );
+        assert_eq!(
+            fe.spec.package.dependencies[0].tags,
+            vec!["extension".to_string()]
+        );
         assert_eq!(fe.spec.source.type_, FrontendExtensionSourceType::Inline);
         let inline = fe.spec.source.inline;
         assert_eq!(inline.schema_version, "v1");
@@ -1095,12 +1199,23 @@ spec:
         let schema = serde_json::to_value(&crd).unwrap();
         let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
             ["spec"]["properties"];
+        let package = &spec_properties["package"];
         let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
             ["status"]["properties"];
 
         assert!(spec_properties.get("package").is_some());
         assert!(spec_properties.get("source").is_some());
         assert!(spec_properties.get("publishPolicy").is_some());
+        assert_eq!(
+            package["properties"]["displayName"]["type"],
+            Value::String("object".to_string())
+        );
+        assert_eq!(
+            package["properties"]["description"]["type"],
+            Value::String("object".to_string())
+        );
+        assert!(package["properties"].get("kubeVersion").is_some());
+        assert!(package["properties"].get("installationMode").is_some());
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
         assert!(status_properties.get("packageJob").is_some());

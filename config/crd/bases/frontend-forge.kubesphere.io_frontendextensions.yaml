@@ -25,6 +25,9 @@ spec:
             properties:
               package:
                 properties:
+                  category:
+                    nullable: true
+                    type: string
                   charts:
                     nullable: true
                     properties:
@@ -32,14 +35,88 @@ spec:
                         additionalProperties: true
                         type: object
                     type: object
+                  dependencies:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        tags:
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - name
+                      type: object
+                    type: array
                   description:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  displayName:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  home:
                     nullable: true
                     type: string
-                  displayName:
+                  icon:
+                    nullable: true
                     type: string
+                  images:
+                    items:
+                      type: string
+                    type: array
+                  installationMode:
+                    nullable: true
+                    type: string
+                  keywords:
+                    items:
+                      type: string
+                    type: array
+                  ksVersion:
+                    nullable: true
+                    type: string
+                  kubeVersion:
+                    nullable: true
+                    type: string
+                  maintainers:
+                    items:
+                      properties:
+                        email:
+                          nullable: true
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  name:
+                    nullable: true
+                    type: string
+                  provider:
+                    additionalProperties:
+                      properties:
+                        email:
+                          nullable: true
+                          type: string
+                        name:
+                          type: string
+                        url:
+                          nullable: true
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: object
+                  sources:
+                    items:
+                      type: string
+                    type: array
                   version:
                     type: string
                 required:
+                - description
                 - displayName
                 - version
                 type: object

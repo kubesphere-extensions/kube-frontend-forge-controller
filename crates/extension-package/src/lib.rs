@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use flate2::{Compression, GzBuilder};
 use frontend_forge_api::{
+    ExtensionDependencySpec, ExtensionMaintainerSpec, ExtensionProviderSpec,
     ExtensionResourcesSpec, FrontendExtension, FrontendExtensionPackageSpec,
     FrontendExtensionSourceSpec,
 };
@@ -114,10 +115,11 @@ pub fn build_extension_package(
     let file_meta = package_file_meta(&files);
     let package_bytes = gzip_bytes(&tar_bytes(&files)?)?;
     let digest = format!("sha256:{}", sha256_hex(&package_bytes));
-    let filename = format!("{}-{}.tgz", fe.name_any(), fe.spec.package.version);
+    let package_name = package_name(fe);
+    let filename = format!("{}-{}.tgz", package_name, fe.spec.package.version);
 
     let metadata = PackageArtifactMetadata {
-        name: fe.name_any(),
+        name: package_name,
         version: fe.spec.package.version.clone(),
         filename: filename.clone(),
         media_type: PACKAGE_MEDIA_TYPE.to_string(),
@@ -179,19 +181,70 @@ fn package_files(fe: &FrontendExtension) -> Result<Vec<PackageFile>, ExtensionPa
     Ok(files)
 }
 
-fn package_metadata(fe: &FrontendExtension) -> Value {
-    json!({
-        "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
-        "kind": "FrontendExtensionPackage",
-        "metadata": {
-            "name": fe.name_any()
-        },
-        "spec": {
-            "version": fe.spec.package.version,
-            "displayName": fe.spec.package.display_name,
-            "description": fe.spec.package.description
-        }
-    })
+#[derive(Serialize)]
+struct KsbuilderExtensionYaml {
+    #[serde(rename = "apiVersion")]
+    api_version: String,
+    name: String,
+    version: String,
+    #[serde(rename = "displayName")]
+    display_name: BTreeMap<String, String>,
+    description: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    keywords: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "kubeVersion")]
+    kube_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "ksVersion")]
+    ks_version: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    maintainers: Vec<ExtensionMaintainerSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home: Option<String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    provider: BTreeMap<String, ExtensionProviderSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    dependencies: Vec<ExtensionDependencySpec>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "installationMode")]
+    installation_mode: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
+}
+
+fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
+    let package = &fe.spec.package;
+    KsbuilderExtensionYaml {
+        api_version: "kubesphere.io/v1alpha1".to_string(),
+        name: package_name(fe),
+        version: package.version.clone(),
+        display_name: package.display_name.clone(),
+        description: package.description.clone(),
+        category: package.category.clone(),
+        keywords: package.keywords.clone(),
+        sources: package.sources.clone(),
+        kube_version: package.kube_version.clone(),
+        ks_version: package.ks_version.clone(),
+        maintainers: package.maintainers.clone(),
+        home: package.home.clone(),
+        provider: package.provider.clone(),
+        icon: package.icon.clone(),
+        dependencies: package.dependencies.clone(),
+        installation_mode: package.installation_mode.clone(),
+        images: package.images.clone(),
+    }
+}
+
+fn package_name(fe: &FrontendExtension) -> String {
+    fe.spec
+        .package
+        .name
+        .clone()
+        .unwrap_or_else(|| fe.name_any())
 }
 
 fn extension_resource_files(
@@ -333,12 +386,50 @@ mod tests {
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendExtension
 metadata:
-  name: inspecttask
+  name: fe-inspecttask
 spec:
   package:
+    name: inspecttask
     version: 0.1.0
-    displayName: Inspect Task
-    description: InspectTask extension package
+    displayName:
+      zh: 巡检任务
+      en: Inspect Task
+    description:
+      zh: InspectTask extension package
+      en: InspectTask extension package
+    category: dev-tools
+    keywords:
+      - Frontend
+    sources:
+      - https://github.com/kubesphere-extensions/frontend-forge
+    kubeVersion: ">=1.23.0-0"
+    ksVersion: ">=4.2.1-0"
+    maintainers:
+      - name: KubeSphere
+        email: kubesphere@yunify.com
+    home: https://kubesphere.com.cn/
+    provider:
+      zh:
+        name: 北京青云科技股份有限公司
+        email: kubesphere@yunify.com
+        url: https://kubesphere.com.cn/
+      en:
+        name: QingCloud Technologies
+        email: kubesphere@yunify.com
+        url: https://kubesphere.co/
+    icon: ./static/frontend-forge.ico
+    dependencies:
+      - name: frontend
+        tags:
+          - extension
+      - name: frontend-forge
+        tags:
+          - extension
+    installationMode: HostOnly
+    images:
+      - kubesphere/frontend-forge-console:v1.0.0
+      - kubesphere/frontend-forge-controller:v1.0.0
+      - kubesphere/frontend-forge-runner:v1.0.0
     charts:
       values:
         replicaCount: 1
@@ -405,6 +496,19 @@ spec:
                 .iter()
                 .any(|file| file.path == "resources/roletemplates/inspecttask-view.yaml")
         );
+
+        let extension_yaml = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "extension.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&extension_yaml.content).unwrap();
+
+        assert!(content.contains("apiVersion: kubesphere.io/v1alpha1"));
+        assert!(content.contains("name: inspecttask"));
+        assert!(content.contains("displayName:"));
+        assert!(content.contains("installationMode: HostOnly"));
+        assert!(content.contains("kubesphere/frontend-forge-controller:v1.0.0"));
     }
 
     #[test]
