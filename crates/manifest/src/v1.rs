@@ -1,28 +1,23 @@
 use frontend_forge_api::{
-    ColumnRenderType, ColumnSpec, CrdScope, CrdTablePageSpec, FrontendIntegration,
-    FrontendIntegrationSpec, MenuNodeType, MenuPlacement, PageSpec, PageType,
+    ColumnRenderType, ColumnSpec, CrdScope, CrdTablePageSpec, MenuNodeType, MenuPlacement,
+    PageSpec, PageType,
 };
-use kube::ResourceExt;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
-use crate::ManifestRenderError;
+use crate::{FrontendRenderInput, ManifestRenderError};
 
 const DEFAULT_MENU_ICON: &str = "GridDuotone";
 
-pub(super) fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, ManifestRenderError> {
-    let fi_name = fi.name_any();
-    let display_name = fi
-        .spec
+pub(super) fn render_v1_manifest(
+    input: &FrontendRenderInput,
+) -> Result<Value, ManifestRenderError> {
+    let fi_name = input.name.clone();
+    let display_name = input
         .display_name
         .clone()
         .unwrap_or_else(|| fi_name.clone());
-    let description = fi
-        .metadata
-        .annotations
-        .as_ref()
-        .and_then(|a| a.get("kubesphere.io/description").cloned());
-    let resolved_menus = resolve_spec(&fi.spec, &fi_name)?;
+    let resolved_menus = resolve_spec(input, &fi_name, &input.route_namespace)?;
 
     let mut routes = Vec::new();
     let mut menus = Vec::new();
@@ -32,14 +27,14 @@ pub(super) fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, Mani
         match menu {
             ResolvedTopMenu::Page(page) => {
                 menus.push(render_leaf_menu(&page));
-                routes.push(render_route(&fi_name, &page));
+                routes.push(render_route(&input.route_namespace, &fi_name, &page));
                 pages.push(render_page(&fi_name, &page)?);
             }
             ResolvedTopMenu::Organization { menu, children } => {
                 menus.push(render_organization_menu(&menu));
                 for child in children {
                     menus.push(render_leaf_menu(&child));
-                    routes.push(render_route(&fi_name, &child));
+                    routes.push(render_route(&input.route_namespace, &fi_name, &child));
                     pages.push(render_page(&fi_name, &child)?);
                 }
             }
@@ -50,18 +45,18 @@ pub(super) fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, Mani
     manifest.insert("version".to_string(), json!("1.0"));
     manifest.insert("name".to_string(), json!(fi_name));
     manifest.insert("displayName".to_string(), json!(display_name));
-    if let Some(description) = description {
+    if let Some(description) = input.description.as_ref() {
         manifest.insert("description".to_string(), json!(description));
     }
     manifest.insert("routes".to_string(), Value::Array(routes));
     manifest.insert("menus".to_string(), Value::Array(menus));
-    manifest.insert("locales".to_string(), render_locales(&fi.spec));
+    manifest.insert("locales".to_string(), render_locales(input));
     manifest.insert("pages".to_string(), Value::Array(pages));
     manifest.insert(
         "build".to_string(),
         json!({
             "target": "kubesphere-extension",
-            "moduleName": fi.name_any(),
+            "moduleName": input.name,
             "systemjs": true,
         }),
     );
@@ -98,8 +93,9 @@ struct ResolvedPageBinding {
 }
 
 fn resolve_spec(
-    spec: &FrontendIntegrationSpec,
+    spec: &FrontendRenderInput,
     fi_name: &str,
+    route_namespace: &str,
 ) -> Result<Vec<ResolvedTopMenu>, ManifestRenderError> {
     let pages_by_key = resolve_pages(spec, fi_name)?;
     let mut top_level_keys = HashSet::new();
@@ -118,7 +114,7 @@ fn resolve_spec(
 
         match menu.type_ {
             MenuNodeType::Page => {
-                let top_menu_name = menu_name_for_suffix(fi_name, &menu.key);
+                let top_menu_name = menu_name_for_suffix(route_namespace, fi_name, &menu.key);
                 if !menu.children.is_empty() {
                     return Err(ManifestRenderError::InvalidMenuShape {
                         fi_name: fi_name.to_string(),
@@ -146,7 +142,7 @@ fn resolve_spec(
                 }));
             }
             MenuNodeType::Organization => {
-                let top_menu_name = menu_name_for_suffix(fi_name, &menu.key);
+                let top_menu_name = menu_name_for_suffix(route_namespace, fi_name, &menu.key);
                 if menu.children.is_empty() {
                     return Err(ManifestRenderError::InvalidMenuShape {
                         fi_name: fi_name.to_string(),
@@ -179,7 +175,7 @@ fn resolve_spec(
                         icon: child.icon.clone(),
                         placement: menu.placement,
                         route_suffix: route_suffix.clone(),
-                        menu_name: menu_name_for_suffix(fi_name, &route_suffix),
+                        menu_name: menu_name_for_suffix(route_namespace, fi_name, &route_suffix),
                         parent: nested_menu_parent(menu.placement, &top_menu_name),
                         page,
                     });
@@ -211,7 +207,7 @@ fn resolve_spec(
 }
 
 fn resolve_pages(
-    spec: &FrontendIntegrationSpec,
+    spec: &FrontendRenderInput,
     fi_name: &str,
 ) -> Result<HashMap<String, PageSpec>, ManifestRenderError> {
     let mut pages = HashMap::new();
@@ -332,8 +328,8 @@ fn route_suffix_for_child(parent_key: &str, child_key: &str) -> String {
     format!("{parent_key}/{child_key}")
 }
 
-fn menu_name_for_suffix(fi_name: &str, suffix: &str) -> String {
-    format!("frontendintegrations/{fi_name}/{suffix}")
+fn menu_name_for_suffix(route_namespace: &str, fi_name: &str, suffix: &str) -> String {
+    format!("{route_namespace}/{fi_name}/{suffix}")
 }
 
 fn nested_menu_parent(placement: MenuPlacement, menu_name: &str) -> String {
@@ -349,13 +345,13 @@ fn page_id_for_suffix(fi_name: &str, placement: MenuPlacement, suffix: &str) -> 
     )
 }
 
-fn render_route(fi_name: &str, page: &ResolvedPageBinding) -> Value {
+fn render_route(route_namespace: &str, fi_name: &str, page: &ResolvedPageBinding) -> Value {
     let page_id = page_id_for_suffix(fi_name, page.placement, &page.route_suffix);
     json!({
         "path": format!(
             "{}{}",
             page.placement.route_prefix(),
-            route_tail(fi_name, &page.route_suffix)
+            route_tail(route_namespace, fi_name, &page.route_suffix)
         ),
         "pageId": page_id,
     })
@@ -385,8 +381,8 @@ fn menu_icon(icon: Option<&String>) -> &str {
     icon.map(String::as_str).unwrap_or(DEFAULT_MENU_ICON)
 }
 
-fn route_tail(fi_name: &str, suffix: &str) -> String {
-    format!("/frontendintegrations/{fi_name}/{suffix}")
+fn route_tail(route_namespace: &str, fi_name: &str, suffix: &str) -> String {
+    format!("/{route_namespace}/{fi_name}/{suffix}")
 }
 
 fn render_page(fi_name: &str, page: &ResolvedPageBinding) -> Result<Value, ManifestRenderError> {
@@ -626,7 +622,7 @@ fn render_type_str(t: &ColumnRenderType) -> &'static str {
     }
 }
 
-fn render_locales(spec: &FrontendIntegrationSpec) -> Value {
+fn render_locales(spec: &FrontendRenderInput) -> Value {
     let locales = spec
         .locales
         .iter()
@@ -643,6 +639,12 @@ fn render_locales(spec: &FrontendIntegrationSpec) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frontend_forge_api::FrontendIntegration;
+
+    fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, ManifestRenderError> {
+        let input = FrontendRenderInput::from_frontend_integration(fi);
+        super::render_v1_manifest(&input)
+    }
 
     #[test]
     fn renders_workspace_crd_pages_with_workspace_page_state() {

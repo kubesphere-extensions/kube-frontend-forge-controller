@@ -1,8 +1,10 @@
-use frontend_forge_api::frontend_integration_crd;
+use frontend_forge_api::{frontend_extension_crd, frontend_integration_crd};
 use std::{env, error::Error, fs, path::PathBuf, process};
 
 const FRONTEND_INTEGRATION_CRD_PATH: &str =
     "config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml";
+const FRONTEND_EXTENSION_CRD_PATH: &str =
+    "config/crd/bases/frontend-forge.kubesphere.io_frontendextensions.yaml";
 
 fn main() {
     if let Err(err) = run() {
@@ -22,12 +24,22 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn gen_crd() -> Result<(), Box<dyn Error>> {
-    let crd = frontend_integration_crd();
-    let rendered = serde_yaml::to_string(&crd)?;
+    write_crd(
+        FRONTEND_INTEGRATION_CRD_PATH,
+        serde_yaml::to_string(&frontend_integration_crd())?,
+    )?;
+    write_crd(
+        FRONTEND_EXTENSION_CRD_PATH,
+        serde_yaml::to_string(&frontend_extension_crd())?,
+    )?;
+    Ok(())
+}
+
+fn write_crd(relative_path: &str, rendered: String) -> Result<(), Box<dyn Error>> {
     let output_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask workspace root")
-        .join(FRONTEND_INTEGRATION_CRD_PATH);
+        .join(relative_path);
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;

@@ -265,6 +265,313 @@ pub struct FrontendIntegrationStatus {
 
 #[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[kube(
+    group = "frontend-forge.kubesphere.io",
+    version = "v1alpha1",
+    kind = "FrontendExtension",
+    plural = "frontendextensions",
+    status = "FrontendExtensionStatus",
+    shortname = "fe"
+)]
+pub struct FrontendExtensionSpec {
+    pub package: FrontendExtensionPackageSpec,
+    pub source: FrontendExtensionSourceSpec,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "publishPolicy"
+    )]
+    pub publish_policy: Option<PublishPolicySpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct FrontendExtensionPackageSpec {
+    pub version: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charts: Option<ExtensionChartsSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ExtensionChartsSpec {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct FrontendExtensionSourceSpec {
+    #[serde(rename = "type")]
+    pub type_: FrontendExtensionSourceType,
+    pub inline: InlineFrontendExtensionSourceSpec,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum FrontendExtensionSourceType {
+    Inline,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct InlineFrontendExtensionSourceSpec {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: String,
+    pub frontend: FrontendExtensionFrontendSpec,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "extensionResources"
+    )]
+    pub extension_resources: Option<ExtensionResourcesSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct FrontendExtensionFrontendSpec {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "displayName"
+    )]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub locales: BTreeMap<String, BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menus: Vec<PrimaryMenuSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<PageSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct ExtensionResourcesSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "jsBundle")]
+    pub js_bundle: Option<ExtensionJsBundleSpec>,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "roleTemplates"
+    )]
+    pub role_templates: Vec<RoleTemplateSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ExtensionJsBundleSpec {
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct RoleTemplateSpec {
+    pub name: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<RoleTemplateRuleSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct RoleTemplateRuleSpec {
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "apiGroups")]
+    pub api_groups: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verbs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct PublishPolicySpec {
+    pub mode: PublishPolicyMode,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "defaultTargetRef"
+    )]
+    pub default_target_ref: Option<NamespacedResourceRef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum PublishPolicyMode {
+    Manual,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+pub struct NamespacedResourceRef {
+    pub namespace: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum FrontendExtensionPhase {
+    #[default]
+    Pending,
+    Packaging,
+    Ready,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum PackageJobPhase {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum PublishPhase {
+    #[default]
+    NotRequested,
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct FrontendExtensionStatus {
+    #[serde(default)]
+    pub phase: FrontendExtensionPhase,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "observedGeneration"
+    )]
+    pub observed_generation: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "observedSourceHash"
+    )]
+    pub observed_source_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<ExtensionArtifactStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<ExtensionDownloadStatus>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "packageJob"
+    )]
+    pub package_job: Option<PackageJobStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish: Option<PublishStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<ExtensionCondition>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ExtensionArtifactStatus {
+    pub storage: ArtifactStorageStatus,
+    pub digest: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: i64,
+    #[serde(rename = "mediaType")]
+    pub media_type: String,
+    pub filename: String,
+    #[serde(rename = "generatedAt")]
+    pub generated_at: DateTime<Utc>,
+    #[serde(rename = "sourceHash")]
+    pub source_hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ArtifactStorageStatus {
+    pub kind: ArtifactStorageKind,
+    #[serde(rename = "ref")]
+    pub ref_: NamespacedResourceRef,
+    pub key: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum ArtifactStorageKind {
+    ConfigMap,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ExtensionDownloadStatus {
+    pub ready: bool,
+    pub filename: String,
+    #[serde(rename = "mediaType")]
+    pub media_type: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PackageJobStatus {
+    pub namespace: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+    pub phase: PackageJobPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "startedAt")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "finishedAt"
+    )]
+    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+pub struct PublishStatus {
+    #[serde(default)]
+    pub phase: PublishPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "requestId")]
+    pub request_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "artifactDigest"
+    )]
+    pub artifact_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "jobRef")]
+    pub job_ref: Option<NamespacedResourceRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "startedAt")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "finishedAt"
+    )]
+    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastError")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ExtensionCondition {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "observedGeneration"
+    )]
+    pub observed_generation: Option<i64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lastTransitionTime"
+    )]
+    pub last_transition_time: Option<DateTime<Utc>>,
+}
+
+#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[kube(
     group = "extensions.kubesphere.io",
     version = "v1alpha1",
     kind = "JSBundle",
@@ -336,6 +643,19 @@ impl FrontendIntegrationSpec {
 pub fn frontend_integration_crd()
 -> k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition {
     let mut crd = FrontendIntegration::crd();
+    crd.metadata
+        .labels
+        .get_or_insert_with(BTreeMap::new)
+        .insert(
+            RESOURCE_SERVED_LABEL_KEY.to_string(),
+            RESOURCE_SERVED_LABEL_VALUE.to_string(),
+        );
+    crd
+}
+
+pub fn frontend_extension_crd()
+-> k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition {
+    let mut crd = FrontendExtension::crd();
     crd.metadata
         .labels
         .get_or_insert_with(BTreeMap::new)
@@ -650,6 +970,17 @@ spec:
     }
 
     #[test]
+    fn generated_crd_requires_crd_table_columns() {
+        let crd = frontend_integration_crd();
+        let schema = serde_json::to_value(&crd).unwrap();
+        let crd_table = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+            ["properties"]["pages"]["items"]["properties"]["crdTable"];
+        let required = crd_table["required"].as_array().unwrap();
+
+        assert!(required.contains(&Value::String("columns".to_string())));
+    }
+
+    #[test]
     fn generated_crd_allows_optional_menu_icons() {
         let crd = frontend_integration_crd();
         let schema = serde_json::to_value(&crd).unwrap();
@@ -681,8 +1012,125 @@ spec:
     }
 
     #[test]
+    fn deserializes_frontend_extension_inline_source() {
+        let fe: FrontendExtension = serde_yaml::from_str(
+            r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: inspecttask
+spec:
+  package:
+    version: 0.1.0
+    displayName: Inspect Task
+    description: InspectTask extension package
+    charts:
+      values: {}
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        locales:
+          zh:
+            title: 巡检任务
+          en:
+            title: Inspect Tasks
+        menus:
+          - displayName: Inspect Tasks
+            key: inspecttasks
+            placement: cluster
+            type: page
+        pages:
+          - key: inspecttasks
+            type: crdTable
+            crdTable:
+              group: kubeeye.kubesphere.io
+              version: v1alpha2
+              scope: Cluster
+              names:
+                kind: InspectTask
+                plural: inspecttasks
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+      extensionResources:
+        jsBundle:
+          name: inspecttask
+        roleTemplates:
+          - name: inspecttask-view
+            displayName: InspectTask Viewer
+            rules:
+              - apiGroups: ["kubeeye.kubesphere.io"]
+                resources: ["inspecttasks"]
+                verbs: ["get", "list", "watch"]
+  publishPolicy:
+    mode: Manual
+    defaultTargetRef:
+      namespace: extension-frontend-forge
+      name: ksbuilder-publish-config
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(fe.spec.package.version, "0.1.0");
+        assert_eq!(fe.spec.source.type_, FrontendExtensionSourceType::Inline);
+        let inline = fe.spec.source.inline;
+        assert_eq!(inline.schema_version, "v1");
+        assert_eq!(inline.frontend.menus[0].key, "inspecttasks");
+        let resources = inline.extension_resources.unwrap();
+        assert_eq!(resources.js_bundle.unwrap().name, "inspecttask");
+        assert_eq!(
+            resources.role_templates[0].rules[0].verbs,
+            vec!["get", "list", "watch"]
+        );
+    }
+
+    #[test]
+    fn generated_frontend_extension_crd_uses_publish_shape() {
+        let crd = frontend_extension_crd();
+        let schema = serde_json::to_value(&crd).unwrap();
+        let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"];
+        let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["status"]["properties"];
+
+        assert!(spec_properties.get("package").is_some());
+        assert!(spec_properties.get("source").is_some());
+        assert!(spec_properties.get("publishPolicy").is_some());
+        assert!(status_properties.get("observedGeneration").is_some());
+        assert!(status_properties.get("observedSourceHash").is_some());
+        assert!(status_properties.get("packageJob").is_some());
+    }
+
+    #[test]
+    fn generated_frontend_extension_crd_requires_inline_source() {
+        let crd = frontend_extension_crd();
+        let schema = serde_json::to_value(&crd).unwrap();
+        let source = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
+            ["properties"]["source"];
+        let required = source["required"].as_array().unwrap();
+
+        assert!(required.contains(&Value::String("type".to_string())));
+        assert!(required.contains(&Value::String("inline".to_string())));
+    }
+
+    #[test]
     fn generated_crd_sets_resource_served_label() {
         let crd = frontend_integration_crd();
+
+        assert_eq!(
+            crd.metadata
+                .labels
+                .as_ref()
+                .and_then(|labels| labels.get(RESOURCE_SERVED_LABEL_KEY)),
+            Some(&RESOURCE_SERVED_LABEL_VALUE.to_string())
+        );
+
+        let crd = frontend_extension_crd();
 
         assert_eq!(
             crd.metadata
