@@ -166,10 +166,11 @@ fn package_files(fe: &FrontendExtension) -> Result<Vec<PackageFile>, ExtensionPa
         .as_ref()
         .map(|charts| charts.values.clone())
         .unwrap_or_default();
+    let charts_values_path = format!("charts/{}/values.yaml", package_name(fe));
 
     let mut files = vec![
         yaml_file("extension.yaml", &package_metadata)?,
-        yaml_file("charts/values.yaml", &charts_values)?,
+        yaml_file(&charts_values_path, &charts_values)?,
         PackageFile {
             path: "frontend/manifest.json".to_string(),
             content: manifest_content.into_bytes(),
@@ -483,6 +484,18 @@ spec:
                 .files
                 .iter()
                 .any(|file| file.path == "frontend/manifest.json")
+        );
+        assert!(
+            artifact
+                .files
+                .iter()
+                .any(|file| file.path == "charts/inspecttask/values.yaml")
+        );
+        assert!(
+            !artifact
+                .files
+                .iter()
+                .any(|file| file.path == "charts/values.yaml")
         );
         assert!(
             artifact
