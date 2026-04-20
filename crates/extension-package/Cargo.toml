@@ -1,0 +1,18 @@
+[package]
+name = "frontend-forge-extension-package"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+frontend-forge-api = { path = "../api" }
+frontend-forge-common = { path = "../common" }
+frontend-forge-manifest = { path = "../manifest" }
+flate2.workspace = true
+kube.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+snafu.workspace = true
+tar.workspace = true
