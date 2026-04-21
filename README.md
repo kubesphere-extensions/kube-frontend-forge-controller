@@ -110,12 +110,12 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
 
 - 提供 controller 与 runner 的 Dockerfile
 - 提供基础部署 YAML：
-  - [`config/manager/controller-deployment.yaml`](config/manager/controller-deployment.yaml)
-  - [`config/rbac/controller-rbac.yaml`](config/rbac/controller-rbac.yaml)
-  - [`config/rbac/runner-rbac.yaml`](config/rbac/runner-rbac.yaml)
+  - [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)
+  - [`config/rbac/frontend-forge-controller-rbac.yaml`](config/rbac/frontend-forge-controller-rbac.yaml)
+  - [`config/rbac/frontend-forge-runner-rbac.yaml`](config/rbac/frontend-forge-runner-rbac.yaml)
 - 提供可选 webhook 配置 YAML：
-  - [`config/webhook/controller-webhook.yaml`](config/webhook/controller-webhook.yaml)
-  - [`config/rbac/webhook-certgen-rbac.yaml`](config/rbac/webhook-certgen-rbac.yaml)
+  - [`config/webhook/frontend-forge-controller-webhook.yaml`](config/webhook/frontend-forge-controller-webhook.yaml)
+  - [`config/rbac/frontend-forge-webhook-certgen-rbac.yaml`](config/rbac/frontend-forge-webhook-certgen-rbac.yaml)
 - 提供示例 `FrontendIntegration` 清单：
   - [`config/samples/frontend-forge_v1alpha1_frontendintegration.yaml`](config/samples/frontend-forge_v1alpha1_frontendintegration.yaml)
   - [`config/samples/fi-inspecttask.yaml`](config/samples/fi-inspecttask.yaml)
@@ -140,12 +140,12 @@ webhook 通过现有 controller Deployment 提供，默认配置如下：
 启用顺序：
 
 1. 应用基础清单：
-   - [`config/manager/controller-deployment.yaml`](config/manager/controller-deployment.yaml)
-   - [`config/rbac/controller-rbac.yaml`](config/rbac/controller-rbac.yaml)
-   - [`config/rbac/runner-rbac.yaml`](config/rbac/runner-rbac.yaml)
+   - [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)
+   - [`config/rbac/frontend-forge-controller-rbac.yaml`](config/rbac/frontend-forge-controller-rbac.yaml)
+   - [`config/rbac/frontend-forge-runner-rbac.yaml`](config/rbac/frontend-forge-runner-rbac.yaml)
 2. 应用 certgen 与 webhook 清单：
-   - [`config/rbac/webhook-certgen-rbac.yaml`](config/rbac/webhook-certgen-rbac.yaml)
-   - [`config/webhook/controller-webhook.yaml`](config/webhook/controller-webhook.yaml)
+   - [`config/rbac/frontend-forge-webhook-certgen-rbac.yaml`](config/rbac/frontend-forge-webhook-certgen-rbac.yaml)
+   - [`config/webhook/frontend-forge-controller-webhook.yaml`](config/webhook/frontend-forge-controller-webhook.yaml)
 3. 等待 `frontend-forge-controller-webhook-tls` Secret 和 `ValidatingWebhookConfiguration` 就绪
 4. 把 controller Deployment 中的 `WEBHOOK_ENABLED` 改为 `true`
 
@@ -227,7 +227,7 @@ Git hooks：
 
 当前运行时默认依赖一个可访问的 build-service，controller 会把其地址通过 `BUILD_SERVICE_BASE_URL` 传递给 runner。
 
-默认值见 [`config/manager/controller-deployment.yaml`](config/manager/controller-deployment.yaml)：
+默认值见 [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)：
 
 ```yaml
 env:

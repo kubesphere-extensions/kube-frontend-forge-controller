@@ -40,16 +40,16 @@
 
 | Group / Version | Kind | 主要来源 | 用途 |
 | --- | --- | --- | --- |
-| `v1` | `Namespace` | `config/manager/controller-deployment.yaml` | 安装命名空间 `extension-frontend-forge`。 |
-| `apps/v1` | `Deployment` | `config/manager/controller-deployment.yaml` | 部署 controller 进程，并可选承载 webhook。 |
-| `v1` | `Service` | `config/webhook/controller-webhook.yaml` | 为 webhook 暴露集群内访问入口。 |
-| `v1` | `ServiceAccount` | `config/rbac/controller-rbac.yaml`、`config/rbac/runner-rbac.yaml`、`config/rbac/webhook-certgen-rbac.yaml` | 分别供 controller、runner、certgen Job 使用。 |
-| `rbac.authorization.k8s.io/v1` | `ClusterRole` | `config/rbac/controller-rbac.yaml`、`config/rbac/runner-rbac.yaml`、`config/rbac/webhook-certgen-rbac.yaml` | 赋予 cluster-scoped 资源访问权限。 |
+| `v1` | `Namespace` | `config/manager/frontend-forge-controller-deployment.yaml` | 安装命名空间 `extension-frontend-forge`。 |
+| `apps/v1` | `Deployment` | `config/manager/frontend-forge-controller-deployment.yaml` | 部署 controller 进程，并可选承载 webhook。 |
+| `v1` | `Service` | `config/webhook/frontend-forge-controller-webhook.yaml` | 为 webhook 暴露集群内访问入口。 |
+| `v1` | `ServiceAccount` | `config/rbac/frontend-forge-controller-rbac.yaml`、`config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 分别供 controller、runner、certgen Job 使用。 |
+| `rbac.authorization.k8s.io/v1` | `ClusterRole` | `config/rbac/frontend-forge-controller-rbac.yaml`、`config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 赋予 cluster-scoped 资源访问权限。 |
 | `rbac.authorization.k8s.io/v1` | `ClusterRoleBinding` | 同上 | 绑定 cluster-scoped 权限到对应 ServiceAccount。 |
-| `rbac.authorization.k8s.io/v1` | `Role` | `config/rbac/runner-rbac.yaml`、`config/rbac/webhook-certgen-rbac.yaml` | 赋予 namespaced 资源权限，如 `ConfigMap`、`Secret`。 |
+| `rbac.authorization.k8s.io/v1` | `Role` | `config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 赋予 namespaced 资源权限，如 `ConfigMap`、`Secret`。 |
 | `rbac.authorization.k8s.io/v1` | `RoleBinding` | 同上 | 绑定 namespaced 权限到对应 ServiceAccount。 |
-| `batch/v1` | `Job` | `config/rbac/webhook-certgen-rbac.yaml` | 两个一次性 certgen Job，分别负责创建 TLS Secret 和回填 `caBundle`。 |
-| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | `config/webhook/controller-webhook.yaml` | 注册 webhook 到 apiserver。 |
+| `batch/v1` | `Job` | `config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 两个一次性 certgen Job，分别负责创建 TLS Secret 和回填 `caBundle`。 |
+| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | `config/webhook/frontend-forge-controller-webhook.yaml` | 注册 webhook 到 apiserver。 |
 | `apiextensions.k8s.io/v1` | `CustomResourceDefinition` | `config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml` | 安装 `FrontendIntegration` CRD。 |
 
 ## 3. 只在权限或 schema 中出现的资源点
@@ -58,8 +58,8 @@
 
 | Group / Version | Kind | 出现位置 | 当前状态 |
 | --- | --- | --- | --- |
-| `core/v1` | `Event` | `config/rbac/controller-rbac.yaml` | controller ClusterRole 预留了 `create/patch/update` 权限，但当前代码里没有发现事件记录实现。 |
-| `core/v1` | `Secret` | `crates/api/src/lib.rs` 中 `JSBundle.spec.rawFrom.secretKeyRef` | `JSBundle` schema 允许 Secret 作为内容来源，但当前 runner 实际只写 `configMapKeyRef`。 |
+| `core/v1` | `Event` | `config/rbac/frontend-forge-controller-rbac.yaml` | controller ClusterRole 预留了 `create/patch/update` 权限，但当前代码里没有发现事件记录实现。 |
+| `core/v1` | `Secret` | `crates/api/src/fi.rs` 中 `JSBundle.spec.rawFrom.secretKeyRef` | `JSBundle` schema 允许 Secret 作为内容来源，但当前 runner 实际只写 `configMapKeyRef`。 |
 
 ## 4. 当前资源面结论
 

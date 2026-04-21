@@ -15,7 +15,7 @@ spec:
     spec:
       serviceAccountName: frontend-forge-extension-api
       containers:
-        - name: extension-api
+        - name: frontend-forge-extension-api
           image: ghcr.io/example/frontend-forge-extension-api:latest
           imagePullPolicy: IfNotPresent
           ports:

@@ -8,16 +8,16 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/instance: frontend-forge
-      app.kubernetes.io/name: frontend-forge
+      app.kubernetes.io/name: frontend-forge-controller
   template:
     metadata:
       labels:
         app.kubernetes.io/instance: frontend-forge
-        app.kubernetes.io/name: frontend-forge
+        app.kubernetes.io/name: frontend-forge-controller
     spec:
-      serviceAccountName: frontend-forge
+      serviceAccountName: frontend-forge-controller
       containers:
-        - name: frontend-forge
+        - name: frontend-forge-controller
           image: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
           imagePullPolicy: IfNotPresent
           ports:

@@ -20,7 +20,7 @@ spec:
     spec:
       serviceAccountName: frontend-forge-controller
       containers:
-        - name: controller
+        - name: frontend-forge-controller
           image: ghcr.io/example/frontend-forge-controller:latest
           imagePullPolicy: IfNotPresent
           ports:

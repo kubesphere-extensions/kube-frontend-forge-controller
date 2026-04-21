@@ -9,8 +9,8 @@ E2E_MANIFEST_DIR="${E2E_MANIFEST_DIR:-$ROOT_DIR/config/e2e}"
 FRONTEND_FORGE_NAMESPACE="${FRONTEND_FORGE_NAMESPACE:-extension-frontend-forge}"
 SAMPLE_FILE="${SAMPLE_FILE:-$ROOT_DIR/config/samples/fi-lifecycle-smoke.yaml}"
 FRONTEND_INTEGRATION_CRD="${FRONTEND_INTEGRATION_CRD:-$ROOT_DIR/config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml}"
-CONTROLLER_RBAC_FILE="${CONTROLLER_RBAC_FILE:-$ROOT_DIR/config/rbac/controller-rbac.yaml}"
-RUNNER_RBAC_FILE="${RUNNER_RBAC_FILE:-$ROOT_DIR/config/rbac/runner-rbac.yaml}"
+CONTROLLER_RBAC_FILE="${CONTROLLER_RBAC_FILE:-$ROOT_DIR/config/rbac/frontend-forge-controller-rbac.yaml}"
+RUNNER_RBAC_FILE="${RUNNER_RBAC_FILE:-$ROOT_DIR/config/rbac/frontend-forge-runner-rbac.yaml}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-frontend-forge-e2e}"
 
 READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-600}"
@@ -59,8 +59,8 @@ assert_local_prereqs() {
   [[ -f "$RUNNER_RBAC_FILE" ]] || die "runner RBAC not found: $RUNNER_RBAC_FILE"
   [[ -f "$E2E_MANIFEST_DIR/namespace.yaml" ]] || die "missing e2e manifest: namespace.yaml"
   [[ -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" ]] || die "missing e2e manifest: jsbundle-crd.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/controller-serviceaccount.yaml" ]] || die "missing e2e manifest: controller-serviceaccount.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/controller-deployment-ci.yaml" ]] || die "missing e2e manifest: controller-deployment-ci.yaml"
+  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-controller-serviceaccount.yaml" ]] || die "missing e2e manifest: frontend-forge-controller-serviceaccount.yaml"
+  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-controller-deployment-ci.yaml" ]] || die "missing e2e manifest: frontend-forge-controller-deployment-ci.yaml"
   [[ -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" ]] || die "missing e2e manifest: frontend-forge-build-service.yaml"
 }
 
@@ -101,9 +101,9 @@ apply_manifests() {
   kubectl apply -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" | tee "$ARTIFACT_DIR/apply-jsbundle-crd.log"
   kubectl apply -f "$CONTROLLER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-controller-rbac.log"
   kubectl apply -f "$RUNNER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-runner-rbac.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/controller-serviceaccount.yaml" | tee "$ARTIFACT_DIR/apply-controller-serviceaccount.log"
+  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-controller-serviceaccount.yaml" | tee "$ARTIFACT_DIR/apply-controller-serviceaccount.log"
   kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" | tee "$ARTIFACT_DIR/apply-build-service.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/controller-deployment-ci.yaml" | tee "$ARTIFACT_DIR/apply-controller.log"
+  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-controller-deployment-ci.yaml" | tee "$ARTIFACT_DIR/apply-controller.log"
 }
 
 wait_for_frontend_forge_readiness() {

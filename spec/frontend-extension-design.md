@@ -564,7 +564,7 @@ publish Job 不应安装 extension，也不应在当前集群创建 install-time
 完整流程：
 
 1. 用户通过 kubectl、GitOps 或 HTTP API 创建 `FrontendExtension`。
-2. extension-controller watch 到对象，计算归一化 source hash。
+2. `frontend-extension-controller` watch 到对象，计算归一化 source hash。
 3. controller 校验 source schema 和基本语义。
 4. 校验失败时，更新 `status.phase=Failed`，设置 `SourceValid=False`。
 5. 校验成功且 artifact 不存在或已过期时，创建 package Job。
@@ -578,7 +578,7 @@ publish Job 不应安装 extension，也不应在当前集群创建 install-time
 13. 前端通过 HTTP API 查询列表和详情。
 14. 前端通过 HTTP download API 下载 package。
 15. 用户可选触发 publish API。
-16. extension-controller 创建 publish Job。
+16. `frontend-extension-controller` 创建 publish Job。
 17. publish Job 调用 `ksbuilder publish`。
 18. controller 根据 publish Job 结果更新 `status.publish` 和 `PublishSucceeded` condition。
 
@@ -623,13 +623,13 @@ config/
   crd/bases/
     frontend-forge.kubesphere.io_frontendextensions.yaml
   rbac/
-    extension-controller-rbac.yaml
-    extension-packager-rbac.yaml
-    extension-publisher-rbac.yaml
-    extension-api-rbac.yaml
+    frontend-extension-controller-rbac.yaml
+    frontend-forge-extension-packager-rbac.yaml
+    frontend-forge-extension-publisher-rbac.yaml
+    frontend-forge-extension-api-rbac.yaml
   manager/
-    extension-controller-deployment.yaml
-    extension-api-deployment.yaml
+    frontend-extension-controller-deployment.yaml
+    frontend-forge-extension-api-deployment.yaml
 ```
 
 binary 建议：
@@ -637,9 +637,9 @@ binary 建议：
 - `frontend-forge-controller`：只保留现有 `FrontendIntegration` runtime reconciler 和可选 FI admission webhook。
 - `frontend-forge-runner`：只保留现有 runtime build runner。
 - `frontend-extension-controller`：新增，watch `FrontendExtension`、Job、artifact ConfigMap。
-- `frontend-extension-packager`：新增，作为 package Job 执行。
-- `frontend-extension-publisher`：新增，作为独立 publish Job 执行，是唯一允许调用 `ksbuilder publish` 的 binary/container。
-- `frontend-extension-api`：新增，对前端提供 HTTP API。
+- `frontend-forge-extension-packager`：新增，作为 package Job 执行。
+- `frontend-forge-extension-publisher`：新增，作为独立 publish Job 执行，是唯一允许调用 `ksbuilder publish` 的 binary/container。
+- `frontend-forge-extension-api`：新增，对前端提供 HTTP API。
 
 packager 和 publisher 可以暂时使用同一个镜像承载多个 binary，但推荐尽快拆成不同 image 或至少不同 image tag。无论镜像如何组织，`ksbuilder` 都不应进入 controller/API 镜像的运行依赖；运行时 Deployment 和 Job command 必须清晰区分。
 
@@ -792,9 +792,9 @@ FrontendExtension -> ExtensionPackage -> ConfigMap/ObjectStorage/OCI
 1. 在 `crates/api` 新增 `FrontendExtension` 类型和 CRD 生成。
 2. 在 `crates/manifest` 抽象 `FrontendRenderInput`，让 FI 和 FE 都通过 adapter 复用渲染核心。
 3. 新增 `crates/extension-package-core`，定义 package 文件模型和资源声明渲染。
-4. 新增 `extension-packager` binary，先支持 `Inline` source 和 ConfigMap artifact。
-5. 新增 `extension-controller` binary，完成 `Pending -> Packaging -> Ready/Failed` 状态机。
-6. 新增 `extension-api` binary，提供列表、详情、下载 API。
-7. 新增 publish API 和 `extension-publisher` binary，支持手动 `ksbuilder publish`。
+4. 新增 `frontend-forge-extension-packager` binary，先支持 `Inline` source 和 ConfigMap artifact。
+5. 新增 `frontend-extension-controller` binary，完成 `Pending -> Packaging -> Ready/Failed` 状态机。
+6. 新增 `frontend-forge-extension-api` binary，提供列表、详情、下载 API。
+7. 新增 publish API 和 `frontend-forge-extension-publisher` binary，支持手动 `ksbuilder publish`。
 
 每一步都应避免改变现有 `FrontendIntegration` runtime 行为。v2 发布态能力可以作为独立 Deployment 安装，确保回归风险可控。

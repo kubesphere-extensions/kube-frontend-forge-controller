@@ -15,7 +15,7 @@ spec:
     spec:
       serviceAccountName: frontend-extension-controller
       containers:
-        - name: extension-controller
+        - name: frontend-extension-controller
           image: ghcr.io/example/frontend-extension-controller:latest
           imagePullPolicy: IfNotPresent
           env:
