@@ -235,41 +235,55 @@ fn install_rustls_crypto_provider() {
     }
 }
 
-pub async fn run() -> Result<(), Error> {
+fn init_runtime(default_filter: &'static str) {
     install_rustls_crypto_provider();
 
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,frontend_forge_controller=debug".into()),
+                .unwrap_or_else(|_| default_filter.into()),
         )
         .init();
+}
 
+async fn context_from_env() -> Result<Arc<ContextData>, Error> {
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
-    let ctx = Arc::new(ContextData {
+    Ok(Arc::new(ContextData {
         client: client.clone(),
         config: ControllerConfig::from_env(),
-    });
+    }))
+}
+
+pub async fn run() -> Result<(), Error> {
+    run_fi_controller().await
+}
+
+pub async fn run_fi_controller() -> Result<(), Error> {
+    init_runtime("info,frontend_forge_controller=debug");
+
+    let ctx = context_from_env().await?;
     let webhook_config = webhook::WebhookConfig::from_env()?;
 
     if webhook_config.enabled {
         info!(bind_addr = %webhook_config.bind_addr, "admission webhook enabled");
-        tokio::try_join!(
-            run_controller(ctx),
-            webhook::run_webhook_server(webhook_config)
-        )?;
+        tokio::try_join!(fi::run(ctx), webhook::run_webhook_server(webhook_config))?;
     } else {
         info!("admission webhook disabled");
-        run_controller(ctx).await?;
+        fi::run(ctx).await?;
     }
 
-    info!("controller shutdown complete");
+    info!("frontend integration controller shutdown complete");
 
     Ok(())
 }
 
-async fn run_controller(ctx: Arc<ContextData>) -> Result<(), Error> {
-    tokio::try_join!(fi::run(ctx.clone()), fe::run(ctx))?;
+pub async fn run_fe_controller() -> Result<(), Error> {
+    init_runtime("info,frontend_extension_controller=debug,frontend_forge_controller=debug");
+
+    let ctx = context_from_env().await?;
+    fe::run(ctx).await?;
+
+    info!("frontend extension controller shutdown complete");
 
     Ok(())
 }
