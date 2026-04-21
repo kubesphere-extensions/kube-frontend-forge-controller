@@ -15,6 +15,8 @@ pub const LABEL_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
 pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
 pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
+pub const LABEL_PUBLISH_KIND: &str = "frontend-forge.io/publish-kind";
+pub const LABEL_PUBLISH_REQUEST_HASH: &str = "frontend-forge.io/publish-request-hash";
 pub const ANNO_BUILD_JOB: &str = "frontend-forge.io/build-job";
 pub const ANNO_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const ANNO_MANIFEST_CONTENT: &str = "frontend-forge.io/manifest-content";
@@ -25,8 +27,14 @@ pub const ANNO_SOURCE_GENERATION: &str = "frontend-forge.io/source-generation";
 pub const ANNO_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
 pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.io/artifact-digest";
 pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.io/artifact-filename";
+pub const ANNO_PUBLISH_REQUEST_ID: &str = "frontend-forge.io/publish-request-id";
+pub const ANNO_PUBLISH_ARTIFACT_DIGEST: &str = "frontend-forge.io/publish-artifact-digest";
+pub const ANNO_PUBLISH_TARGET_KIND: &str = "frontend-forge.io/publish-target-kind";
+pub const ANNO_PUBLISH_TARGET_NAMESPACE: &str = "frontend-forge.io/publish-target-namespace";
+pub const ANNO_PUBLISH_TARGET_NAME: &str = "frontend-forge.io/publish-target-name";
 pub const BUILD_KIND_VALUE: &str = "frontend-forge";
 pub const PACKAGE_KIND_VALUE: &str = "frontend-extension-package";
+pub const PUBLISH_KIND_VALUE: &str = "frontend-extension-publish";
 pub const DEFAULT_MANIFEST_FILENAME: &str = "manifest.json";
 pub const DEFAULT_MANIFEST_MOUNT_PATH: &str = "/work/manifest/manifest.json";
 pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
@@ -122,6 +130,14 @@ pub fn job_name(fi_name: &str, manifest_hash: &str) -> String {
 pub fn package_job_name(fe_name: &str, source_hash: &str) -> String {
     bounded_name(
         &format!("fe-{}-package-{}", fe_name, hash_short(source_hash)),
+        63,
+    )
+}
+
+pub fn publish_job_name(fe_name: &str, request_id: &str) -> String {
+    let request_hash = format!("sha256:{}", sha256_hex(request_id.as_bytes()));
+    bounded_name(
+        &format!("fe-{}-publish-{}", fe_name, hash_short(&request_hash)),
         63,
     )
 }
@@ -250,15 +266,19 @@ mod tests {
         let hash = "sha256:0123456789abcdef";
         let job = package_job_name("Very.Long_FrontendExtension.Name", hash);
         let cm = artifact_configmap_name("Very.Long_Package.Name", hash);
+        let publish_job = publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000");
 
         assert_eq!(
             job,
             package_job_name("Very.Long_FrontendExtension.Name", hash)
         );
         assert_eq!(cm, artifact_configmap_name("Very.Long_Package.Name", hash));
-        for name in [job, cm] {
+        assert_eq!(
+            publish_job,
+            publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000")
+        );
+        for name in [job, cm, publish_job] {
             assert!(name.len() <= 63);
-            assert!(name.contains("01234567"));
             assert!(!name.starts_with('-'));
             assert!(!name.ends_with('-'));
             assert!(

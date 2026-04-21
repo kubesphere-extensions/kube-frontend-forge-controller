@@ -580,6 +580,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "frontend-forge-extension-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "frontend-forge-api",
+ "frontend-forge-common",
+ "frontend-forge-extension-package",
+ "k8s-openapi",
+ "kube",
+ "rustls",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "snafu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "frontend-forge-extension-package"
 version = "0.1.0"
 dependencies = [
@@ -608,6 +629,21 @@ dependencies = [
  "kube",
  "serde_yaml",
  "snafu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "frontend-forge-extension-publisher"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "frontend-forge-common",
+ "k8s-openapi",
+ "kube",
+ "snafu",
+ "tar",
  "tokio",
  "tracing",
  "tracing-subscriber",

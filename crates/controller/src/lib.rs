@@ -110,6 +110,12 @@ pub enum Error {
         name: String,
         source: kube::Error,
     },
+    #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
+    GetPublishJob {
+        namespace: String,
+        name: String,
+        source: kube::Error,
+    },
     #[snafu(display("invalid WEBHOOK_ENABLED value '{value}': {source}"))]
     InvalidWebhookEnabled {
         value: String,
@@ -142,6 +148,8 @@ pub(crate) struct ControllerConfig {
     pub(crate) runner_service_account: Option<String>,
     pub(crate) packager_image: String,
     pub(crate) packager_service_account: Option<String>,
+    pub(crate) publisher_image: String,
+    pub(crate) publisher_service_account: Option<String>,
     pub(crate) artifact_configmap_namespace: String,
     pub(crate) build_service_base_url: String,
     pub(crate) jsbundle_configmap_namespace: String,
@@ -166,6 +174,10 @@ impl ControllerConfig {
                 "spike2044/frontend-forge-extension-packager:latest".to_string()
             }),
             packager_service_account: env::var("PACKAGER_SERVICE_ACCOUNT").ok(),
+            publisher_image: env::var("PUBLISHER_IMAGE").unwrap_or_else(|_| {
+                "spike2044/frontend-forge-extension-publisher:latest".to_string()
+            }),
+            publisher_service_account: env::var("PUBLISHER_SERVICE_ACCOUNT").ok(),
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
                 .unwrap_or(work_namespace.clone()),
             build_service_base_url: env::var("BUILD_SERVICE_BASE_URL").unwrap_or_else(|_| {

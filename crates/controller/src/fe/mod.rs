@@ -1,19 +1,22 @@
 use super::{
     ContextData, Error, FrontendExtensionSourceHashSnafu, GetArtifactConfigMapSnafu,
-    ListPackageJobsForHashSnafu, ObservedJobPhase, PatchFrontendExtensionStatusSnafu,
-    SerializeFrontendExtensionStatusPatchSnafu, base_owner_ref, create_or_get_job,
-    extract_job_message, observed_job_phase,
+    GetPublishJobSnafu, ListPackageJobsForHashSnafu, ObservedJobPhase,
+    PatchFrontendExtensionStatusSnafu, SerializeFrontendExtensionStatusPatchSnafu, base_owner_ref,
+    create_or_get_job, extract_job_message, observed_job_phase,
 };
 use chrono::Utc;
 use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
     ExtensionDownloadStatus, FrontendExtension, FrontendExtensionPhase, FrontendExtensionStatus,
-    NamespacedResourceRef, PackageJobPhase, PackageJobStatus,
+    NamespacedResourceRef, PackageJobPhase, PackageJobStatus, PublishPhase, PublishStatus,
 };
 use frontend_forge_common::{
-    ANNO_OBSERVED_GENERATION, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_MANAGED_BY,
-    LABEL_PACKAGE_KIND, LABEL_SOURCE_HASH, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE,
-    artifact_configmap_name, hash_label_value, package_job_name, sha256_hex,
+    ANNO_ARTIFACT_DIGEST, ANNO_OBSERVED_GENERATION, ANNO_PUBLISH_ARTIFACT_DIGEST,
+    ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME,
+    ANNO_PUBLISH_TARGET_NAMESPACE, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_MANAGED_BY,
+    LABEL_PACKAGE_KIND, LABEL_PUBLISH_KIND, LABEL_PUBLISH_REQUEST_HASH, LABEL_SOURCE_HASH,
+    MANAGED_BY_VALUE, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE, artifact_configmap_name,
+    hash_label_value, package_job_name, publish_job_name, sha256_hex,
 };
 use frontend_forge_extension_package::{
     ARTIFACT_METADATA_KEY, PACKAGE_KEY, PackageArtifactMetadata, frontend_extension_package_name,
@@ -103,10 +106,16 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
     {
         if let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash) {
-            let status =
+            let publish =
+                sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
+            let mut status =
                 ready_fe_status(&fe, &source_hash, &cm, metadata, existing_package_job(&fe));
+            apply_publish_sync(&mut status, &publish);
             patch_fe_status(&fe_api, &fe, status).await?;
-            return Ok(Action::await_change());
+            return Ok(requeue_if_publish_running(
+                publish,
+                ctx.config.reconcile_requeue_seconds,
+            ));
         }
     }
 
@@ -141,19 +150,22 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                     get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
                 {
                     if let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash) {
-                        patch_fe_status(
-                            &fe_api,
+                        let publish =
+                            sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm)
+                                .await?;
+                        let mut status = ready_fe_status(
                             &fe,
-                            ready_fe_status(
-                                &fe,
-                                &source_hash,
-                                &cm,
-                                metadata,
-                                Some(package_job_status(&job)),
-                            ),
-                        )
-                        .await?;
-                        return Ok(Action::await_change());
+                            &source_hash,
+                            &cm,
+                            metadata,
+                            Some(package_job_status(&job)),
+                        );
+                        apply_publish_sync(&mut status, &publish);
+                        patch_fe_status(&fe_api, &fe, status).await?;
+                        return Ok(requeue_if_publish_running(
+                            publish,
+                            ctx.config.reconcile_requeue_seconds,
+                        ));
                     }
                 }
 
@@ -251,6 +263,381 @@ fn artifact_metadata_from_configmap(
     }
 
     Some(metadata)
+}
+
+#[derive(Clone, Debug)]
+struct PublishRequest {
+    request_id: String,
+    artifact_digest: String,
+    target_ref: NamespacedResourceRef,
+    target_kind: String,
+}
+
+#[derive(Clone, Debug)]
+struct PublishSync {
+    status: Option<PublishStatus>,
+    should_requeue: bool,
+}
+
+async fn sync_publish(
+    fe: &FrontendExtension,
+    job_api: &Api<Job>,
+    namespace: &str,
+    config: &super::ControllerConfig,
+    artifact: &PackageArtifactMetadata,
+    artifact_cm: &ConfigMap,
+) -> Result<PublishSync, Error> {
+    let Some(request_id) = publish_request_id(fe) else {
+        return Ok(PublishSync {
+            status: current_publish_for_artifact(fe, &artifact.digest),
+            should_requeue: false,
+        });
+    };
+
+    let request = match publish_request(fe, request_id, &artifact.digest) {
+        Ok(request) => request,
+        Err(status) => {
+            return Ok(PublishSync {
+                status: Some(status),
+                should_requeue: false,
+            });
+        }
+    };
+    let job_name = publish_job_name(&fe.name_any(), &request.request_id);
+    let job = match job_api
+        .get_opt(&job_name)
+        .await
+        .with_context(|_| GetPublishJobSnafu {
+            namespace: namespace.to_string(),
+            name: job_name.clone(),
+        })? {
+        Some(job) => job,
+        None => {
+            if publish_already_finished(fe, &request) {
+                return Ok(PublishSync {
+                    status: fe.status.as_ref().and_then(|status| status.publish.clone()),
+                    should_requeue: false,
+                });
+            }
+            let desired_job =
+                make_publish_job(fe, config, &job_name, &request, artifact, artifact_cm);
+            create_or_get_job(job_api, namespace, desired_job, &job_name).await?
+        }
+    };
+
+    let status = publish_status_from_job(&request, &job);
+    let should_requeue = matches!(status.phase, PublishPhase::Pending | PublishPhase::Running);
+
+    Ok(PublishSync {
+        status: Some(status),
+        should_requeue,
+    })
+}
+
+fn publish_request_id(fe: &FrontendExtension) -> Option<&str> {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_PUBLISH_REQUEST_ID))
+        .map(String::as_str)
+        .filter(|request_id| !request_id.is_empty())
+}
+
+fn publish_request(
+    fe: &FrontendExtension,
+    request_id: &str,
+    current_artifact_digest: &str,
+) -> Result<PublishRequest, PublishStatus> {
+    let annos = fe.metadata.annotations.as_ref();
+    let requested_digest = annos
+        .and_then(|annos| annos.get(ANNO_PUBLISH_ARTIFACT_DIGEST))
+        .filter(|digest| !digest.is_empty())
+        .cloned()
+        .ok_or_else(|| {
+            failed_publish_status(
+                request_id,
+                None,
+                "publish artifact digest annotation is required",
+            )
+        })?;
+
+    if requested_digest != current_artifact_digest {
+        return Err(failed_publish_status(
+            request_id,
+            Some(requested_digest),
+            "publish artifact digest does not match current ready artifact",
+        ));
+    }
+
+    let target_ref = publish_target_ref(fe).ok_or_else(|| {
+        failed_publish_status(
+            request_id,
+            Some(current_artifact_digest.to_string()),
+            "publish targetRef is required",
+        )
+    })?;
+    let target_kind = annos
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
+        .filter(|kind| !kind.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "ConfigMap".to_string());
+
+    Ok(PublishRequest {
+        request_id: request_id.to_string(),
+        artifact_digest: current_artifact_digest.to_string(),
+        target_ref,
+        target_kind,
+    })
+}
+
+fn publish_target_ref(fe: &FrontendExtension) -> Option<NamespacedResourceRef> {
+    let annos = fe.metadata.annotations.as_ref();
+    let target_name = annos
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_NAME))
+        .filter(|name| !name.is_empty());
+    if let Some(name) = target_name {
+        return Some(NamespacedResourceRef {
+            namespace: annos
+                .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_NAMESPACE))
+                .filter(|namespace| !namespace.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "extension-frontend-forge".to_string()),
+            name: name.clone(),
+            uid: None,
+        });
+    }
+
+    fe.spec
+        .publish_policy
+        .as_ref()
+        .and_then(|policy| policy.default_target_ref.clone())
+}
+
+fn failed_publish_status(
+    request_id: &str,
+    artifact_digest: Option<String>,
+    message: &str,
+) -> PublishStatus {
+    PublishStatus {
+        phase: PublishPhase::Failed,
+        request_id: Some(request_id.to_string()),
+        artifact_digest,
+        last_error: Some(message.to_string()),
+        ..Default::default()
+    }
+}
+
+fn current_publish_for_artifact(
+    fe: &FrontendExtension,
+    artifact_digest: &str,
+) -> Option<PublishStatus> {
+    let publish = fe.status.as_ref().and_then(|status| status.publish.clone());
+    match publish {
+        Some(status) if status.artifact_digest.as_deref() == Some(artifact_digest) => Some(status),
+        _ => Some(PublishStatus::default()),
+    }
+}
+
+fn publish_already_finished(fe: &FrontendExtension, request: &PublishRequest) -> bool {
+    fe.status
+        .as_ref()
+        .and_then(|status| status.publish.as_ref())
+        .map(|publish| {
+            publish.request_id.as_deref() == Some(request.request_id.as_str())
+                && publish.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
+                && matches!(
+                    publish.phase,
+                    PublishPhase::Succeeded | PublishPhase::Failed
+                )
+        })
+        .unwrap_or(false)
+}
+
+fn make_publish_job(
+    fe: &FrontendExtension,
+    config: &super::ControllerConfig,
+    job_name: &str,
+    request: &PublishRequest,
+    artifact: &PackageArtifactMetadata,
+    artifact_cm: &ConfigMap,
+) -> Job {
+    let fe_name = fe.name_any();
+    let request_hash = format!("sha256:{}", sha256_hex(request.request_id.as_bytes()));
+    let labels = BTreeMap::from([
+        (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
+        (LABEL_FE_NAME.to_string(), fe_name.clone()),
+        (
+            LABEL_PUBLISH_KIND.to_string(),
+            PUBLISH_KIND_VALUE.to_string(),
+        ),
+        (
+            LABEL_PUBLISH_REQUEST_HASH.to_string(),
+            hash_label_value(&request_hash),
+        ),
+    ]);
+
+    let mut annotations = BTreeMap::from([
+        (
+            ANNO_PUBLISH_REQUEST_ID.to_string(),
+            request.request_id.clone(),
+        ),
+        (
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            request.artifact_digest.clone(),
+        ),
+        (
+            ANNO_ARTIFACT_DIGEST.to_string(),
+            request.artifact_digest.clone(),
+        ),
+    ]);
+    if let Some(generation) = fe.metadata.generation {
+        annotations.insert(ANNO_OBSERVED_GENERATION.to_string(), generation.to_string());
+    }
+
+    let env = vec![
+        EnvVar {
+            name: "FE_NAME".to_string(),
+            value: Some(fe_name.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_REQUEST_ID".to_string(),
+            value: Some(request.request_id.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_DIGEST".to_string(),
+            value: Some(request.artifact_digest.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_CONFIGMAP_NAMESPACE".to_string(),
+            value: Some(artifact_cm.namespace().unwrap_or_default()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_CONFIGMAP_NAME".to_string(),
+            value: Some(artifact_cm.name_any()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_CONFIGMAP_KEY".to_string(),
+            value: Some(PACKAGE_KEY.to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_FILENAME".to_string(),
+            value: Some(artifact.filename.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_KIND".to_string(),
+            value: Some(request.target_kind.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_NAMESPACE".to_string(),
+            value: Some(request.target_ref.namespace.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_NAME".to_string(),
+            value: Some(request.target_ref.name.clone()),
+            ..Default::default()
+        },
+    ];
+
+    let container = Container {
+        name: "publisher".to_string(),
+        image: Some(config.publisher_image.clone()),
+        env: Some(env),
+        ..Default::default()
+    };
+
+    Job {
+        metadata: ObjectMeta {
+            name: Some(job_name.to_string()),
+            namespace: Some(config.work_namespace.clone()),
+            labels: Some(labels),
+            annotations: Some(annotations),
+            owner_references: base_owner_ref(fe).map(|o| vec![o]),
+            ..Default::default()
+        },
+        spec: Some(JobSpec {
+            active_deadline_seconds: Some(config.job_active_deadline_seconds),
+            ttl_seconds_after_finished: config.job_ttl_seconds_after_finished,
+            template: PodTemplateSpec {
+                metadata: Some(ObjectMeta {
+                    labels: Some(BTreeMap::from([(
+                        "app.kubernetes.io/name".to_string(),
+                        "frontend-forge-extension-publisher".to_string(),
+                    )])),
+                    ..Default::default()
+                }),
+                spec: Some(PodSpec {
+                    restart_policy: Some("Never".to_string()),
+                    service_account_name: config.publisher_service_account.clone(),
+                    containers: vec![container],
+                    ..Default::default()
+                }),
+            },
+            backoff_limit: Some(0),
+            ..Default::default()
+        }),
+        status: None,
+    }
+}
+
+fn publish_status_from_job(request: &PublishRequest, job: &Job) -> PublishStatus {
+    let phase = match observed_job_phase(job.status.as_ref()) {
+        ObservedJobPhase::Pending => PublishPhase::Pending,
+        ObservedJobPhase::Running => PublishPhase::Running,
+        ObservedJobPhase::Succeeded => PublishPhase::Succeeded,
+        ObservedJobPhase::Failed => PublishPhase::Failed,
+    };
+    let last_error = if matches!(phase, PublishPhase::Failed) {
+        extract_job_message(job).or_else(|| Some("Publish job failed".to_string()))
+    } else {
+        None
+    };
+
+    PublishStatus {
+        phase,
+        request_id: Some(request.request_id.clone()),
+        artifact_digest: Some(request.artifact_digest.clone()),
+        job_ref: Some(namespaced_ref(job)),
+        started_at: job
+            .status
+            .as_ref()
+            .and_then(|status| status.start_time.as_ref())
+            .and_then(k8s_time_to_chrono),
+        finished_at: job
+            .status
+            .as_ref()
+            .and_then(|status| status.completion_time.as_ref())
+            .and_then(k8s_time_to_chrono),
+        last_error,
+    }
+}
+
+fn apply_publish_sync(status: &mut FrontendExtensionStatus, publish: &PublishSync) {
+    status.publish = publish.status.clone();
+    let generation = status.observed_generation;
+    status
+        .conditions
+        .retain(|condition| condition.type_ != "PublishSucceeded");
+    status.conditions.push(fe_publish_condition_from_status(
+        status.publish.as_ref(),
+        generation,
+    ));
+}
+
+fn requeue_if_publish_running(publish: PublishSync, requeue_seconds: u64) -> Action {
+    if publish.should_requeue {
+        Action::requeue(Duration::from_secs(requeue_seconds))
+    } else {
+        Action::await_change()
+    }
 }
 
 fn make_package_job(
@@ -392,6 +779,7 @@ fn packaging_fe_status(
     message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
+    let publish = retained_publish_for_source(fe, source_hash);
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Packaging,
         observed_generation: generation,
@@ -403,7 +791,7 @@ fn packaging_fe_status(
             media_type: String::new(),
         }),
         package_job: Some(package_job_status(job)),
-        publish: fe.status.as_ref().and_then(|status| status.publish.clone()),
+        publish: publish.clone(),
         conditions: vec![
             fe_condition("SourceValid", "True", "Validated", "", generation),
             fe_condition("ArtifactReady", "False", "Packaging", message, generation),
@@ -414,7 +802,7 @@ fn packaging_fe_status(
                 message,
                 generation,
             ),
-            fe_publish_condition(fe, generation),
+            fe_publish_condition_from_status(publish.as_ref(), generation),
         ],
     }
 }
@@ -468,6 +856,7 @@ fn failed_fe_status(
     message: String,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
+    let publish = retained_publish_for_source(fe, source_hash);
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Failed,
         observed_generation: generation,
@@ -479,7 +868,7 @@ fn failed_fe_status(
             media_type: String::new(),
         }),
         package_job: job.map(package_job_status),
-        publish: fe.status.as_ref().and_then(|status| status.publish.clone()),
+        publish: publish.clone(),
         conditions: vec![
             fe_condition(
                 "SourceValid",
@@ -500,8 +889,17 @@ fn failed_fe_status(
                 &message,
                 generation,
             ),
-            fe_publish_condition(fe, generation),
+            fe_publish_condition_from_status(publish.as_ref(), generation),
         ],
+    }
+}
+
+fn retained_publish_for_source(fe: &FrontendExtension, source_hash: &str) -> Option<PublishStatus> {
+    let status = fe.status.as_ref()?;
+    if status.observed_source_hash.as_deref() == Some(source_hash) {
+        status.publish.clone()
+    } else {
+        Some(PublishStatus::default())
     }
 }
 
@@ -530,29 +928,33 @@ fn fe_publish_condition(
     fe: &FrontendExtension,
     observed_generation: Option<i64>,
 ) -> ExtensionCondition {
-    match fe
-        .status
-        .as_ref()
-        .and_then(|status| status.publish.as_ref())
-    {
-        Some(publish) if matches!(publish.phase, frontend_forge_api::PublishPhase::Succeeded) => {
-            fe_condition(
-                "PublishSucceeded",
-                "True",
-                "Succeeded",
-                "",
-                observed_generation,
-            )
-        }
-        Some(publish) if matches!(publish.phase, frontend_forge_api::PublishPhase::Failed) => {
-            fe_condition(
-                "PublishSucceeded",
-                "False",
-                "PublishFailed",
-                publish.last_error.as_deref().unwrap_or(""),
-                observed_generation,
-            )
-        }
+    fe_publish_condition_from_status(
+        fe.status
+            .as_ref()
+            .and_then(|status| status.publish.as_ref()),
+        observed_generation,
+    )
+}
+
+fn fe_publish_condition_from_status(
+    publish: Option<&PublishStatus>,
+    observed_generation: Option<i64>,
+) -> ExtensionCondition {
+    match publish {
+        Some(publish) if matches!(publish.phase, PublishPhase::Succeeded) => fe_condition(
+            "PublishSucceeded",
+            "True",
+            "Succeeded",
+            "",
+            observed_generation,
+        ),
+        Some(publish) if matches!(publish.phase, PublishPhase::Failed) => fe_condition(
+            "PublishSucceeded",
+            "False",
+            "PublishFailed",
+            publish.last_error.as_deref().unwrap_or(""),
+            observed_generation,
+        ),
         _ => fe_condition(
             "PublishSucceeded",
             "False",
