@@ -4,7 +4,9 @@ members = [
   "crates/api",
   "crates/manifest",
   "crates/extension-package",
+  "crates/extension-packager",
   "crates/controller",
+  "crates/controller-bin",
   "crates/runner",
   "xtask",
 ]

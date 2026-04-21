@@ -32,6 +32,12 @@ spec:
               value: spike2044/frontend-forge-runner:latest
             - name: RUNNER_SERVICE_ACCOUNT
               value: frontend-forge-runner
+            - name: PACKAGER_IMAGE
+              value: spike2044/frontend-forge-extension-packager:latest
+            - name: PACKAGER_SERVICE_ACCOUNT
+              value: frontend-forge-extension-packager
+            - name: ARTIFACT_CONFIGMAP_NAMESPACE
+              value: extension-frontend-forge
             - name: BUILD_SERVICE_BASE_URL
               value: http://frontend-forge.extension-frontend-forge.svc
             - name: JSBUNDLE_CONFIGMAP_NAMESPACE

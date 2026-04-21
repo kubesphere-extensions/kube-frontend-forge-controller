@@ -10,7 +10,7 @@ use frontend_forge_common::{
 };
 use frontend_forge_manifest::{ManifestRenderError, render_frontend_extension_manifest};
 use kube::ResourceExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use snafu::{ResultExt, Snafu};
 use std::collections::BTreeMap;
@@ -50,7 +50,7 @@ pub struct PackageFile {
     pub content: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackageFileMeta {
     pub path: String,
     #[serde(rename = "sizeBytes")]
@@ -58,7 +58,7 @@ pub struct PackageFileMeta {
     pub digest: String,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PackageArtifactMetadata {
     pub name: String,
     pub version: String,
@@ -103,11 +103,7 @@ pub fn build_extension_package(
     fe: &FrontendExtension,
     generated_at: DateTime<Utc>,
 ) -> Result<ExtensionPackageArtifact, ExtensionPackageError> {
-    let source_hash = serializable_hash(&SourceIdentity {
-        package: &fe.spec.package,
-        source: &fe.spec.source,
-    })
-    .context(SourceHashSnafu)?;
+    let source_hash = frontend_extension_source_hash(fe)?;
 
     let mut files = package_files(fe)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -115,7 +111,7 @@ pub fn build_extension_package(
     let file_meta = package_file_meta(&files);
     let package_bytes = gzip_bytes(&tar_bytes(&files)?)?;
     let digest = format!("sha256:{}", sha256_hex(&package_bytes));
-    let package_name = package_name(fe);
+    let package_name = frontend_extension_package_name(fe);
     let filename = format!("{}-{}.tgz", package_name, fe.spec.package.version);
 
     let metadata = PackageArtifactMetadata {
@@ -166,7 +162,7 @@ fn package_files(fe: &FrontendExtension) -> Result<Vec<PackageFile>, ExtensionPa
         .as_ref()
         .map(|charts| charts.values.clone())
         .unwrap_or_default();
-    let charts_values_path = format!("charts/{}/values.yaml", package_name(fe));
+    let charts_values_path = format!("charts/{}/values.yaml", frontend_extension_package_name(fe));
 
     let mut files = vec![
         yaml_file("extension.yaml", &package_metadata)?,
@@ -221,7 +217,7 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     let package = &fe.spec.package;
     KsbuilderExtensionYaml {
         api_version: "kubesphere.io/v1alpha1".to_string(),
-        name: package_name(fe),
+        name: frontend_extension_package_name(fe),
         version: package.version.clone(),
         display_name: package.display_name.clone(),
         description: package.description.clone(),
@@ -240,12 +236,22 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     }
 }
 
-fn package_name(fe: &FrontendExtension) -> String {
+pub fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
     fe.spec
         .package
         .name
         .clone()
         .unwrap_or_else(|| fe.name_any())
+}
+
+pub fn frontend_extension_source_hash(
+    fe: &FrontendExtension,
+) -> Result<String, ExtensionPackageError> {
+    serializable_hash(&SourceIdentity {
+        package: &fe.spec.package,
+        source: &fe.spec.source,
+    })
+    .context(SourceHashSnafu)
 }
 
 fn extension_resource_files(

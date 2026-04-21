@@ -7,7 +7,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY xtask ./xtask
 
-RUN cargo build --release -p frontend-forge-controller
+RUN cargo build --release -p frontend-forge-controller-bin
 
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 

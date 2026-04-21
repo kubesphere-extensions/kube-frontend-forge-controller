@@ -1,0 +1,13 @@
+[package]
+name = "frontend-forge-controller-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "frontend-forge-controller"
+path = "src/main.rs"
+
+[dependencies]
+frontend-forge-controller = { path = "../controller" }
+tokio.workspace = true

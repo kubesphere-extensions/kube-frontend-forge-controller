@@ -557,6 +557,7 @@ dependencies = [
  "chrono",
  "frontend-forge-api",
  "frontend-forge-common",
+ "frontend-forge-extension-package",
  "frontend-forge-manifest",
  "futures",
  "k8s-openapi",
@@ -568,6 +569,14 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "frontend-forge-controller-bin"
+version = "0.1.0"
+dependencies = [
+ "frontend-forge-controller",
+ "tokio",
 ]
 
 [[package]]
@@ -585,6 +594,23 @@ dependencies = [
  "serde_yaml",
  "snafu",
  "tar",
+]
+
+[[package]]
+name = "frontend-forge-extension-packager"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "frontend-forge-api",
+ "frontend-forge-common",
+ "frontend-forge-extension-package",
+ "k8s-openapi",
+ "kube",
+ "serde_yaml",
+ "snafu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

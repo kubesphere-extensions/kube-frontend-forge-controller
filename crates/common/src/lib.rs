@@ -8,10 +8,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const MANAGED_BY_VALUE: &str = "frontend-forge-builder-controller";
 pub const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
 pub const LABEL_FI_NAME: &str = "frontend-forge.io/fi-name";
+pub const LABEL_FE_NAME: &str = "frontend-forge.io/fe-name";
 pub const LABEL_ENABLED: &str = "frontend-forge.io/enabled";
 pub const LABEL_SPEC_HASH: &str = "frontend-forge.io/spec-hash";
+pub const LABEL_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
 pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
+pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
 pub const ANNO_BUILD_JOB: &str = "frontend-forge.io/build-job";
 pub const ANNO_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const ANNO_MANIFEST_CONTENT: &str = "frontend-forge.io/manifest-content";
@@ -19,7 +22,11 @@ pub const ANNO_OBSERVED_GENERATION: &str = "frontend-forge.io/observed-generatio
 pub const ANNO_SOURCE_SPEC: &str = "frontend-forge.io/source-spec";
 pub const ANNO_SOURCE_SPEC_HASH: &str = "frontend-forge.io/source-spec-hash";
 pub const ANNO_SOURCE_GENERATION: &str = "frontend-forge.io/source-generation";
+pub const ANNO_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
+pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.io/artifact-digest";
+pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.io/artifact-filename";
 pub const BUILD_KIND_VALUE: &str = "frontend-forge";
+pub const PACKAGE_KIND_VALUE: &str = "frontend-extension-package";
 pub const DEFAULT_MANIFEST_FILENAME: &str = "manifest.json";
 pub const DEFAULT_MANIFEST_MOUNT_PATH: &str = "/work/manifest/manifest.json";
 pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
@@ -108,6 +115,20 @@ pub fn default_cluster_bundle_name(fi_namespace: &str, fi_name: &str) -> String 
 pub fn job_name(fi_name: &str, manifest_hash: &str) -> String {
     bounded_name(
         &format!("fi-{}-build-{}", fi_name, hash_short(manifest_hash)),
+        63,
+    )
+}
+
+pub fn package_job_name(fe_name: &str, source_hash: &str) -> String {
+    bounded_name(
+        &format!("fe-{}-package-{}", fe_name, hash_short(source_hash)),
+        63,
+    )
+}
+
+pub fn artifact_configmap_name(package_name: &str, source_hash: &str) -> String {
+    bounded_name(
+        &format!("fe-{}-{}", package_name, hash_short(source_hash)),
         63,
     )
 }
@@ -222,6 +243,29 @@ mod tests {
         let hash = "sha256:0123456789abcdef";
 
         assert_eq!(job_name(fi_name, hash), job_name(fi_name, hash));
+    }
+
+    #[test]
+    fn package_resource_names_are_deterministic_and_bounded() {
+        let hash = "sha256:0123456789abcdef";
+        let job = package_job_name("Very.Long_FrontendExtension.Name", hash);
+        let cm = artifact_configmap_name("Very.Long_Package.Name", hash);
+
+        assert_eq!(
+            job,
+            package_job_name("Very.Long_FrontendExtension.Name", hash)
+        );
+        assert_eq!(cm, artifact_configmap_name("Very.Long_Package.Name", hash));
+        for name in [job, cm] {
+            assert!(name.len() <= 63);
+            assert!(name.contains("01234567"));
+            assert!(!name.starts_with('-'));
+            assert!(!name.ends_with('-'));
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            );
+        }
     }
 
     #[test]
