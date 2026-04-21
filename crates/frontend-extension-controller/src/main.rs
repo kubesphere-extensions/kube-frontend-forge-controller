@@ -243,13 +243,12 @@ fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
 
 fn extract_job_message(job: &Job) -> Option<String> {
     let status = job.status.as_ref()?;
-    if let Some(conditions) = &status.conditions {
-        if let Some(cond) = conditions
+    if let Some(conditions) = &status.conditions
+        && let Some(cond) = conditions
             .iter()
             .find(|c| c.status == "True" && c.type_ == "Failed")
-        {
-            return cond.message.clone().or_else(|| cond.reason.clone());
-        }
+    {
+        return cond.message.clone().or_else(|| cond.reason.clone());
     }
     None
 }
@@ -324,19 +323,17 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
 
     if let Some(cm) =
         get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
+        && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
     {
-        if let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash) {
-            let publish =
-                sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
-            let mut status =
-                ready_fe_status(&fe, &source_hash, &cm, metadata, existing_package_job(&fe));
-            apply_publish_sync(&mut status, &publish);
-            patch_fe_status(&fe_api, &fe, status).await?;
-            return Ok(requeue_if_publish_running(
-                publish,
-                ctx.config.reconcile_requeue_seconds,
-            ));
-        }
+        let publish = sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
+        let mut status =
+            ready_fe_status(&fe, &source_hash, &cm, metadata, existing_package_job(&fe));
+        apply_publish_sync(&mut status, &publish);
+        patch_fe_status(&fe_api, &fe, status).await?;
+        return Ok(requeue_if_publish_running(
+            publish,
+            ctx.config.reconcile_requeue_seconds,
+        ));
     }
 
     let current_job = find_package_job_for_hash(&job_api, &work_ns, &fe_name, &source_hash).await?;
@@ -368,25 +365,23 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
             ObservedJobPhase::Succeeded => {
                 if let Some(cm) =
                     get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
+                    && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
                 {
-                    if let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash) {
-                        let publish =
-                            sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm)
-                                .await?;
-                        let mut status = ready_fe_status(
-                            &fe,
-                            &source_hash,
-                            &cm,
-                            metadata,
-                            Some(package_job_status(&job)),
-                        );
-                        apply_publish_sync(&mut status, &publish);
-                        patch_fe_status(&fe_api, &fe, status).await?;
-                        return Ok(requeue_if_publish_running(
-                            publish,
-                            ctx.config.reconcile_requeue_seconds,
-                        ));
-                    }
+                    let publish =
+                        sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
+                    let mut status = ready_fe_status(
+                        &fe,
+                        &source_hash,
+                        &cm,
+                        metadata,
+                        Some(package_job_status(&job)),
+                    );
+                    apply_publish_sync(&mut status, &publish);
+                    patch_fe_status(&fe_api, &fe, status).await?;
+                    return Ok(requeue_if_publish_running(
+                        publish,
+                        ctx.config.reconcile_requeue_seconds,
+                    ));
                 }
 
                 patch_fe_status(

@@ -296,12 +296,10 @@ async fn trigger_publish(
         .status
         .as_ref()
         .and_then(|status| status.publish.as_ref())
+        && current.request_id.as_deref() == Some(request.request_id.as_str())
+        && current.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
     {
-        if current.request_id.as_deref() == Some(request.request_id.as_str())
-            && current.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
-        {
-            return Ok((StatusCode::ACCEPTED, Json(current.clone())));
-        }
+        return Ok((StatusCode::ACCEPTED, Json(current.clone())));
     }
 
     let target_ref = request

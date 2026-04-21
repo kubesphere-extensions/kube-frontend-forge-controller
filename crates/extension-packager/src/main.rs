@@ -8,7 +8,7 @@ use frontend_forge_common::{
     hash_label_value,
 };
 use frontend_forge_extension_package_core::{
-    ExtensionPackageArtifact, ExtensionPackageError, PACKAGE_KEY, build_extension_package,
+    ExtensionPackageArtifact, ExtensionPackageError, build_extension_package,
     frontend_extension_source_hash,
 };
 use k8s_openapi::{

@@ -263,13 +263,12 @@ pub(crate) fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase
 
 pub(crate) fn extract_job_message(job: &Job) -> Option<String> {
     let status = job.status.as_ref()?;
-    if let Some(conditions) = &status.conditions {
-        if let Some(cond) = conditions
+    if let Some(conditions) = &status.conditions
+        && let Some(cond) = conditions
             .iter()
             .find(|c| c.status == "True" && c.type_ == "Failed")
-        {
-            return cond.message.clone().or_else(|| cond.reason.clone());
-        }
+    {
+        return cond.message.clone().or_else(|| cond.reason.clone());
     }
     None
 }

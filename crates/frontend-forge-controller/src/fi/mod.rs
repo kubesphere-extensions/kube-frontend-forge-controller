@@ -258,22 +258,22 @@ async fn sync_status_from_children(
         }
     }
 
-    if let Some(bundle) = get_bundle_opt(bundle_api, bundle_name).await? {
-        if bundle_matches_spec_hash(&bundle, spec_hash) {
-            sync_jsbundle_enabled_state(bundle_api, fi, &bundle, true).await?;
-            let status = FrontendIntegrationStatus {
-                phase: FrontendIntegrationPhase::Succeeded,
-                observed_spec_hash: Some(spec_hash.to_string()),
-                observed_manifest_hash: bundle_manifest_hash(&bundle),
-                observed_generation: Some(fi.metadata.generation.unwrap_or_default()),
-                last_build: fi.status.as_ref().and_then(|s| s.last_build.clone()),
-                bundle_ref: Some(resource_ref(&bundle)),
-                last_error: None,
-                message: Some("JSBundle ready".to_string()),
-                conditions: vec![],
-            };
-            patch_fi_status(fi_api, fi, status).await?;
-        }
+    if let Some(bundle) = get_bundle_opt(bundle_api, bundle_name).await?
+        && bundle_matches_spec_hash(&bundle, spec_hash)
+    {
+        sync_jsbundle_enabled_state(bundle_api, fi, &bundle, true).await?;
+        let status = FrontendIntegrationStatus {
+            phase: FrontendIntegrationPhase::Succeeded,
+            observed_spec_hash: Some(spec_hash.to_string()),
+            observed_manifest_hash: bundle_manifest_hash(&bundle),
+            observed_generation: Some(fi.metadata.generation.unwrap_or_default()),
+            last_build: fi.status.as_ref().and_then(|s| s.last_build.clone()),
+            bundle_ref: Some(resource_ref(&bundle)),
+            last_error: None,
+            message: Some("JSBundle ready".to_string()),
+            conditions: vec![],
+        };
+        patch_fi_status(fi_api, fi, status).await?;
     }
 
     Ok(Action::await_change())
@@ -316,15 +316,15 @@ async fn find_job_for_hash(
     let mut items = jobs.items;
     items.sort_by_key(|j| j.metadata.creation_timestamp.clone());
     let latest_job = items.pop();
-    if items.len() > 0 {
-        if let Some(job) = latest_job.as_ref() {
-            let job_name = job.name_any();
-            warn!(
-                fi = %fi_name,
-                job = %job_name,
-                "multiple jobs found for same spec_hash, using latest"
-            );
-        }
+    if !items.is_empty()
+        && let Some(job) = latest_job.as_ref()
+    {
+        let job_name = job.name_any();
+        warn!(
+            fi = %fi_name,
+            job = %job_name,
+            "multiple jobs found for same spec_hash, using latest"
+        );
     }
     Ok(latest_job)
 }

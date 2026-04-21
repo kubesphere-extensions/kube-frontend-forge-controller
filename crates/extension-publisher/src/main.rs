@@ -376,12 +376,11 @@ fn run_ksbuilder_publish(
     target_env: BTreeMap<String, OsString>,
 ) -> Result<(), Error> {
     let mut args = cfg.publish_args.clone();
-    if let Some(target) = target {
-        if let Some(target_args) = target.values.get("args") {
-            if let Ok(raw) = std::str::from_utf8(target_args) {
-                args.extend(split_args(raw));
-            }
-        }
+    if let Some(target) = target
+        && let Some(target_args) = target.values.get("args")
+        && let Ok(raw) = std::str::from_utf8(target_args)
+    {
+        args.extend(split_args(raw));
     }
 
     let output = Command::new(&cfg.ksbuilder_bin)
