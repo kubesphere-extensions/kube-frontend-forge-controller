@@ -13,7 +13,7 @@ use frontend_forge_common::{
     ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND,
     ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE, sha256_hex,
 };
-use frontend_forge_extension_package::PACKAGE_KEY;
+use frontend_forge_extension_package_core::PACKAGE_KEY;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::api::{Patch, PatchParams, PostParams};
 use kube::{Api, Client, ResourceExt};

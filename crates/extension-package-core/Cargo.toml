@@ -1,5 +1,5 @@
 [package]
-name = "frontend-forge-extension-package"
+name = "frontend-forge-extension-package-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

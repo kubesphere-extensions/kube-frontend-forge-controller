@@ -1,9 +1,7 @@
-pub mod fe;
 pub mod fi;
 pub mod webhook;
 
 use frontend_forge_common::CommonError;
-use frontend_forge_extension_package::ExtensionPackageError;
 use k8s_openapi::api::batch::v1::{Job, JobStatus};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::PostParams;
@@ -19,8 +17,6 @@ use tracing::info;
 pub enum Error {
     #[snafu(display("spec/hash error: {source}"))]
     Common { source: CommonError },
-    #[snafu(display("failed to hash FrontendExtension package source: {source}"))]
-    FrontendExtensionSourceHash { source: ExtensionPackageError },
     #[snafu(display("failed to initialize Kubernetes client: {source}"))]
     KubeClientInit { source: kube::Error },
     #[snafu(display("failed to patch FrontendIntegration status {namespace}/{name}: {source}"))]
@@ -29,8 +25,6 @@ pub enum Error {
         name: String,
         source: kube::Error,
     },
-    #[snafu(display("failed to patch FrontendExtension status {name}: {source}"))]
-    PatchFrontendExtensionStatus { name: String, source: kube::Error },
     #[snafu(display("failed to patch FrontendIntegration metadata {namespace}/{name}: {source}"))]
     PatchFrontendIntegrationMetadata {
         namespace: String,
@@ -55,13 +49,6 @@ pub enum Error {
         "serialized FrontendIntegration status patch for {namespace}/{name} was not a JSON object"
     ))]
     InvalidFrontendIntegrationStatusPatchShape { namespace: String, name: String },
-    #[snafu(display("failed to serialize FrontendExtension status patch for {name}: {source}"))]
-    SerializeFrontendExtensionStatusPatch {
-        name: String,
-        source: serde_json::Error,
-    },
-    #[snafu(display("serialized FrontendExtension status patch for {name} was not a JSON object"))]
-    InvalidFrontendExtensionStatusPatchShape { name: String },
     #[snafu(display(
         "failed to list Jobs in {namespace} for FrontendIntegration {fi_name} and specHash {spec_hash}: {source}"
     ))]
@@ -69,21 +56,6 @@ pub enum Error {
         namespace: String,
         fi_name: String,
         spec_hash: String,
-        source: kube::Error,
-    },
-    #[snafu(display(
-        "failed to list package Jobs in {namespace} for FrontendExtension {fe_name} and sourceHash {source_hash}: {source}"
-    ))]
-    ListPackageJobsForHash {
-        namespace: String,
-        fe_name: String,
-        source_hash: String,
-        source: kube::Error,
-    },
-    #[snafu(display("failed to get artifact ConfigMap {namespace}/{name}: {source}"))]
-    GetArtifactConfigMap {
-        namespace: String,
-        name: String,
         source: kube::Error,
     },
     #[snafu(display("failed to get JSBundle {namespace}/{name}: {source}"))]
@@ -106,12 +78,6 @@ pub enum Error {
     },
     #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
     GetJobAfterConflict {
-        namespace: String,
-        name: String,
-        source: kube::Error,
-    },
-    #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
-    GetPublishJob {
         namespace: String,
         name: String,
         source: kube::Error,
@@ -146,11 +112,6 @@ pub(crate) struct ControllerConfig {
     pub(crate) work_namespace: String,
     pub(crate) runner_image: String,
     pub(crate) runner_service_account: Option<String>,
-    pub(crate) packager_image: String,
-    pub(crate) packager_service_account: Option<String>,
-    pub(crate) publisher_image: String,
-    pub(crate) publisher_service_account: Option<String>,
-    pub(crate) artifact_configmap_namespace: String,
     pub(crate) build_service_base_url: String,
     pub(crate) jsbundle_configmap_namespace: String,
     pub(crate) jsbundle_config_key: String,
@@ -170,16 +131,6 @@ impl ControllerConfig {
             runner_image: env::var("RUNNER_IMAGE")
                 .unwrap_or_else(|_| "spike2044/frontend-forge-runner:latest".to_string()),
             runner_service_account: env::var("RUNNER_SERVICE_ACCOUNT").ok(),
-            packager_image: env::var("PACKAGER_IMAGE").unwrap_or_else(|_| {
-                "spike2044/frontend-forge-extension-packager:latest".to_string()
-            }),
-            packager_service_account: env::var("PACKAGER_SERVICE_ACCOUNT").ok(),
-            publisher_image: env::var("PUBLISHER_IMAGE").unwrap_or_else(|_| {
-                "spike2044/frontend-forge-extension-publisher:latest".to_string()
-            }),
-            publisher_service_account: env::var("PUBLISHER_SERVICE_ACCOUNT").ok(),
-            artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
-                .unwrap_or(work_namespace.clone()),
             build_service_base_url: env::var("BUILD_SERVICE_BASE_URL").unwrap_or_else(|_| {
                 "http://frontend-forge.extension-frontend-forge.svc".to_string()
             }),
@@ -255,10 +206,6 @@ async fn context_from_env() -> Result<Arc<ContextData>, Error> {
 }
 
 pub async fn run() -> Result<(), Error> {
-    run_fi_controller().await
-}
-
-pub async fn run_fi_controller() -> Result<(), Error> {
     init_runtime("info,frontend_forge_controller=debug");
 
     let ctx = context_from_env().await?;
@@ -273,17 +220,6 @@ pub async fn run_fi_controller() -> Result<(), Error> {
     }
 
     info!("frontend integration controller shutdown complete");
-
-    Ok(())
-}
-
-pub async fn run_fe_controller() -> Result<(), Error> {
-    init_runtime("info,frontend_extension_controller=debug,frontend_forge_controller=debug");
-
-    let ctx = context_from_env().await?;
-    fe::run(ctx).await?;
-
-    info!("frontend extension controller shutdown complete");
 
     Ok(())
 }

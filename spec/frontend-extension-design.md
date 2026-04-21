@@ -604,19 +604,19 @@ crates/
     # hash、naming、labels、ResourceRef、Condition 等公共工具
   manifest/
     # shared render core，逐步从 FrontendIntegration 入参迁移到 RenderInput 入参
-  extension-package/
+  extension-package-core/
     # package 文件模型、chart config、JSBundle 声明、RoleTemplate 声明渲染
-  controller/
+  frontend-forge-controller/
     # 现有 FrontendIntegration runtime controller，保持职责不扩张
-  runner/
+  frontend-forge-runner/
     # 现有 runtime build runner
-  extension-controller/
+  frontend-extension-controller/
     # FrontendExtension reconciler，负责 package/publish 状态收敛
   extension-packager/
     # package Job binary
   extension-publisher/
     # ksbuilder publish Job binary
-  extension-api/
+  frontend-forge-extension-api/
     # axum HTTP API：list/get/download/publish
 
 config/
@@ -791,7 +791,7 @@ FrontendExtension -> ExtensionPackage -> ConfigMap/ObjectStorage/OCI
 
 1. 在 `crates/api` 新增 `FrontendExtension` 类型和 CRD 生成。
 2. 在 `crates/manifest` 抽象 `FrontendRenderInput`，让 FI 和 FE 都通过 adapter 复用渲染核心。
-3. 新增 `crates/extension-package`，定义 package 文件模型和资源声明渲染。
+3. 新增 `crates/extension-package-core`，定义 package 文件模型和资源声明渲染。
 4. 新增 `extension-packager` binary，先支持 `Inline` source 和 ConfigMap artifact。
 5. 新增 `extension-controller` binary，完成 `Pending -> Packaging -> Ready/Failed` 状态机。
 6. 新增 `extension-api` binary，提供列表、详情、下载 API。

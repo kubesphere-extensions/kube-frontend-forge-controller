@@ -5,7 +5,7 @@ use frontend_forge_common::{
     LABEL_MANAGED_BY, LABEL_PACKAGE_KIND, LABEL_SOURCE_HASH, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE,
     hash_label_value,
 };
-use frontend_forge_extension_package::{
+use frontend_forge_extension_package_core::{
     ExtensionPackageArtifact, ExtensionPackageError, PACKAGE_KEY, build_extension_package,
     frontend_extension_source_hash,
 };
@@ -219,7 +219,7 @@ async fn upsert_configmap(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frontend_forge_extension_package::PackageFile;
+    use frontend_forge_extension_package_core::PackageFile;
 
     #[test]
     fn artifact_configmap_uses_binary_package_key() {
@@ -271,7 +271,7 @@ spec:
                 path: "extension.yaml".to_string(),
                 content: vec![1],
             }],
-            payload: frontend_forge_extension_package::ConfigMapArtifactPayload {
+            payload: frontend_forge_extension_package_core::ConfigMapArtifactPayload {
                 data: BTreeMap::new(),
                 binary_data: BTreeMap::from([(PACKAGE_KEY.to_string(), vec![1, 2, 3])]),
             },

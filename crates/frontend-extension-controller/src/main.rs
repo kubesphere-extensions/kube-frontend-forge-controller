@@ -1,9 +1,3 @@
-use super::{
-    ContextData, Error, FrontendExtensionSourceHashSnafu, GetArtifactConfigMapSnafu,
-    GetPublishJobSnafu, ListPackageJobsForHashSnafu, ObservedJobPhase,
-    PatchFrontendExtensionStatusSnafu, SerializeFrontendExtensionStatusPatchSnafu, base_owner_ref,
-    create_or_get_job, extract_job_message, observed_job_phase,
-};
 use chrono::Utc;
 use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
@@ -18,27 +12,169 @@ use frontend_forge_common::{
     MANAGED_BY_VALUE, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE, artifact_configmap_name,
     hash_label_value, package_job_name, publish_job_name, sha256_hex,
 };
-use frontend_forge_extension_package::{
-    ARTIFACT_METADATA_KEY, PACKAGE_KEY, PackageArtifactMetadata, frontend_extension_package_name,
-    frontend_extension_source_hash,
+use frontend_forge_extension_package_core::{
+    ARTIFACT_METADATA_KEY, ExtensionPackageError, PACKAGE_KEY, PackageArtifactMetadata,
+    frontend_extension_package_name, frontend_extension_source_hash,
 };
 use frontend_forge_manifest::validate_frontend_extension;
 use futures::StreamExt;
-use k8s_openapi::api::batch::v1::{Job, JobSpec};
+use k8s_openapi::api::batch::v1::{Job, JobSpec, JobStatus};
 use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, PodSpec, PodTemplateSpec};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{ObjectMeta, Time};
-use kube::api::{ListParams, Patch, PatchParams};
-use kube::{Api, Resource, ResourceExt};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{ObjectMeta, OwnerReference, Time};
+use kube::api::{ListParams, Patch, PatchParams, PostParams};
+use kube::{Api, Client, Resource, ResourceExt};
 use kube_runtime::controller::{Action, Controller};
 use kube_runtime::watcher;
 use serde_json::json;
-use snafu::ResultExt;
+use snafu::{ResultExt, Snafu};
 use std::collections::BTreeMap;
+use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
-pub(crate) async fn run(ctx: Arc<ContextData>) -> Result<(), Error> {
+#[derive(Debug, Snafu)]
+enum Error {
+    #[snafu(display("failed to hash FrontendExtension package source: {source}"))]
+    FrontendExtensionSourceHash { source: ExtensionPackageError },
+    #[snafu(display("failed to initialize Kubernetes client: {source}"))]
+    KubeClientInit { source: kube::Error },
+    #[snafu(display("failed to patch FrontendExtension status {name}: {source}"))]
+    PatchFrontendExtensionStatus { name: String, source: kube::Error },
+    #[snafu(display("failed to serialize FrontendExtension status patch for {name}: {source}"))]
+    SerializeFrontendExtensionStatusPatch {
+        name: String,
+        source: serde_json::Error,
+    },
+    #[snafu(display("serialized FrontendExtension status patch for {name} was not a JSON object"))]
+    InvalidFrontendExtensionStatusPatchShape { name: String },
+    #[snafu(display(
+        "failed to list package Jobs in {namespace} for FrontendExtension {fe_name} and sourceHash {source_hash}: {source}"
+    ))]
+    ListPackageJobsForHash {
+        namespace: String,
+        fe_name: String,
+        source_hash: String,
+        source: kube::Error,
+    },
+    #[snafu(display("failed to get artifact ConfigMap {namespace}/{name}: {source}"))]
+    GetArtifactConfigMap {
+        namespace: String,
+        name: String,
+        source: kube::Error,
+    },
+    #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
+    CreateJob {
+        namespace: String,
+        name: String,
+        source: kube::Error,
+    },
+    #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
+    GetJobAfterConflict {
+        namespace: String,
+        name: String,
+        source: kube::Error,
+    },
+    #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
+    GetPublishJob {
+        namespace: String,
+        name: String,
+        source: kube::Error,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct ControllerConfig {
+    work_namespace: String,
+    packager_image: String,
+    packager_service_account: Option<String>,
+    publisher_image: String,
+    publisher_service_account: Option<String>,
+    artifact_configmap_namespace: String,
+    reconcile_requeue_seconds: u64,
+    job_active_deadline_seconds: i64,
+    job_ttl_seconds_after_finished: Option<i32>,
+}
+
+impl ControllerConfig {
+    fn from_env() -> Self {
+        let work_namespace =
+            env::var("WORK_NAMESPACE").unwrap_or_else(|_| "extension-frontend-forge".to_string());
+        Self {
+            work_namespace: work_namespace.clone(),
+            packager_image: env::var("PACKAGER_IMAGE").unwrap_or_else(|_| {
+                "spike2044/frontend-forge-extension-packager:latest".to_string()
+            }),
+            packager_service_account: env::var("PACKAGER_SERVICE_ACCOUNT").ok(),
+            publisher_image: env::var("PUBLISHER_IMAGE").unwrap_or_else(|_| {
+                "spike2044/frontend-forge-extension-publisher:latest".to_string()
+            }),
+            publisher_service_account: env::var("PUBLISHER_SERVICE_ACCOUNT").ok(),
+            artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
+                .unwrap_or(work_namespace),
+            reconcile_requeue_seconds: env::var("RECONCILE_REQUEUE_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
+            job_active_deadline_seconds: env::var("JOB_ACTIVE_DEADLINE_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+            job_ttl_seconds_after_finished: env::var("JOB_TTL_SECONDS_AFTER_FINISHED")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .or(Some(DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED)),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ContextData {
+    client: Client,
+    config: ControllerConfig,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObservedJobPhase {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+const DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED: i32 = 60 * 60;
+
+fn install_rustls_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect(
+                "ring crypto provider should install before frontend extension controller startup",
+            );
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    install_rustls_crypto_provider();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,frontend_extension_controller=debug".into()),
+        )
+        .init();
+
+    let client = Client::try_default().await.context(KubeClientInitSnafu)?;
+    let ctx = Arc::new(ContextData {
+        client,
+        config: ControllerConfig::from_env(),
+    });
+    run(ctx).await?;
+    info!("frontend extension controller shutdown complete");
+    Ok(())
+}
+
+async fn run(ctx: Arc<ContextData>) -> Result<(), Error> {
     let client = ctx.client.clone();
     let fe_api = Api::<FrontendExtension>::all(client.clone());
     let job_api = Api::<Job>::namespaced(client.clone(), &ctx.config.work_namespace);
@@ -64,6 +200,83 @@ pub(crate) async fn run(ctx: Arc<ContextData>) -> Result<(), Error> {
 fn error_policy(_fe: Arc<FrontendExtension>, err: &Error, _ctx: Arc<ContextData>) -> Action {
     warn!(error = %err, "frontend extension reconcile failed; requeueing");
     Action::requeue(Duration::from_secs(10))
+}
+
+fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
+    let Some(status) = status else {
+        return ObservedJobPhase::Pending;
+    };
+
+    if status.failed.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Failed;
+    }
+    if status.succeeded.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Succeeded;
+    }
+    if status.active.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Running;
+    }
+
+    if let Some(conditions) = &status.conditions {
+        for cond in conditions {
+            if cond.status != "True" {
+                continue;
+            }
+            if cond.type_ == "Failed" {
+                return ObservedJobPhase::Failed;
+            }
+            if cond.type_ == "Complete" {
+                return ObservedJobPhase::Succeeded;
+            }
+        }
+    }
+
+    ObservedJobPhase::Pending
+}
+
+fn extract_job_message(job: &Job) -> Option<String> {
+    let status = job.status.as_ref()?;
+    if let Some(conditions) = &status.conditions {
+        if let Some(cond) = conditions
+            .iter()
+            .find(|c| c.status == "True" && c.type_ == "Failed")
+        {
+            return cond.message.clone().or_else(|| cond.reason.clone());
+        }
+    }
+    None
+}
+
+fn base_owner_ref<T>(obj: &T) -> Option<OwnerReference>
+where
+    T: Resource<DynamicType = ()>,
+{
+    obj.controller_owner_ref(&())
+}
+
+async fn create_or_get_job(
+    job_api: &Api<Job>,
+    namespace: &str,
+    job: Job,
+    name: &str,
+) -> Result<Job, Error> {
+    match job_api.create(&PostParams::default(), &job).await {
+        Ok(created) => Ok(created),
+        Err(kube::Error::Api(ae)) if ae.code == 409 => {
+            Ok(job_api
+                .get(name)
+                .await
+                .with_context(|_| GetJobAfterConflictSnafu {
+                    namespace: namespace.to_string(),
+                    name: name.to_string(),
+                })?)
+        }
+        Err(err) => Err(Error::CreateJob {
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            source: err,
+        }),
+    }
 }
 
 async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<Action, Error> {
@@ -283,7 +496,7 @@ async fn sync_publish(
     fe: &FrontendExtension,
     job_api: &Api<Job>,
     namespace: &str,
-    config: &super::ControllerConfig,
+    config: &ControllerConfig,
     artifact: &PackageArtifactMetadata,
     artifact_cm: &ConfigMap,
 ) -> Result<PublishSync, Error> {
@@ -455,7 +668,7 @@ fn publish_already_finished(fe: &FrontendExtension, request: &PublishRequest) ->
 
 fn make_publish_job(
     fe: &FrontendExtension,
-    config: &super::ControllerConfig,
+    config: &ControllerConfig,
     job_name: &str,
     request: &PublishRequest,
     artifact: &PackageArtifactMetadata,
@@ -642,7 +855,7 @@ fn requeue_if_publish_running(publish: PublishSync, requeue_seconds: u64) -> Act
 
 fn make_package_job(
     fe: &FrontendExtension,
-    config: &super::ControllerConfig,
+    config: &ControllerConfig,
     job_name: &str,
     source_hash: &str,
     artifact_configmap_name: &str,

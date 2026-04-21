@@ -3,13 +3,13 @@ members = [
   "crates/common",
   "crates/api",
   "crates/manifest",
-  "crates/extension-package",
+  "crates/extension-package-core",
+  "crates/frontend-extension-controller",
   "crates/extension-packager",
   "crates/extension-publisher",
-  "crates/extension-api",
-  "crates/controller",
-  "crates/controller-bin",
-  "crates/runner",
+  "crates/frontend-forge-extension-api",
+  "crates/frontend-forge-controller",
+  "crates/frontend-forge-runner",
   "xtask",
 ]
 resolver = "2"

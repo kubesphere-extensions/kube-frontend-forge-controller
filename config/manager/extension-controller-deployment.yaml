@@ -16,10 +16,8 @@ spec:
       serviceAccountName: frontend-extension-controller
       containers:
         - name: extension-controller
-          image: ghcr.io/example/frontend-forge-controller:latest
+          image: ghcr.io/example/frontend-extension-controller:latest
           imagePullPolicy: IfNotPresent
-          command:
-            - /usr/local/bin/frontend-extension-controller
           env:
             - name: PACKAGER_IMAGE
               value: spike2044/frontend-forge-extension-packager:latest

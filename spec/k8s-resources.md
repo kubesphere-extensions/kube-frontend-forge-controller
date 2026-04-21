@@ -2,7 +2,7 @@
 
 本文基于仓库最新 `main` 分支扫描以下范围汇总：
 
-- 运行时代码：`crates/api`、`crates/controller`、`crates/runner`、`crates/manifest`
+- 运行时代码：`crates/api`、`crates/frontend-forge-controller`、`crates/frontend-forge-runner`、`crates/manifest`
 - 交付清单：`config/**`
 - 调试脚本：`scripts/dev-webhook.sh`
 - 样例与设计文档：`config/samples/**`、`README.md`、`spec/**`
@@ -30,9 +30,9 @@
 补充说明：
 
 - `FrontendIntegration` 的类型与 CRD 生成逻辑在 `crates/api/src/lib.rs`。
-- controller 的主要 runtime 入口在 `crates/controller/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<Job>`、`Api::<JSBundle>`。
-- runner 的主要 runtime 入口在 `crates/runner/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<ConfigMap>`、`Api::<JSBundle>`。
-- webhook 的 HTTP 校验逻辑在 `crates/controller/src/webhook.rs`，校验对象是 `AdmissionReview<FrontendIntegration>`。
+- controller 的主要 runtime 入口在 `crates/frontend-forge-controller/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<Job>`、`Api::<JSBundle>`。
+- runner 的主要 runtime 入口在 `crates/frontend-forge-runner/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<ConfigMap>`、`Api::<JSBundle>`。
+- webhook 的 HTTP 校验逻辑在 `crates/frontend-forge-controller/src/webhook.rs`，校验对象是 `AdmissionReview<FrontendIntegration>`。
 
 ## 2. 仓库部署清单直接安装的资源
 

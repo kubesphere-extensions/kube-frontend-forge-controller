@@ -525,6 +525,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "frontend-extension-controller"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "frontend-forge-api",
+ "frontend-forge-common",
+ "frontend-forge-extension-package-core",
+ "frontend-forge-manifest",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "kube-runtime",
+ "rustls",
+ "serde_json",
+ "snafu",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "frontend-forge-api"
 version = "0.1.0"
 dependencies = [
@@ -557,7 +578,6 @@ dependencies = [
  "chrono",
  "frontend-forge-api",
  "frontend-forge-common",
- "frontend-forge-extension-package",
  "frontend-forge-manifest",
  "futures",
  "k8s-openapi",
@@ -572,14 +592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "frontend-forge-controller-bin"
-version = "0.1.0"
-dependencies = [
- "frontend-forge-controller",
- "tokio",
-]
-
-[[package]]
 name = "frontend-forge-extension-api"
 version = "0.1.0"
 dependencies = [
@@ -587,7 +599,7 @@ dependencies = [
  "chrono",
  "frontend-forge-api",
  "frontend-forge-common",
- "frontend-forge-extension-package",
+ "frontend-forge-extension-package-core",
  "k8s-openapi",
  "kube",
  "rustls",
@@ -601,7 +613,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "frontend-forge-extension-package"
+name = "frontend-forge-extension-package-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -624,7 +636,7 @@ dependencies = [
  "chrono",
  "frontend-forge-api",
  "frontend-forge-common",
- "frontend-forge-extension-package",
+ "frontend-forge-extension-package-core",
  "k8s-openapi",
  "kube",
  "serde_yaml",
