@@ -67,7 +67,7 @@ pub(super) fn render_v1_manifest(
 
 #[derive(Clone, Debug)]
 enum ResolvedTopMenu {
-    Page(ResolvedPageBinding),
+    Page(Box<ResolvedPageBinding>),
     Organization {
         menu: ResolvedOrganizationMenu,
         children: Vec<ResolvedPageBinding>,
@@ -132,7 +132,7 @@ fn resolve_spec(
                     &mut bound_page_keys,
                     &mut bound_page_bindings,
                 )?;
-                resolved.push(ResolvedTopMenu::Page(ResolvedPageBinding {
+                resolved.push(ResolvedTopMenu::Page(Box::new(ResolvedPageBinding {
                     title: menu.display_name.clone(),
                     icon: menu.icon.clone(),
                     placement: menu.placement,
@@ -140,7 +140,7 @@ fn resolve_spec(
                     menu_name: top_menu_name,
                     parent: menu.placement.as_str().to_string(),
                     page,
-                }));
+                })));
             }
             MenuNodeType::Organization => {
                 let top_menu_name = menu_name_for_suffix(route_namespace, fi_name, &menu.key);

@@ -325,6 +325,24 @@ impl FrontendIntegrationSpec {
     }
 }
 
+impl MenuPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MenuPlacement::Global => "global",
+            MenuPlacement::Workspace => "workspace",
+            MenuPlacement::Cluster => "cluster",
+        }
+    }
+
+    pub fn route_prefix(self) -> &'static str {
+        match self {
+            MenuPlacement::Cluster => "/clusters/:cluster",
+            MenuPlacement::Workspace => "/workspaces/:workspace",
+            MenuPlacement::Global => "",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -670,23 +688,5 @@ spec:
             last_error["properties"]["occurred_at"]["format"],
             "date-time"
         );
-    }
-}
-
-impl MenuPlacement {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            MenuPlacement::Global => "global",
-            MenuPlacement::Workspace => "workspace",
-            MenuPlacement::Cluster => "cluster",
-        }
-    }
-
-    pub fn route_prefix(self) -> &'static str {
-        match self {
-            MenuPlacement::Cluster => "/clusters/:cluster",
-            MenuPlacement::Workspace => "/workspaces/:workspace",
-            MenuPlacement::Global => "",
-        }
     }
 }

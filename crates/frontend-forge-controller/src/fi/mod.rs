@@ -131,16 +131,16 @@ async fn reconcile(fi: Arc<FrontendIntegration>, ctx: Arc<ContextData>) -> Resul
         )));
     }
 
-    let action = sync_status_from_children(
-        &fi,
-        &fi_api,
-        &job_api,
-        &bundle_api,
-        &work_ns,
-        &desired_bundle_name,
-        &spec_hash,
-        ctx.config.reconcile_requeue_seconds,
-    )
+    let action = sync_status_from_children(ChildSync {
+        fi: &fi,
+        fi_api: &fi_api,
+        job_api: &job_api,
+        bundle_api: &bundle_api,
+        namespace: &work_ns,
+        bundle_name: &desired_bundle_name,
+        spec_hash: &spec_hash,
+        requeue_seconds: ctx.config.reconcile_requeue_seconds,
+    })
     .await?;
 
     Ok(action)
@@ -193,16 +193,28 @@ fn should_reuse_build_job(
     }
 }
 
-async fn sync_status_from_children(
-    fi: &FrontendIntegration,
-    fi_api: &Api<FrontendIntegration>,
-    job_api: &Api<Job>,
-    bundle_api: &Api<JSBundle>,
-    namespace: &str,
-    bundle_name: &str,
-    spec_hash: &str,
+struct ChildSync<'a> {
+    fi: &'a FrontendIntegration,
+    fi_api: &'a Api<FrontendIntegration>,
+    job_api: &'a Api<Job>,
+    bundle_api: &'a Api<JSBundle>,
+    namespace: &'a str,
+    bundle_name: &'a str,
+    spec_hash: &'a str,
     requeue_seconds: u64,
-) -> Result<Action, Error> {
+}
+
+async fn sync_status_from_children(ctx: ChildSync<'_>) -> Result<Action, Error> {
+    let ChildSync {
+        fi,
+        fi_api,
+        job_api,
+        bundle_api,
+        namespace,
+        bundle_name,
+        spec_hash,
+        requeue_seconds,
+    } = ctx;
     let fi_name = fi.name_any();
     let current_job = find_job_for_hash(job_api, namespace, &fi_name, spec_hash).await?;
 
@@ -585,7 +597,7 @@ async fn patch_jsbundle_owner_ref_if_needed(
         Err(source) => Err(Error::PatchJsBundle {
             namespace: "<cluster>".to_string(),
             name,
-            source,
+            source: Box::new(source),
         }),
     }
 }
@@ -623,7 +635,7 @@ async fn patch_jsbundle_enabled_label_if_needed(
         Err(source) => Err(Error::PatchJsBundle {
             namespace: "<cluster>".to_string(),
             name,
-            source,
+            source: Box::new(source),
         }),
     }
 }
@@ -662,14 +674,14 @@ async fn patch_jsbundle_state_if_needed(
                 Err(source) => Err(Error::PatchJsBundle {
                     namespace: "<cluster>".to_string(),
                     name,
-                    source,
+                    source: Box::new(source),
                 }),
             }
         }
         Err(source) => Err(Error::PatchJsBundle {
             namespace: "<cluster>".to_string(),
             name,
-            source,
+            source: Box::new(source),
         }),
     }
 }

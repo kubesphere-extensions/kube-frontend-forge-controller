@@ -40,30 +40,37 @@ enum Error {
         source: std::num::ParseIntError,
     },
     #[snafu(display("failed to initialize Kubernetes client in runner: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit {
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to read FrontendIntegration {namespace}/{name}: {source}"))]
     GetFrontendIntegration {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to upsert bundle ConfigMap {namespace}/{name}: {source}"))]
     UpsertBundleConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to upsert JSBundle {namespace}/{name}: {source}"))]
     UpsertJsBundle {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to patch JSBundle status {namespace}/{name}: {source}"))]
     PatchJsBundleStatus {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to render ExtensionManifest from FrontendIntegration: {source}"))]
     RenderManifest { source: ManifestRenderError },
@@ -569,7 +576,7 @@ async fn patch_jsbundle_status(
         Err(err) => Err(Error::PatchJsBundleStatus {
             namespace: "<cluster>".to_string(),
             name: cfg.jsbundle_name.clone(),
-            source: err,
+            source: Box::new(err),
         }),
     }
 }

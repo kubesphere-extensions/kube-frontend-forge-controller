@@ -26,9 +26,16 @@ enum Error {
         source: std::env::VarError,
     },
     #[snafu(display("failed to initialize Kubernetes client in extension packager: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit {
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to get FrontendExtension {name}: {source}"))]
-    GetFrontendExtension { name: String, source: kube::Error },
+    GetFrontendExtension {
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display(
         "FrontendExtension {name} source hash changed while packaging: expected {expected}, \
          observed {observed}"
@@ -47,19 +54,22 @@ enum Error {
     CreateArtifactConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get existing artifact ConfigMap {namespace}/{name}: {source}"))]
     GetArtifactConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to replace artifact ConfigMap {namespace}/{name}: {source}"))]
     ReplaceArtifactConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
 }
 
@@ -211,14 +221,14 @@ async fn upsert_configmap(
         Err(source) => Err(Error::CreateArtifactConfigMap {
             namespace: cfg.artifact_configmap_namespace.clone(),
             name: cfg.artifact_configmap_name.clone(),
-            source,
+            source: Box::new(source),
         }),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use frontend_forge_extension_package_core::PackageFile;
+    use frontend_forge_extension_package_core::{PACKAGE_KEY, PackageFile};
 
     use super::*;
 

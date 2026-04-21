@@ -44,9 +44,16 @@ enum Error {
     #[snafu(display("failed to hash FrontendExtension package source: {source}"))]
     FrontendExtensionSourceHash { source: ExtensionPackageError },
     #[snafu(display("failed to initialize Kubernetes client: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit {
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to patch FrontendExtension status {name}: {source}"))]
-    PatchFrontendExtensionStatus { name: String, source: kube::Error },
+    PatchFrontendExtensionStatus {
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to serialize FrontendExtension status patch for {name}: {source}"))]
     SerializeFrontendExtensionStatusPatch {
         name: String,
@@ -62,31 +69,36 @@ enum Error {
         namespace: String,
         fe_name: String,
         source_hash: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get artifact ConfigMap {namespace}/{name}: {source}"))]
     GetArtifactConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
     CreateJob {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
     GetJobAfterConflict {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
     GetPublishJob {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
 }
 
@@ -280,7 +292,7 @@ async fn create_or_get_job(
         Err(err) => Err(Error::CreateJob {
             namespace: namespace.to_string(),
             name: name.to_string(),
-            source: err,
+            source: Box::new(err),
         }),
     }
 }
@@ -513,7 +525,7 @@ async fn sync_publish(
         Ok(request) => request,
         Err(status) => {
             return Ok(PublishSync {
-                status: Some(status),
+                status: Some(*status),
                 should_requeue: false,
             });
         }
@@ -562,34 +574,34 @@ fn publish_request(
     fe: &FrontendExtension,
     request_id: &str,
     current_artifact_digest: &str,
-) -> Result<PublishRequest, PublishStatus> {
+) -> Result<PublishRequest, Box<PublishStatus>> {
     let annos = fe.metadata.annotations.as_ref();
     let requested_digest = annos
         .and_then(|annos| annos.get(ANNO_PUBLISH_ARTIFACT_DIGEST))
         .filter(|digest| !digest.is_empty())
         .cloned()
         .ok_or_else(|| {
-            failed_publish_status(
+            Box::new(failed_publish_status(
                 request_id,
                 None,
                 "publish artifact digest annotation is required",
-            )
+            ))
         })?;
 
     if requested_digest != current_artifact_digest {
-        return Err(failed_publish_status(
+        return Err(Box::new(failed_publish_status(
             request_id,
             Some(requested_digest),
             "publish artifact digest does not match current ready artifact",
-        ));
+        )));
     }
 
     let target_ref = publish_target_ref(fe).ok_or_else(|| {
-        failed_publish_status(
+        Box::new(failed_publish_status(
             request_id,
             Some(current_artifact_digest.to_string()),
             "publish targetRef is required",
-        )
+        ))
     })?;
     let target_kind = annos
         .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))

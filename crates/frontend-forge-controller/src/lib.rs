@@ -22,24 +22,30 @@ pub enum Error {
     #[snafu(display("spec/hash error: {source}"))]
     Common { source: CommonError },
     #[snafu(display("failed to initialize Kubernetes client: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit {
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to patch FrontendIntegration status {namespace}/{name}: {source}"))]
     PatchFrontendIntegrationStatus {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to patch FrontendIntegration metadata {namespace}/{name}: {source}"))]
     PatchFrontendIntegrationMetadata {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get FrontendIntegration {namespace}/{name}: {source}"))]
     GetFrontendIntegration {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display(
         "failed to serialize FrontendIntegration status patch for {namespace}/{name}: {source}"
@@ -61,31 +67,36 @@ pub enum Error {
         namespace: String,
         fi_name: String,
         spec_hash: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get JSBundle {namespace}/{name}: {source}"))]
     GetJsBundle {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to patch JSBundle {namespace}/{name}: {source}"))]
     PatchJsBundle {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
     CreateJob {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
     GetJobAfterConflict {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("invalid WEBHOOK_ENABLED value '{value}': {source}"))]
     InvalidWebhookEnabled {
@@ -300,7 +311,7 @@ pub(crate) async fn create_or_get_job(
         Err(err) => Err(Error::CreateJob {
             namespace: namespace.to_string(),
             name: name.to_string(),
-            source: err,
+            source: Box::new(err),
         }),
     }
 }

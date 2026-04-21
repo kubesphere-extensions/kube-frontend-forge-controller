@@ -204,7 +204,6 @@ pub fn validate_frontend_extension(fe: &FrontendExtension) -> Result<(), Manifes
 #[cfg(test)]
 mod tests {
     use frontend_forge_api::FrontendExtension;
-    use serde_yaml;
 
     use super::*;
 

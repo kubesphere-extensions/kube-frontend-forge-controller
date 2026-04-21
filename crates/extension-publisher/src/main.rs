@@ -27,12 +27,16 @@ enum Error {
         source: std::env::VarError,
     },
     #[snafu(display("failed to initialize Kubernetes client in extension publisher: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit {
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to get artifact ConfigMap {namespace}/{name}: {source}"))]
     GetArtifactConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("artifact ConfigMap {namespace}/{name} is missing binaryData key {key}"))]
     MissingArtifactPackage {
@@ -56,13 +60,15 @@ enum Error {
     GetTargetConfigMap {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("failed to get target Secret {namespace}/{name}: {source}"))]
     GetTargetSecret {
         namespace: String,
         name: String,
-        source: kube::Error,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
     },
     #[snafu(display("unsupported publish target kind {kind}; expected ConfigMap or Secret"))]
     UnsupportedTargetKind { kind: String },
