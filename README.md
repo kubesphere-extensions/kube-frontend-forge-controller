@@ -237,6 +237,8 @@ REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh stop
 常用命令：
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask gen-crd
 ```
