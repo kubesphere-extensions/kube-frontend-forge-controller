@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::fi::{PageSpec, PrimaryMenuSpec};
 
-#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[kube(
     group = "frontend-forge.kubesphere.io",
     version = "v1alpha1",
@@ -28,7 +28,7 @@ pub struct FrontendExtensionSpec {
     pub publish_policy: Option<PublishPolicySpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct FrontendExtensionPackageSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -95,13 +95,13 @@ pub struct ExtensionDependencySpec {
     pub tags: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct ExtensionChartsSpec {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub values: BTreeMap<String, Value>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct FrontendExtensionSourceSpec {
     #[serde(rename = "type")]
     pub type_: FrontendExtensionSourceType,
@@ -114,7 +114,7 @@ pub enum FrontendExtensionSourceType {
     Inline,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct InlineFrontendExtensionSourceSpec {
     #[serde(rename = "schemaVersion")]
     pub schema_version: String,
@@ -127,7 +127,7 @@ pub struct InlineFrontendExtensionSourceSpec {
     pub extension_resources: Option<ExtensionResourcesSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct FrontendExtensionFrontendSpec {
     #[serde(
         default,
@@ -143,7 +143,7 @@ pub struct FrontendExtensionFrontendSpec {
     pub pages: Vec<PageSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct ExtensionResourcesSpec {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "jsBundle")]
     pub js_bundle: Option<ExtensionJsBundleSpec>,
@@ -155,12 +155,12 @@ pub struct ExtensionResourcesSpec {
     pub role_templates: Vec<RoleTemplateSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ExtensionJsBundleSpec {
     pub name: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct RoleTemplateSpec {
     pub name: String,
     #[serde(rename = "displayName")]
@@ -179,7 +179,7 @@ pub struct RoleTemplateRuleSpec {
     pub verbs: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PublishPolicySpec {
     pub mode: PublishPolicyMode,
     #[serde(
@@ -234,7 +234,7 @@ pub enum PublishPhase {
     Failed,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct FrontendExtensionStatus {
     #[serde(default)]
     pub phase: FrontendExtensionPhase,
@@ -266,7 +266,7 @@ pub struct FrontendExtensionStatus {
     pub conditions: Vec<ExtensionCondition>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ExtensionArtifactStatus {
     pub storage: ArtifactStorageStatus,
     pub digest: String,
@@ -281,7 +281,7 @@ pub struct ExtensionArtifactStatus {
     pub source_hash: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ArtifactStorageStatus {
     pub kind: ArtifactStorageKind,
     #[serde(rename = "ref")]

@@ -379,7 +379,7 @@ fn render_organization_menu(menu: &ResolvedOrganizationMenu) -> Value {
 }
 
 fn menu_icon(icon: Option<&String>) -> &str {
-    icon.map(String::as_str).unwrap_or(DEFAULT_MENU_ICON)
+    icon.map_or(DEFAULT_MENU_ICON, String::as_str)
 }
 
 fn route_tail(route_namespace: &str, fi_name: &str, suffix: &str) -> String {
@@ -537,7 +537,7 @@ fn crd_create_initial_value(crd: &CrdTablePageSpec) -> Value {
     Value::Object(initial)
 }
 
-fn crd_page_state_type(placement: MenuPlacement) -> &'static str {
+const fn crd_page_state_type(placement: MenuPlacement) -> &'static str {
     match placement {
         MenuPlacement::Workspace => "workspace-crd-page-state",
         _ => "crd-page-state",
@@ -567,7 +567,7 @@ fn crd_page_config(crd: &CrdTablePageSpec) -> Value {
     Value::Object(config)
 }
 
-fn crd_page_scope(crd: &CrdTablePageSpec) -> &'static str {
+const fn crd_page_scope(crd: &CrdTablePageSpec) -> &'static str {
     match crd.scope {
         CrdScope::Namespaced => "namespace",
         CrdScope::Cluster => "cluster",
@@ -595,7 +595,7 @@ fn transform_columns(columns: &[ColumnSpec]) -> Vec<Value> {
             out.insert(
                 "render".to_string(),
                 json!({
-                  "type": render_type_str(&col.render.type_),
+                  "type": render_type_str(col.render.type_),
                   "path": col.render.path,
                   "payload": Value::Object(payload),
                 }),
@@ -615,7 +615,7 @@ fn payload_object(payload: Option<&Map<String, Value>>) -> Map<String, Value> {
     payload.cloned().unwrap_or_default()
 }
 
-fn render_type_str(t: &ColumnRenderType) -> &'static str {
+const fn render_type_str(t: ColumnRenderType) -> &'static str {
     match t {
         ColumnRenderType::Text => "text",
         ColumnRenderType::Time => "time",

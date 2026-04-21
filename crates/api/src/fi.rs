@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[kube(
     group = "frontend-forge.kubesphere.io",
     version = "v1alpha1",
@@ -34,7 +34,7 @@ pub struct FrontendIntegrationSpec {
     pub builder: Option<BuilderSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct BuilderSpec {
     #[serde(
         default,
@@ -44,7 +44,7 @@ pub struct BuilderSpec {
     pub engine_version: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PrimaryMenuSpec {
     #[serde(rename = "displayName")]
     pub display_name: String,
@@ -58,7 +58,7 @@ pub struct PrimaryMenuSpec {
     pub children: Vec<SecondaryMenuSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct SecondaryMenuSpec {
     #[serde(rename = "displayName")]
     pub display_name: String,
@@ -67,14 +67,14 @@ pub struct SecondaryMenuSpec {
     pub icon: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MenuNodeType {
     Page,
     Organization,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PageSpec {
     pub key: String,
     #[serde(rename = "type")]
@@ -85,7 +85,7 @@ pub struct PageSpec {
     pub iframe: Option<IframePageSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum PageType {
     #[serde(rename = "crdTable")]
     #[schemars(rename = "crdTable")]
@@ -95,13 +95,13 @@ pub enum PageType {
     Iframe,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct IframePageSpec {
     #[serde(alias = "url")]
     pub src: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct CrdTablePageSpec {
     pub names: CrdNamesSpec,
     pub group: String,
@@ -113,20 +113,20 @@ pub struct CrdTablePageSpec {
     pub columns: Vec<ColumnSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct CrdNamesSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     pub plural: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub enum CrdScope {
     Namespaced,
     Cluster,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ColumnSpec {
     pub key: String,
     pub title: String,
@@ -145,7 +145,7 @@ pub struct ColumnSpec {
     pub enable_hiding: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ColumnRenderSpec {
     #[serde(rename = "type")]
     pub type_: ColumnRenderType,
@@ -160,7 +160,7 @@ pub struct ColumnRenderSpec {
     pub payload: Option<Map<String, Value>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ColumnRenderType {
     Text,
@@ -228,7 +228,7 @@ pub struct SimpleCondition {
     pub last_transition_time: Option<DateTime<Utc>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct FrontendIntegrationStatus {
     #[serde(default)]
     pub phase: FrontendIntegrationPhase,
@@ -255,7 +255,7 @@ pub struct FrontendIntegrationStatus {
     pub conditions: Vec<SimpleCondition>,
 }
 
-#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[kube(
     group = "extensions.kubesphere.io",
     version = "v1alpha1",
@@ -270,7 +270,7 @@ pub struct JsBundleSpec {
     pub raw_from: Option<JsBundleRawFromSpec>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct JsBundleRawFromSpec {
     #[serde(
         default,
@@ -288,7 +288,7 @@ pub struct JsBundleRawFromSpec {
     pub url: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct JsBundleNamespacedKeyRef {
     pub key: String,
     pub name: String,
@@ -297,7 +297,7 @@ pub struct JsBundleNamespacedKeyRef {
     pub optional: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct JsBundleStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
@@ -308,16 +308,19 @@ pub struct JsBundleStatus {
 }
 
 impl FrontendIntegrationSpec {
+    #[must_use]
     pub fn enabled(&self) -> bool {
         self.enabled.unwrap_or(true)
     }
 
+    #[must_use]
     pub fn without_enabled(&self) -> Self {
         let mut spec = self.clone();
         spec.enabled = None;
         spec
     }
 
+    #[must_use]
     pub fn engine_version(&self) -> Option<&str> {
         self.builder
             .as_ref()
@@ -326,19 +329,21 @@ impl FrontendIntegrationSpec {
 }
 
 impl MenuPlacement {
-    pub fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
-            MenuPlacement::Global => "global",
-            MenuPlacement::Workspace => "workspace",
-            MenuPlacement::Cluster => "cluster",
+            Self::Global => "global",
+            Self::Workspace => "workspace",
+            Self::Cluster => "cluster",
         }
     }
 
-    pub fn route_prefix(self) -> &'static str {
+    #[must_use]
+    pub const fn route_prefix(self) -> &'static str {
         match self {
-            MenuPlacement::Cluster => "/clusters/:cluster",
-            MenuPlacement::Workspace => "/workspaces/:workspace",
-            MenuPlacement::Global => "",
+            Self::Cluster => "/clusters/:cluster",
+            Self::Workspace => "/workspaces/:workspace",
+            Self::Global => "",
         }
     }
 }

@@ -70,14 +70,17 @@ pub fn canonical_json_string(value: &Value) -> Result<String, CommonError> {
     serde_json::to_string(&canonicalize_json(value)).context(SerializeSnafu)
 }
 
+#[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
 }
 
+#[must_use]
 pub fn manifest_hash_from_content(content: &str) -> String {
-    format!("sha256:{}", sha256_hex(content.as_bytes()))
+    let hash = sha256_hex(content.as_bytes());
+    format!("sha256:{hash}")
 }
 
 pub fn manifest_content_and_hash(source: &Value) -> Result<(String, String), CommonError> {
@@ -102,11 +105,13 @@ where
     Ok(hash)
 }
 
+#[must_use]
 pub fn hash_short(hash: &str) -> String {
     let trimmed = hash.strip_prefix("sha256:").unwrap_or(hash);
     trimmed.chars().take(8).collect()
 }
 
+#[must_use]
 pub fn hash_label_value(hash: &str) -> String {
     let trimmed = hash.strip_prefix("sha256:").unwrap_or(hash);
     if trimmed.is_empty() {
@@ -115,50 +120,58 @@ pub fn hash_label_value(hash: &str) -> String {
     trimmed.chars().take(63).collect()
 }
 
+#[must_use]
 pub fn default_bundle_name(fi_name: &str) -> String {
-    bounded_name(&format!("fi-{}", fi_name), 63)
+    bounded_name(&format!("fi-{fi_name}"), 63)
 }
 
+#[must_use]
 pub fn default_cluster_bundle_name(fi_namespace: &str, fi_name: &str) -> String {
-    bounded_name(&format!("fi-{}-{}", fi_namespace, fi_name), 63)
+    bounded_name(&format!("fi-{fi_namespace}-{fi_name}"), 63)
 }
 
+#[must_use]
 pub fn job_name(fi_name: &str, manifest_hash: &str) -> String {
     bounded_name(
-        &format!("fi-{}-build-{}", fi_name, hash_short(manifest_hash)),
+        &format!("fi-{fi_name}-build-{}", hash_short(manifest_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn package_job_name(fe_name: &str, source_hash: &str) -> String {
     bounded_name(
-        &format!("fe-{}-package-{}", fe_name, hash_short(source_hash)),
+        &format!("fe-{fe_name}-package-{}", hash_short(source_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn publish_job_name(fe_name: &str, request_id: &str) -> String {
     let request_hash = format!("sha256:{}", sha256_hex(request_id.as_bytes()));
     bounded_name(
-        &format!("fe-{}-publish-{}", fe_name, hash_short(&request_hash)),
+        &format!("fe-{fe_name}-publish-{}", hash_short(&request_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn artifact_configmap_name(package_name: &str, source_hash: &str) -> String {
     bounded_name(
-        &format!("fe-{}-{}", package_name, hash_short(source_hash)),
+        &format!("fe-{package_name}-{}", hash_short(source_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn secret_name(fi_name: &str, manifest_hash: &str, nonce: &str) -> String {
     bounded_name(
-        &format!("fi-{}-mf-{}-{}", fi_name, hash_short(manifest_hash), nonce),
+        &format!("fi-{fi_name}-mf-{}-{nonce}", hash_short(manifest_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn bounded_name(raw: &str, max_len: usize) -> String {
     let sanitized = raw
         .chars()
@@ -198,12 +211,13 @@ pub fn bounded_name(raw: &str, max_len: usize) -> String {
     truncated
 }
 
+#[must_use]
 pub fn time_nonce() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let val = (nanos % (36u128.pow(4))) as u32;
+    let val = u32::try_from(nanos % (36u128.pow(4))).unwrap_or(0);
     base36_pad4(val)
 }
 

@@ -164,9 +164,7 @@ fn needs_new_build(fi: &FrontendIntegration, spec_hash: &str, bundle: Option<&JS
             phase,
             Some(FrontendIntegrationPhase::Building | FrontendIntegrationPhase::Failed)
         )
-        && !bundle
-            .map(|bundle| bundle_matches_spec_hash(bundle, spec_hash))
-            .unwrap_or(false);
+        && !bundle.is_some_and(|bundle| bundle_matches_spec_hash(bundle, spec_hash));
 
     hash_changed || pending_initial || missing_matching_bundle
 }
@@ -180,9 +178,8 @@ fn should_reuse_build_job(
     match observed_job_phase(job.status.as_ref()) {
         ObservedJobPhase::Pending | ObservedJobPhase::Running => true,
         ObservedJobPhase::Succeeded => {
-            let bundle_ready = bundle
-                .map(|bundle| bundle_matches_spec_hash(bundle, spec_hash))
-                .unwrap_or(false);
+            let bundle_ready =
+                bundle.is_some_and(|bundle| bundle_matches_spec_hash(bundle, spec_hash));
             bundle_ready
                 && !matches!(
                     fi.status.as_ref().map(|s| s.phase.clone()),
@@ -390,8 +387,7 @@ fn bundle_matches_spec_hash(bundle: &JSBundle, spec_hash: &str) -> bool {
         .labels
         .as_ref()
         .and_then(|labels| labels.get(LABEL_SPEC_HASH))
-        .map(|v| v == &expected)
-        .unwrap_or(false)
+        .is_some_and(|v| v == &expected)
 }
 
 fn labels_for(fi_name: &str, spec_hash: &str) -> BTreeMap<String, String> {
@@ -421,7 +417,7 @@ fn make_build_job(
     let env = vec![
         EnvVar {
             name: "FI_NAME".to_string(),
-            value: Some(fi_name.clone()),
+            value: Some(fi_name),
             ..Default::default()
         },
         EnvVar {
@@ -512,7 +508,7 @@ async fn get_bundle_opt(bundle_api: &Api<JSBundle>, name: &str) -> Result<Option
         })
 }
 
-fn enabled_label_value(enabled: bool) -> &'static str {
+const fn enabled_label_value(enabled: bool) -> &'static str {
     if enabled { "true" } else { "false" }
 }
 
@@ -795,7 +791,7 @@ fn bundle_manifest_hash(bundle: &JSBundle) -> Option<String> {
             if v.starts_with("sha256:") {
                 v.clone()
             } else {
-                format!("sha256:{}", v)
+                format!("sha256:{v}")
             }
         })
 }

@@ -15,12 +15,11 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    match env::args().nth(1).as_deref() {
-        Some("gen-crd") => gen_crd(),
-        _ => {
-            eprintln!("usage: cargo xtask gen-crd");
-            process::exit(2);
-        }
+    if env::args().nth(1).as_deref() == Some("gen-crd") {
+        gen_crd()
+    } else {
+        eprintln!("usage: cargo xtask gen-crd");
+        process::exit(2);
     }
 }
 

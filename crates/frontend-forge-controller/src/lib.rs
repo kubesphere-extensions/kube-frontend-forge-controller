@@ -143,7 +143,7 @@ impl ControllerConfig {
         let work_namespace =
             env::var("WORK_NAMESPACE").unwrap_or_else(|_| "extension-frontend-forge".to_string());
         Self {
-            work_namespace: work_namespace.clone(),
+            work_namespace,
             runner_image: env::var("RUNNER_IMAGE")
                 .unwrap_or_else(|_| "spike2044/frontend-forge-runner:latest".to_string()),
             runner_service_account: env::var("RUNNER_SERVICE_ACCOUNT").ok(),
@@ -216,7 +216,7 @@ fn init_runtime(default_filter: &'static str) {
 async fn context_from_env() -> Result<Arc<ContextData>, Error> {
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
     Ok(Arc::new(ContextData {
-        client: client.clone(),
+        client,
         config: ControllerConfig::from_env(),
     }))
 }

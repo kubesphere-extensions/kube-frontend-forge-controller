@@ -28,7 +28,7 @@ use frontend_forge_extension_package_core::PACKAGE_KEY;
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::{
     Api, Client, ResourceExt,
-    api::{Patch, PatchParams, PostParams},
+    api::{ListParams, Patch, PatchParams, PostParams},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -77,7 +77,7 @@ impl ApiError {
         }
     }
 
-    fn kube(action: &str, source: kube::Error) -> Self {
+    fn kube(action: &str, source: &kube::Error) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("{action}: {source}"),
@@ -205,9 +205,9 @@ async fn list_extensions(
 ) -> Result<Json<FrontendExtensionListResponse>, ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
     let list = api
-        .list(&Default::default())
+        .list(&ListParams::default())
         .await
-        .map_err(|err| ApiError::kube("failed to list FrontendExtensions", err))?;
+        .map_err(|err| ApiError::kube("failed to list FrontendExtensions", &err))?;
     Ok(Json(FrontendExtensionListResponse {
         items: list.items.iter().map(extension_summary).collect(),
     }))
@@ -221,7 +221,7 @@ async fn create_extension(
     let created = api
         .create(&PostParams::default(), &extension)
         .await
-        .map_err(|err| ApiError::kube("failed to create FrontendExtension", err))?;
+        .map_err(|err| ApiError::kube("failed to create FrontendExtension", &err))?;
     Ok(Json(created))
 }
 
@@ -346,7 +346,7 @@ async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiEr
         kube::Error::Api(ae) if ae.code == 404 => {
             ApiError::not_found(format!("FrontendExtension {name} not found"))
         }
-        err => ApiError::kube("failed to get FrontendExtension", err),
+        err => ApiError::kube("failed to get FrontendExtension", &err),
     })
 }
 
@@ -423,7 +423,7 @@ async fn artifact_bytes(
     let cm = cm_api
         .get(&artifact.storage.ref_.name)
         .await
-        .map_err(|err| ApiError::kube("failed to get artifact ConfigMap", err))?;
+        .map_err(|err| ApiError::kube("failed to get artifact ConfigMap", &err))?;
     cm.binary_data
         .as_ref()
         .and_then(|data| data.get(key))
@@ -468,7 +468,7 @@ async fn patch_publish_request(
     });
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await
-        .map_err(|err| ApiError::kube("failed to patch publish request", err))?;
+        .map_err(|err| ApiError::kube("failed to patch publish request", &err))?;
     Ok(())
 }
 

@@ -327,7 +327,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         patch_fe_status(
             &fe_api,
             &fe,
-            failed_fe_status(&fe, &source_hash, None, "InvalidSource", err.to_string()),
+            failed_fe_status(&fe, &source_hash, None, "InvalidSource", &err.to_string()),
         )
         .await?;
         return Ok(Action::await_change());
@@ -343,7 +343,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         apply_publish_sync(&mut status, &publish);
         patch_fe_status(&fe_api, &fe, status).await?;
         return Ok(requeue_if_publish_running(
-            publish,
+            &publish,
             ctx.config.reconcile_requeue_seconds,
         ));
     }
@@ -369,7 +369,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                 patch_fe_status(
                     &fe_api,
                     &fe,
-                    failed_fe_status(&fe, &source_hash, Some(&job), "PackageFailed", message),
+                    failed_fe_status(&fe, &source_hash, Some(&job), "PackageFailed", &message),
                 )
                 .await?;
                 return Ok(Action::await_change());
@@ -391,7 +391,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                     apply_publish_sync(&mut status, &publish);
                     patch_fe_status(&fe_api, &fe, status).await?;
                     return Ok(requeue_if_publish_running(
-                        publish,
+                        &publish,
                         ctx.config.reconcile_requeue_seconds,
                     ));
                 }
@@ -516,7 +516,7 @@ async fn sync_publish(
 ) -> Result<PublishSync, Error> {
     let Some(request_id) = publish_request_id(fe) else {
         return Ok(PublishSync {
-            status: current_publish_for_artifact(fe, &artifact.digest),
+            status: Some(current_publish_for_artifact(fe, &artifact.digest)),
             should_requeue: false,
         });
     };
@@ -531,25 +531,24 @@ async fn sync_publish(
         }
     };
     let job_name = publish_job_name(&fe.name_any(), &request.request_id);
-    let job = match job_api
-        .get_opt(&job_name)
-        .await
-        .with_context(|_| GetPublishJobSnafu {
-            namespace: namespace.to_string(),
-            name: job_name.clone(),
-        })? {
-        Some(job) => job,
-        None => {
-            if publish_already_finished(fe, &request) {
-                return Ok(PublishSync {
-                    status: fe.status.as_ref().and_then(|status| status.publish.clone()),
-                    should_requeue: false,
-                });
-            }
-            let desired_job =
-                make_publish_job(fe, config, &job_name, &request, artifact, artifact_cm);
-            create_or_get_job(job_api, namespace, desired_job, &job_name).await?
+    let job = if let Some(job) =
+        job_api
+            .get_opt(&job_name)
+            .await
+            .with_context(|_| GetPublishJobSnafu {
+                namespace: namespace.to_string(),
+                name: job_name.clone(),
+            })? {
+        job
+    } else {
+        if publish_already_finished(fe, &request) {
+            return Ok(PublishSync {
+                status: fe.status.as_ref().and_then(|status| status.publish.clone()),
+                should_requeue: false,
+            });
         }
+        let desired_job = make_publish_job(fe, config, &job_name, &request, artifact, artifact_cm);
+        create_or_get_job(job_api, namespace, desired_job, &job_name).await?
     };
 
     let status = publish_status_from_job(&request, &job);
@@ -654,14 +653,11 @@ fn failed_publish_status(
     }
 }
 
-fn current_publish_for_artifact(
-    fe: &FrontendExtension,
-    artifact_digest: &str,
-) -> Option<PublishStatus> {
+fn current_publish_for_artifact(fe: &FrontendExtension, artifact_digest: &str) -> PublishStatus {
     let publish = fe.status.as_ref().and_then(|status| status.publish.clone());
     match publish {
-        Some(status) if status.artifact_digest.as_deref() == Some(artifact_digest) => Some(status),
-        _ => Some(PublishStatus::default()),
+        Some(status) if status.artifact_digest.as_deref() == Some(artifact_digest) => status,
+        _ => PublishStatus::default(),
     }
 }
 
@@ -669,7 +665,7 @@ fn publish_already_finished(fe: &FrontendExtension, request: &PublishRequest) ->
     fe.status
         .as_ref()
         .and_then(|status| status.publish.as_ref())
-        .map(|publish| {
+        .is_some_and(|publish| {
             publish.request_id.as_deref() == Some(request.request_id.as_str())
                 && publish.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
                 && matches!(
@@ -677,7 +673,6 @@ fn publish_already_finished(fe: &FrontendExtension, request: &PublishRequest) ->
                     PublishPhase::Succeeded | PublishPhase::Failed
                 )
         })
-        .unwrap_or(false)
 }
 
 fn make_publish_job(
@@ -724,7 +719,7 @@ fn make_publish_job(
     let env = vec![
         EnvVar {
             name: "FE_NAME".to_string(),
-            value: Some(fe_name.clone()),
+            value: Some(fe_name),
             ..Default::default()
         },
         EnvVar {
@@ -848,7 +843,7 @@ fn publish_status_from_job(request: &PublishRequest, job: &Job) -> PublishStatus
 }
 
 fn apply_publish_sync(status: &mut FrontendExtensionStatus, publish: &PublishSync) {
-    status.publish = publish.status.clone();
+    status.publish.clone_from(&publish.status);
     let generation = status.observed_generation;
     status
         .conditions
@@ -859,7 +854,7 @@ fn apply_publish_sync(status: &mut FrontendExtensionStatus, publish: &PublishSyn
     ));
 }
 
-fn requeue_if_publish_running(publish: PublishSync, requeue_seconds: u64) -> Action {
+fn requeue_if_publish_running(publish: &PublishSync, requeue_seconds: u64) -> Action {
     if publish.should_requeue {
         Action::requeue(Duration::from_secs(requeue_seconds))
     } else {
@@ -897,7 +892,7 @@ fn make_package_job(
     let env = vec![
         EnvVar {
             name: "FE_NAME".to_string(),
-            value: Some(fe_name.clone()),
+            value: Some(fe_name),
             ..Default::default()
         },
         EnvVar {
@@ -987,10 +982,8 @@ fn package_job_status(job: &Job) -> PackageJobStatus {
 
 fn k8s_time_to_chrono(time: &Time) -> Option<chrono::DateTime<Utc>> {
     let nanos = time.0.subsec_nanosecond();
-    if nanos < 0 {
-        return None;
-    }
-    chrono::DateTime::from_timestamp(time.0.as_second(), nanos as u32)
+    let nanos = u32::try_from(nanos).ok()?;
+    chrono::DateTime::from_timestamp(time.0.as_second(), nanos)
 }
 
 fn existing_package_job(fe: &FrontendExtension) -> Option<PackageJobStatus> {
@@ -1053,7 +1046,7 @@ fn ready_fe_status(
                 key: PACKAGE_KEY.to_string(),
             },
             digest: metadata.digest.clone(),
-            size_bytes: metadata.size_bytes as i64,
+            size_bytes: i64::try_from(metadata.size_bytes).unwrap_or(i64::MAX),
             media_type: metadata.media_type.clone(),
             filename: metadata.filename.clone(),
             generated_at: metadata.generated_at,
@@ -1080,7 +1073,7 @@ fn failed_fe_status(
     source_hash: &str,
     job: Option<&Job>,
     reason: &str,
-    message: String,
+    message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
     let publish = retained_publish_for_source(fe, source_hash);
@@ -1105,15 +1098,15 @@ fn failed_fe_status(
                     "True"
                 },
                 reason,
-                &message,
+                message,
                 generation,
             ),
-            fe_condition("ArtifactReady", "False", reason, &message, generation),
+            fe_condition("ArtifactReady", "False", reason, message, generation),
             fe_condition(
                 "DownloadReady",
                 "False",
                 "ArtifactNotReady",
-                &message,
+                message,
                 generation,
             ),
             fe_publish_condition_from_status(publish.as_ref(), generation),

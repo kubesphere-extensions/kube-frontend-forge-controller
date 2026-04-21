@@ -81,7 +81,7 @@ pub enum ManifestRenderError {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrontendRenderInput {
     pub name: String,
     pub display_name: Option<String>,

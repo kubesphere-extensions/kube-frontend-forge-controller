@@ -118,8 +118,8 @@ async fn shutdown_signal() {
     let terminate = pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        () = ctrl_c => {},
+        () = terminate => {},
     }
 }
 
@@ -230,6 +230,8 @@ fn invalid_response<T: Resource>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use frontend_forge_api::{
         FrontendIntegrationSpec, IframePageSpec, MenuNodeType, MenuPlacement, PageSpec, PageType,
         PrimaryMenuSpec,
@@ -247,7 +249,7 @@ mod tests {
             },
             spec: FrontendIntegrationSpec {
                 display_name: None,
-                locales: Default::default(),
+                locales: BTreeMap::default(),
                 enabled: Some(true),
                 menus: vec![PrimaryMenuSpec {
                     display_name: "demo".to_string(),

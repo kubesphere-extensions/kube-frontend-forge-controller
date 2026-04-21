@@ -158,7 +158,7 @@ fn parse_env_u64(key: &'static str, default: u64) -> Result<u64, Error> {
     }
 }
 
-fn enabled_label_value(enabled: bool) -> &'static str {
+const fn enabled_label_value(enabled: bool) -> &'static str {
     if enabled { "true" } else { "false" }
 }
 
@@ -532,7 +532,7 @@ where
 }
 
 fn bundle_configmap_name(jsbundle_name: &str) -> String {
-    bounded_name(&format!("{}-config", jsbundle_name), 63)
+    bounded_name(&format!("{jsbundle_name}-config"), 63)
 }
 
 fn bundle_link(jsbundle_name: &str, bundle_key: &str) -> String {
@@ -649,7 +649,11 @@ fn select_bundle_artifact(
             if remote_files.len() == 1 {
                 Some(0)
             } else {
-                remote_files.iter().position(|f| f.path.ends_with(".js"))
+                remote_files.iter().position(|f| {
+                    std::path::Path::new(&f.path)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("js"))
+                })
             }
         })
         .ok_or_else(|| Error::MissingBundleArtifact {
@@ -663,7 +667,7 @@ fn select_bundle_artifact(
             .ok_or_else(|| Error::MissingBundleArtifact {
                 desired_key: desired_key.clone(),
             })?;
-    let content = decode_remote_file_to_utf8(&file)?;
+    let content = decode_remote_file_to_utf8(&file);
     let key = if file.path.contains('/') {
         desired_key
     } else {
@@ -672,8 +676,8 @@ fn select_bundle_artifact(
     Ok((key, content))
 }
 
-fn decode_remote_file_to_utf8(remote: &RemoteFile) -> Result<String, Error> {
-    Ok(remote.content.clone())
+fn decode_remote_file_to_utf8(remote: &RemoteFile) -> String {
+    remote.content.clone()
 }
 
 fn job_name_from_env() -> String {
@@ -729,7 +733,7 @@ mod tests {
             content: "console.log('ok')".to_string(),
         };
 
-        let decoded = decode_remote_file_to_utf8(&file).unwrap();
+        let decoded = decode_remote_file_to_utf8(&file);
         assert_eq!(decoded, "console.log('ok')");
     }
 

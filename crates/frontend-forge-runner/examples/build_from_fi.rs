@@ -113,10 +113,10 @@ fn parse_args() -> Result<CliArgs, DynError> {
     Ok(CliArgs {
         fi_yaml_path: PathBuf::from(&args[0]),
         base_url: args[1].clone(),
-        output_dir: args
-            .get(2)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("target/runner-example-output")),
+        output_dir: args.get(2).map_or_else(
+            || PathBuf::from("target/runner-example-output"),
+            PathBuf::from,
+        ),
         timeout_seconds,
     })
 }

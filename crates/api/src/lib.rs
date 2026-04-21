@@ -15,6 +15,7 @@ pub const JSBUNDLE_API_VERSION: &str = "v1alpha1";
 pub const RESOURCE_SERVED_LABEL_KEY: &str = "kubesphere.io/resource-served";
 pub const RESOURCE_SERVED_LABEL_VALUE: &str = "true";
 
+#[must_use]
 pub fn frontend_integration_crd()
 -> k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition {
     let mut crd = FrontendIntegration::crd();
@@ -22,6 +23,7 @@ pub fn frontend_integration_crd()
     crd
 }
 
+#[must_use]
 pub fn frontend_extension_crd()
 -> k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition {
     let mut crd = FrontendExtension::crd();

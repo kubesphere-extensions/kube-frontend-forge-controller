@@ -110,14 +110,15 @@ struct PublisherConfig {
 impl PublisherConfig {
     fn from_env() -> Result<Self, Error> {
         let request_id = required_env("PUBLISH_REQUEST_ID")?;
-        let workdir = env::var("PUBLISH_WORKDIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
+        let workdir = env::var("PUBLISH_WORKDIR").map_or_else(
+            |_| {
                 PathBuf::from(format!(
                     "/tmp/frontend-extension-publish-{}",
                     sha256_hex(request_id.as_bytes())
                 ))
-            });
+            },
+            PathBuf::from,
+        );
 
         Ok(Self {
             fe_name: required_env("FE_NAME")?,
@@ -406,8 +407,7 @@ fn run_ksbuilder_publish(
             status: output
                 .status
                 .code()
-                .map(|code| code.to_string())
-                .unwrap_or_else(|| "signal".to_string()),
+                .map_or_else(|| "signal".to_string(), |code| code.to_string()),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })

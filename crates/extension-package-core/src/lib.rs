@@ -236,6 +236,7 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     }
 }
 
+#[must_use]
 pub fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
     fe.spec
         .package
@@ -299,7 +300,7 @@ fn extension_resource_files(
         }
     }
 
-    if resources_missing(resources) {
+    if resources_missing(resources.as_ref()) {
         files.push(yaml_file(
             "resources/extension-resources.yaml",
             &json!({
@@ -312,11 +313,8 @@ fn extension_resource_files(
     Ok(files)
 }
 
-fn resources_missing(resources: &Option<ExtensionResourcesSpec>) -> bool {
-    resources
-        .as_ref()
-        .map(|r| r.js_bundle.is_none() && r.role_templates.is_empty())
-        .unwrap_or(true)
+fn resources_missing(resources: Option<&ExtensionResourcesSpec>) -> bool {
+    resources.is_none_or(|r| r.js_bundle.is_none() && r.role_templates.is_empty())
 }
 
 fn yaml_file<T>(path: &str, value: &T) -> Result<PackageFile, ExtensionPackageError>
