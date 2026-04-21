@@ -1,10 +1,21 @@
-use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
-use axum::http::{HeaderValue, Response, StatusCode};
-use axum::response::IntoResponse;
-use axum::routing::get;
-use axum::{Json, Router};
+use std::{
+    collections::BTreeMap,
+    env,
+    net::{AddrParseError, SocketAddr},
+    sync::Arc,
+};
+
+use axum::{
+    Json, Router,
+    body::Body,
+    extract::{Path, State},
+    http::{
+        HeaderValue, Response, StatusCode,
+        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
+    },
+    response::IntoResponse,
+    routing::get,
+};
 use frontend_forge_api::{
     ArtifactStorageKind, ExtensionArtifactStatus, FrontendExtension, FrontendExtensionPhase,
     NamespacedResourceRef, PublishStatus,
@@ -15,15 +26,13 @@ use frontend_forge_common::{
 };
 use frontend_forge_extension_package_core::PACKAGE_KEY;
 use k8s_openapi::api::core::v1::ConfigMap;
-use kube::api::{Patch, PatchParams, PostParams};
-use kube::{Api, Client, ResourceExt};
+use kube::{
+    Api, Client, ResourceExt,
+    api::{Patch, PatchParams, PostParams},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::env;
-use std::net::{AddrParseError, SocketAddr};
-use std::sync::Arc;
 use tracing::info;
 
 const API_PREFIX: &str = "/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions";
@@ -467,11 +476,12 @@ async fn patch_publish_request(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::{
         ArtifactStorageStatus, ExtensionDownloadStatus, FrontendExtensionStatus,
     };
     use kube::core::ObjectMeta;
+
+    use super::*;
 
     fn ready_fe() -> FrontendExtension {
         serde_yaml::from_str(

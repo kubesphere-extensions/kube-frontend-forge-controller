@@ -1,10 +1,12 @@
-use crate::fi::{PageSpec, PrimaryMenuSpec};
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+
+use crate::fi::{PageSpec, PrimaryMenuSpec};
 
 #[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[kube(
@@ -504,11 +506,11 @@ spec:
     fn generated_frontend_extension_crd_uses_publish_shape() {
         let crd = frontend_extension_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
-            ["spec"]["properties"];
+        let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+            ["properties"]["spec"]["properties"];
         let package = &spec_properties["package"];
-        let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
-            ["status"]["properties"];
+        let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+            ["properties"]["status"]["properties"];
 
         assert!(spec_properties.get("package").is_some());
         assert!(spec_properties.get("source").is_some());
@@ -532,8 +534,8 @@ spec:
     fn generated_frontend_extension_crd_requires_inline_source() {
         let crd = frontend_extension_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let source = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
-            ["properties"]["source"];
+        let source = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"]["source"];
         let required = source["required"].as_array().unwrap();
 
         assert!(required.contains(&Value::String("type".to_string())));

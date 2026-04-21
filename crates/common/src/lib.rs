@@ -1,9 +1,12 @@
+use std::{
+    collections::BTreeMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MANAGED_BY_VALUE: &str = "frontend-forge-builder-controller";
 pub const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
@@ -219,8 +222,9 @@ fn base36_pad4(mut n: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn canonical_hash_is_stable_for_object_key_order() {

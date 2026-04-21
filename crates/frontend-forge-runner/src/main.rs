@@ -1,3 +1,9 @@
+use std::{
+    collections::BTreeMap,
+    env,
+    time::{Duration, Instant},
+};
+
 use chrono::Utc;
 use frontend_forge_api::{
     FrontendIntegration, FrontendIntegrationPhase, JSBundle, JsBundleNamespacedKeyRef,
@@ -10,16 +16,14 @@ use frontend_forge_common::{
     hash_label_value, manifest_content_and_hash, serializable_content_and_hash, serializable_hash,
 };
 use frontend_forge_manifest::{ManifestRenderError, render_extension_manifest};
-use k8s_openapi::api::core::v1::ConfigMap;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::api::{Patch, PatchParams};
-use kube::{Api, Client, Resource, ResourceExt};
+use k8s_openapi::{api::core::v1::ConfigMap, apimachinery::pkg::apis::meta::v1::OwnerReference};
+use kube::{
+    Api, Client, Resource, ResourceExt,
+    api::{Patch, PatchParams},
+};
 use serde::Deserialize;
 use serde_json::json;
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::env;
-use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
@@ -671,12 +675,13 @@ fn job_name_from_env() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::{
         FrontendIntegrationSpec, IframePageSpec, MenuNodeType, MenuPlacement, PageSpec, PageType,
         PrimaryMenuSpec,
     };
     use kube::core::ObjectMeta;
+
+    use super::*;
 
     fn test_fi(name: &str) -> FrontendIntegration {
         FrontendIntegration {

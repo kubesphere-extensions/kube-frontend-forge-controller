@@ -1,16 +1,21 @@
+use std::{
+    collections::BTreeMap,
+    env,
+    ffi::OsString,
+    fs,
+    io::Cursor,
+    path::{Component, Path, PathBuf},
+    process::Command,
+};
+
 use flate2::read::GzDecoder;
 use frontend_forge_common::sha256_hex;
-use k8s_openapi::ByteString;
-use k8s_openapi::api::core::v1::{ConfigMap, Secret};
+use k8s_openapi::{
+    ByteString,
+    api::core::v1::{ConfigMap, Secret},
+};
 use kube::{Api, Client};
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::env;
-use std::ffi::OsString;
-use std::fs;
-use std::io::Cursor;
-use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use tar::Archive;
 use tracing::info;
 

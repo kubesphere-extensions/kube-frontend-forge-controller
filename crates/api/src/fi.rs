@@ -1,9 +1,10 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
 
 #[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[kube(
@@ -604,8 +605,8 @@ spec:
     fn generated_crd_drops_legacy_fields() {
         let crd = frontend_integration_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
-            ["spec"]["properties"];
+        let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+            ["properties"]["spec"]["properties"];
 
         assert!(spec_properties.get("locales").is_some());
         assert!(spec_properties.get("menus").is_some());
@@ -620,8 +621,9 @@ spec:
     fn generated_crd_allows_missing_crd_kind() {
         let crd = frontend_integration_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let names = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
-            ["properties"]["pages"]["items"]["properties"]["crdTable"]["properties"]["names"];
+        let names = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"]["pages"]["items"]["properties"]["crdTable"]["properties"]
+            ["names"];
         let required = names["required"].as_array().unwrap();
 
         assert_eq!(names["properties"]["kind"]["type"], "string");
@@ -632,8 +634,8 @@ spec:
     fn generated_crd_requires_crd_table_columns() {
         let crd = frontend_integration_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let crd_table = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
-            ["properties"]["pages"]["items"]["properties"]["crdTable"];
+        let crd_table = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"]["pages"]["items"]["properties"]["crdTable"];
         let required = crd_table["required"].as_array().unwrap();
 
         assert!(required.contains(&Value::String("columns".to_string())));
@@ -643,8 +645,8 @@ spec:
     fn generated_crd_allows_optional_menu_icons() {
         let crd = frontend_integration_crd();
         let schema = serde_json::to_value(&crd).unwrap();
-        let menus = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
-            ["properties"]["menus"]["items"]["properties"];
+        let menus = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+            ["spec"]["properties"]["menus"]["items"]["properties"];
         let child = &menus["children"]["items"]["properties"];
 
         assert_eq!(menus["icon"]["type"], "string");

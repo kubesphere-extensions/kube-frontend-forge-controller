@@ -1,12 +1,13 @@
 mod v1;
 
+use std::collections::BTreeMap;
+
 use frontend_forge_api::{
     FrontendExtension, FrontendExtensionSourceType, FrontendIntegration, PageSpec, PrimaryMenuSpec,
 };
 use kube::ResourceExt;
 use serde_json::Value;
 use snafu::Snafu;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Snafu)]
 pub enum ManifestRenderError {
@@ -150,7 +151,8 @@ fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
         .unwrap_or_else(|| fe.name_any())
 }
 
-// Rendering remains versioned so runner and webhook share the same validation semantics.
+// Rendering remains versioned so runner and webhook share the same validation
+// semantics.
 pub fn render_extension_manifest(fi: &FrontendIntegration) -> Result<Value, ManifestRenderError> {
     let input = FrontendRenderInput::from_frontend_integration(fi);
     let requested = fi.spec.engine_version().unwrap_or("v1").trim();
@@ -201,9 +203,10 @@ pub fn validate_frontend_extension(fe: &FrontendExtension) -> Result<(), Manifes
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::FrontendExtension;
     use serde_yaml;
+
+    use super::*;
 
     #[test]
     fn defaults_to_v1_renderer() {

@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, env, sync::Arc, time::Duration};
+
 use chrono::Utc;
 use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
@@ -18,19 +20,23 @@ use frontend_forge_extension_package_core::{
 };
 use frontend_forge_manifest::validate_frontend_extension;
 use futures::StreamExt;
-use k8s_openapi::api::batch::v1::{Job, JobSpec, JobStatus};
-use k8s_openapi::api::core::v1::{ConfigMap, Container, EnvVar, PodSpec, PodTemplateSpec};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{ObjectMeta, OwnerReference, Time};
-use kube::api::{ListParams, Patch, PatchParams, PostParams};
-use kube::{Api, Client, Resource, ResourceExt};
-use kube_runtime::controller::{Action, Controller};
-use kube_runtime::watcher;
+use k8s_openapi::{
+    api::{
+        batch::v1::{Job, JobSpec, JobStatus},
+        core::v1::{ConfigMap, Container, EnvVar, PodSpec, PodTemplateSpec},
+    },
+    apimachinery::pkg::apis::meta::v1::{ObjectMeta, OwnerReference, Time},
+};
+use kube::{
+    Api, Client, Resource, ResourceExt,
+    api::{ListParams, Patch, PatchParams, PostParams},
+};
+use kube_runtime::{
+    controller::{Action, Controller},
+    watcher,
+};
 use serde_json::json;
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::env;
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{error, info, warn};
 
 #[derive(Debug, Snafu)]
@@ -49,7 +55,8 @@ enum Error {
     #[snafu(display("serialized FrontendExtension status patch for {name} was not a JSON object"))]
     InvalidFrontendExtensionStatusPatchShape { name: String },
     #[snafu(display(
-        "failed to list package Jobs in {namespace} for FrontendExtension {fe_name} and sourceHash {source_hash}: {source}"
+        "failed to list package Jobs in {namespace} for FrontendExtension {fe_name} and \
+         sourceHash {source_hash}: {source}"
     ))]
     ListPackageJobsForHash {
         namespace: String,

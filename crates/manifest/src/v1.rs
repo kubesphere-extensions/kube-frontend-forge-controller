@@ -1,9 +1,10 @@
+use std::collections::{HashMap, HashSet};
+
 use frontend_forge_api::{
     ColumnRenderType, ColumnSpec, CrdScope, CrdTablePageSpec, MenuNodeType, MenuPlacement,
     PageSpec, PageType,
 };
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
 
 use crate::{FrontendRenderInput, ManifestRenderError};
 
@@ -638,8 +639,9 @@ fn render_locales(spec: &FrontendRenderInput) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::FrontendIntegration;
+
+    use super::*;
 
     fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, ManifestRenderError> {
         let input = FrontendRenderInput::from_frontend_integration(fi);

@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, io::Write};
+
 use chrono::{DateTime, Utc};
 use flate2::{Compression, GzBuilder};
 use frontend_forge_api::{
@@ -13,8 +15,6 @@ use kube::ResourceExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::io::Write;
 use tar::{Builder as TarBuilder, Header};
 
 pub const PACKAGE_KEY: &str = "package.tgz";
@@ -384,8 +384,9 @@ fn gzip_bytes(input: &[u8]) -> Result<Vec<u8>, ExtensionPackageError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::FrontendExtension;
+
+    use super::*;
 
     fn sample_fe() -> FrontendExtension {
         serde_yaml::from_str(

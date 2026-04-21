@@ -1,3 +1,5 @@
+use std::{env, future::pending, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
+
 use axum::{
     Json, Router,
     body::Bytes,
@@ -6,13 +8,14 @@ use axum::{
 use axum_server::{Handle, tls_rustls::RustlsConfig};
 use frontend_forge_api::FrontendIntegration;
 use frontend_forge_manifest::validate_frontend_integration;
-use kube::Resource;
-use kube::core::{
-    DynamicObject, Status,
-    admission::{AdmissionRequest, AdmissionResponse, AdmissionReview, Operation},
+use kube::{
+    Resource,
+    core::{
+        DynamicObject, Status,
+        admission::{AdmissionRequest, AdmissionResponse, AdmissionReview, Operation},
+    },
 };
 use snafu::ResultExt;
-use std::{env, future::pending, net::SocketAddr, path::PathBuf, str::FromStr, time::Duration};
 use tracing::{info, warn};
 
 use crate::{
@@ -227,13 +230,14 @@ fn invalid_response<T: Resource>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::{
         FrontendIntegrationSpec, IframePageSpec, MenuNodeType, MenuPlacement, PageSpec, PageType,
         PrimaryMenuSpec,
     };
     use kube::core::ObjectMeta;
     use serde_json::json;
+
+    use super::*;
 
     fn frontend_integration(name: &str) -> FrontendIntegration {
         FrontendIntegration {

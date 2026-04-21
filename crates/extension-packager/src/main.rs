@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, env};
+
 use chrono::Utc;
 use frontend_forge_api::FrontendExtension;
 use frontend_forge_common::{
@@ -9,14 +11,11 @@ use frontend_forge_extension_package_core::{
     ExtensionPackageArtifact, ExtensionPackageError, PACKAGE_KEY, build_extension_package,
     frontend_extension_source_hash,
 };
-use k8s_openapi::ByteString;
-use k8s_openapi::api::core::v1::ConfigMap;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::api::PostParams;
-use kube::{Api, Client, Resource};
+use k8s_openapi::{
+    ByteString, api::core::v1::ConfigMap, apimachinery::pkg::apis::meta::v1::ObjectMeta,
+};
+use kube::{Api, Client, Resource, api::PostParams};
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::env;
 use tracing::info;
 
 #[derive(Debug, Snafu)]
@@ -31,7 +30,8 @@ enum Error {
     #[snafu(display("failed to get FrontendExtension {name}: {source}"))]
     GetFrontendExtension { name: String, source: kube::Error },
     #[snafu(display(
-        "FrontendExtension {name} source hash changed while packaging: expected {expected}, observed {observed}"
+        "FrontendExtension {name} source hash changed while packaging: expected {expected}, \
+         observed {observed}"
     ))]
     SourceHashMismatch {
         name: String,
@@ -218,8 +218,9 @@ async fn upsert_configmap(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_extension_package_core::PackageFile;
+
+    use super::*;
 
     #[test]
     fn artifact_configmap_uses_binary_package_key() {

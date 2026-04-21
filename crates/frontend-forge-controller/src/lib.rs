@@ -1,16 +1,20 @@
 pub mod fi;
 pub mod webhook;
 
+use std::{
+    env,
+    net::{AddrParseError, SocketAddr},
+    str::ParseBoolError,
+    sync::Arc,
+};
+
 use frontend_forge_common::CommonError;
-use k8s_openapi::api::batch::v1::{Job, JobStatus};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::api::PostParams;
-use kube::{Api, Client, Resource};
+use k8s_openapi::{
+    api::batch::v1::{Job, JobStatus},
+    apimachinery::pkg::apis::meta::v1::OwnerReference,
+};
+use kube::{Api, Client, Resource, api::PostParams};
 use snafu::{ResultExt, Snafu};
-use std::env;
-use std::net::{AddrParseError, SocketAddr};
-use std::str::ParseBoolError;
-use std::sync::Arc;
 use tracing::info;
 
 #[derive(Debug, Snafu)]
@@ -50,7 +54,8 @@ pub enum Error {
     ))]
     InvalidFrontendIntegrationStatusPatchShape { namespace: String, name: String },
     #[snafu(display(
-        "failed to list Jobs in {namespace} for FrontendIntegration {fi_name} and specHash {spec_hash}: {source}"
+        "failed to list Jobs in {namespace} for FrontendIntegration {fi_name} and specHash \
+         {spec_hash}: {source}"
     ))]
     ListJobsForHash {
         namespace: String,

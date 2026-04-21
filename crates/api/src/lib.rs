@@ -1,11 +1,11 @@
 pub mod fe;
 pub mod fi;
 
+use std::collections::BTreeMap;
+
 pub use fe::*;
 pub use fi::*;
-
 use kube::CustomResourceExt;
-use std::collections::BTreeMap;
 
 pub const API_GROUP: &str = "frontend-forge.kubesphere.io";
 pub const API_VERSION: &str = "v1alpha1";

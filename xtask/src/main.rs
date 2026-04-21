@@ -1,5 +1,6 @@
-use frontend_forge_api::{frontend_extension_crd, frontend_integration_crd};
 use std::{env, error::Error, fs, path::PathBuf, process};
+
+use frontend_forge_api::{frontend_extension_crd, frontend_integration_crd};
 
 const FRONTEND_INTEGRATION_CRD_PATH: &str =
     "config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendintegrations.yaml";

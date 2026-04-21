@@ -1,10 +1,5 @@
-use super::{
-    CommonSnafu, ContextData, ControllerConfig, Error, GetFrontendIntegrationSnafu,
-    GetJsBundleSnafu, ListJobsForHashSnafu, ObservedJobPhase,
-    PatchFrontendIntegrationMetadataSnafu, PatchFrontendIntegrationStatusSnafu,
-    SerializeFrontendIntegrationStatusPatchSnafu, base_owner_ref, create_or_get_job,
-    extract_job_message, observed_job_phase,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
+
 use chrono::Utc;
 use frontend_forge_api::{
     FrontendIntegration, FrontendIntegrationPhase, FrontendIntegrationStatus, JSBundle,
@@ -16,19 +11,32 @@ use frontend_forge_common::{
     MANAGED_BY_VALUE, default_bundle_name, hash_label_value, job_name, serializable_hash,
 };
 use futures::StreamExt;
-use k8s_openapi::api::batch::v1::{Job, JobSpec};
-use k8s_openapi::api::core::v1::{Container, EnvVar, PodSpec, PodTemplateSpec};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use kube::api::{ListParams, Patch, PatchParams};
-use kube::{Api, Resource, ResourceExt};
-use kube_runtime::controller::{Action, Controller};
-use kube_runtime::watcher;
+use k8s_openapi::{
+    api::{
+        batch::v1::{Job, JobSpec},
+        core::v1::{Container, EnvVar, PodSpec, PodTemplateSpec},
+    },
+    apimachinery::pkg::apis::meta::v1::ObjectMeta,
+};
+use kube::{
+    Api, Resource, ResourceExt,
+    api::{ListParams, Patch, PatchParams},
+};
+use kube_runtime::{
+    controller::{Action, Controller},
+    watcher,
+};
 use serde_json::json;
 use snafu::ResultExt;
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Duration;
 use tracing::{error, info, warn};
+
+use super::{
+    CommonSnafu, ContextData, ControllerConfig, Error, GetFrontendIntegrationSnafu,
+    GetJsBundleSnafu, ListJobsForHashSnafu, ObservedJobPhase,
+    PatchFrontendIntegrationMetadataSnafu, PatchFrontendIntegrationStatusSnafu,
+    SerializeFrontendIntegrationStatusPatchSnafu, base_owner_ref, create_or_get_job,
+    extract_job_message, observed_job_phase,
+};
 
 const JSBUNDLE_STATE_AVAILABLE: &str = "Available";
 const JSBUNDLE_STATE_DISABLED: &str = "Disabled";
@@ -890,13 +898,14 @@ fn frontend_integration_status_patch(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use frontend_forge_api::{
         FrontendIntegrationSpec, IframePageSpec, LastBuildError, MenuNodeType, MenuPlacement,
         PageSpec, PageType, PrimaryMenuSpec,
     };
     use k8s_openapi::api::batch::v1::JobStatus;
     use kube::core::ObjectMeta;
+
+    use super::*;
 
     fn fi(name: &str, status: Option<FrontendIntegrationStatus>) -> FrontendIntegration {
         FrontendIntegration {

@@ -1,14 +1,17 @@
+use std::{
+    env,
+    error::Error,
+    fs,
+    path::{Component, Path, PathBuf},
+    time::Duration,
+};
+
 use frontend_forge_api::FrontendIntegration;
 use frontend_forge_common::manifest_content_and_hash;
 use frontend_forge_manifest::render_extension_manifest;
 use reqwest::header::CONTENT_TYPE;
 use serde::Deserialize;
 use serde_json::json;
-use std::env;
-use std::error::Error;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
@@ -96,7 +99,9 @@ fn parse_args() -> Result<CliArgs, DynError> {
     let args = env::args().skip(1).collect::<Vec<_>>();
     if args.len() < 2 || args.len() > 3 {
         return Err(
-            "usage: cargo run -p frontend-forge-runner --example build_from_fi -- <demo_fi.yaml> <build_service_base_url> [output_dir]".into(),
+            "usage: cargo run -p frontend-forge-runner --example build_from_fi -- <demo_fi.yaml> \
+             <build_service_base_url> [output_dir]"
+                .into(),
         );
     }
 
