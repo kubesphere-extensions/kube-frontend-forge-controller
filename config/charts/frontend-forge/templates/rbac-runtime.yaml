@@ -1,10 +1,10 @@
-{{- if .Values.frontendForgeController.enabled }}
+{{- if .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-forge-controller
+  name: {{ include "frontend-forge.fullname" . }}-controller
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "runtime-controller") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-controller") | nindent 4 }}
 rules:
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendintegrations"]
@@ -28,25 +28,24 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-forge-controller
+  name: {{ include "frontend-forge.fullname" . }}-controller
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "runtime-controller") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-controller") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-forge-controller
+  name: {{ include "frontend-forge.fullname" . }}-controller
 subjects:
   - kind: ServiceAccount
-    name: {{ include "frontend-forge.controllerServiceAccountName" . }}
+    name: {{ include "frontend-forge.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
-{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-forge-runner-fi-reader
+  name: {{ include "frontend-forge.fullname" . }}-runner
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
 rules:
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendintegrations"]
@@ -54,57 +53,6 @@ rules:
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendintegrations/status"]
     verbs: ["get", "patch", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: frontend-forge-runner-fi-reader
-  labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: frontend-forge-runner-fi-reader
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "frontend-forge.runnerServiceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: frontend-forge-runner-config-writer
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
-rules:
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "create", "patch", "update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: frontend-forge-runner-config-writer
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: frontend-forge-runner-config-writer
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "frontend-forge.runnerServiceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: frontend-forge-runner-jsbundle-writer
-  labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
-rules:
   - apiGroups: ["extensions.kubesphere.io"]
     resources: ["jsbundles"]
     verbs: ["get", "create", "patch", "update"]
@@ -115,14 +63,45 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-forge-runner-jsbundle-writer
+  name: {{ include "frontend-forge.fullname" . }}-runner
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-runner" "component" "runtime-runner") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-forge-runner-jsbundle-writer
+  name: {{ include "frontend-forge.fullname" . }}-runner
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.runnerServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+---
+{{- $workNamespace := default .Release.Namespace .Values.controller.workNamespace }}
+{{- $configNamespace := default $workNamespace .Values.controller.jsbundleConfigmapNamespace }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+  namespace: {{ $configNamespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+  namespace: {{ $configNamespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.runnerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

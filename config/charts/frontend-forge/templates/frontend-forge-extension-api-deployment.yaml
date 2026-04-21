@@ -1,47 +1,66 @@
-{{- if .Values.frontendForgeExtensionApi.enabled }}
+{{- if .Values.extensionApi.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-forge-extension-api
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.fullname" . }}-extension-api
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
 spec:
-  replicas: {{ .Values.frontendForgeExtensionApi.replicas }}
+  replicas: {{ .Values.extensionApi.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: frontend-forge-extension-api
-      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      {{- include "frontend-forge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: extension-api
   template:
     metadata:
+      {{- with .Values.extensionApi.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
-        {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 8 }}
+        {{- include "frontend-forge.labels" . | nindent 8 }}
+        app.kubernetes.io/component: extension-api
+        {{- with .Values.extensionApi.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "frontend-forge.extensionApiServiceAccountName" . }}
+      {{- with .Values.extensionApi.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend-forge-extension-api
-          image: {{ include "frontend-forge.image" .Values.frontendForgeExtensionApi.image | quote }}
-          imagePullPolicy: {{ .Values.frontendForgeExtensionApi.image.pullPolicy }}
+          {{- with .Values.extensionApi.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.extensionApi.image) | quote }}
+          imagePullPolicy: {{ .Values.extensionApi.image.pullPolicy }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           env:
             - name: EXTENSION_API_BIND_ADDR
-              value: {{ .Values.frontendForgeExtensionApi.bindAddr | quote }}
-          {{- with .Values.frontendForgeExtensionApi.resources }}
+              value: {{ .Values.extensionApi.bindAddr | quote }}
+          {{- with .Values.extensionApi.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.frontendForgeExtensionApi.nodeSelector }}
+      {{- with .Values.extensionApi.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.frontendForgeExtensionApi.affinity }}
+      {{- with .Values.extensionApi.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.frontendForgeExtensionApi.tolerations }}
+      {{- with .Values.extensionApi.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -49,17 +68,16 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: frontend-forge-extension-api
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.fullname" . }}-extension-api
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
 spec:
-  type: {{ .Values.frontendForgeExtensionApi.service.type }}
+  type: {{ .Values.extensionApi.service.type }}
   selector:
-    app.kubernetes.io/name: frontend-forge-extension-api
-    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- include "frontend-forge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: extension-api
   ports:
     - name: http
-      port: {{ .Values.frontendForgeExtensionApi.service.port }}
+      port: {{ .Values.extensionApi.service.port }}
       targetPort: http
 {{- end }}

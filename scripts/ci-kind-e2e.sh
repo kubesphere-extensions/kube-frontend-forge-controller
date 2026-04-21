@@ -100,22 +100,27 @@ install_chart() {
 crds:
   installJsBundle: true
 
-frontendForgeController:
-  image:
-    repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
-    tag: ""
-  runner:
-    image: ${FRONTEND_FORGE_RUNNER_IMAGE}
+image:
+  registry: ""
+  repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+  tag: ""
 
-frontendExtensionController:
+runner:
+  image:
+    registry: ""
+    repository: ${FRONTEND_FORGE_RUNNER_IMAGE}
+    tag: ""
+
+extensionController:
   enabled: false
 
-frontendForgeExtensionApi:
+extensionApi:
   enabled: false
 
 buildService:
   enabled: true
   image:
+    registry: ""
     repository: ${FRONTEND_FORGE_IMAGE}
     tag: ""
 EOF

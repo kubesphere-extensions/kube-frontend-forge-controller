@@ -78,12 +78,14 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
 
 | values 分组 | 职责 |
 | --- | --- |
-| `frontendForgeController` | FI runtime controller、runner Job 镜像、build-service 地址、runtime Job 参数。 |
-| `frontendForgeRunner` | runner ServiceAccount。 |
-| `frontendExtensionController` | FE package/publish controller、packager/publisher Job 镜像、artifact namespace。 |
-| `frontendForgeExtensionPackager` | package Job ServiceAccount。 |
-| `frontendForgeExtensionPublisher` | publish Job ServiceAccount。 |
-| `frontendForgeExtensionApi` | FE HTTP API Deployment / Service。 |
+| `global` | 全局镜像仓库和 imagePullSecrets。 |
+| `image` | FI runtime controller 镜像。 |
+| `controller` | FI work namespace、runner service account、build-service 地址、runtime Job 参数。 |
+| `runner` | FI build Job 镜像和 ServiceAccount。 |
+| `extensionController` | FE package/publish controller Deployment、artifact namespace、packager/publisher Job 覆盖项。 |
+| `extensionPackager` | package Job 镜像和 ServiceAccount。 |
+| `extensionPublisher` | publish Job 镜像和 ServiceAccount。 |
+| `extensionApi` | FE HTTP API Deployment / Service。 |
 | `webhook` | FI admission webhook、certgen 和 webhook TLS Secret。 |
 | `buildService` | 本地/e2e build-service stub。生产环境通常关闭。 |
 | `crds` | 条件 CRD，例如本地/e2e `JSBundle` CRD。 |
@@ -131,7 +133,7 @@ e2e 会开启：
 
 - `crds.installJsBundle=true`
 - `buildService.enabled=true`
-- `frontendExtensionController.enabled=false`
-- `frontendForgeExtensionApi.enabled=false`
+- `extensionController.enabled=false`
+- `extensionApi.enabled=false`
 
 FI 生命周期样例本身仍通过 `kubectl apply -f` 创建和修改，这是测试业务对象，不属于安装交付路径。

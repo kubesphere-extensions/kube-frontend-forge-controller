@@ -1,101 +1,155 @@
-nameOverride: ""
-fullnameOverride: ""
+# Default values for frontend-forge.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
 
-commonLabels: {}
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
 
-crds:
-  # FrontendIntegration and FrontendExtension CRDs are installed from chart crds/.
-  # JSBundle is owned by KubeSphere extensions. Enable this only for local/e2e clusters
-  # that do not already provide jsbundles.extensions.kubesphere.io.
-  installJsBundle: false
-
-frontendForgeController:
-  enabled: true
-  replicas: 1
-  image:
-    repository: ghcr.io/example/frontend-forge-controller
-    tag: latest
-    pullPolicy: IfNotPresent
-  serviceAccount:
-    create: true
-    name: frontend-forge-controller
-  runner:
-    image: spike2044/frontend-forge-runner:latest
-    serviceAccountName: frontend-forge-runner
-  buildService:
-    # Empty means http://frontend-forge.<release-namespace>.svc.
-    baseUrl: ""
-    timeoutSeconds: 600
-  # Empty means release namespace.
-  jsBundleConfigMapNamespace: ""
+controller:
+  workNamespace: ""
+  jsbundleConfigmapNamespace: ""
+  runnerServiceAccountName: ""
+  buildServiceBaseUrl: ""
+  jsbundleConfigKey: index.js
+  buildServiceTimeoutSeconds: 600
   staleCheckGraceSeconds: 30
   reconcileRequeueSeconds: 5
   jobActiveDeadlineSeconds: 300
   jobTtlSecondsAfterFinished: 3600
-  webhook:
-    bindAddr: 0.0.0.0:9443
-    certPath: /tls/tls.crt
-    keyPath: /tls/tls.key
-  resources: {}
-  nodeSelector: {}
-  tolerations: []
-  affinity: {}
 
-frontendForgeRunner:
-  serviceAccount:
-    create: true
-    name: frontend-forge-runner
+image:
+  registry: docker.io
+  repository: kubesphere/frontend-forge-controller
+  pullPolicy: IfNotPresent
+  tag: main
 
-frontendExtensionController:
-  enabled: true
-  replicas: 1
+runner:
   image:
-    repository: ghcr.io/example/frontend-extension-controller
-    tag: latest
+    registry: docker.io
+    repository: kubesphere/frontend-forge-runner
     pullPolicy: IfNotPresent
+    tag: main
   serviceAccount:
     create: true
-    name: frontend-extension-controller
-  packager:
-    image: spike2044/frontend-forge-extension-packager:latest
-    serviceAccountName: frontend-forge-extension-packager
-  publisher:
-    image: spike2044/frontend-forge-extension-publisher:latest
-    serviceAccountName: frontend-forge-extension-publisher
-  # Empty means release namespace.
-  artifactConfigMapNamespace: ""
+    automount: true
+    annotations: {}
+    name: ""
+
+replicaCount: 1
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources: {}
+livenessProbe: {}
+readinessProbe: {}
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+crds:
+  installJsBundle: false
+
+extensionController:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-extension-controller
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  artifactConfigmapNamespace: ""
+  packagerServiceAccountName: ""
+  packagerImage: ""
+  publisherServiceAccountName: ""
+  publisherImage: ""
   reconcileRequeueSeconds: 5
   jobActiveDeadlineSeconds: 300
   jobTtlSecondsAfterFinished: 3600
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
   resources: {}
   nodeSelector: {}
   tolerations: []
   affinity: {}
 
-frontendForgeExtensionPackager:
-  serviceAccount:
-    create: true
-    name: frontend-forge-extension-packager
-
-frontendForgeExtensionPublisher:
-  serviceAccount:
-    create: true
-    name: frontend-forge-extension-publisher
-
-frontendForgeExtensionApi:
-  enabled: true
-  replicas: 1
+extensionPackager:
   image:
-    repository: ghcr.io/example/frontend-forge-extension-api
-    tag: latest
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-packager
     pullPolicy: IfNotPresent
+    tag: main
   serviceAccount:
     create: true
-    name: frontend-forge-extension-api
+    automount: true
+    annotations: {}
+    name: ""
+
+extensionPublisher:
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-publisher
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+
+extensionApi:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-api
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
   bindAddr: 0.0.0.0:8080
   service:
     type: ClusterIP
     port: 80
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
   resources: {}
   nodeSelector: {}
   tolerations: []
@@ -103,31 +157,36 @@ frontendForgeExtensionApi:
 
 webhook:
   enabled: false
+  bindAddr: 0.0.0.0:9443
+  certPath: /tls/tls.crt
+  keyPath: /tls/tls.key
   service:
-    name: frontend-forge-controller-webhook
+    name: ""
     port: 443
-  secretName: frontend-forge-controller-webhook-tls
-  validatingWebhookName: frontend-forge-controller-validating-webhook
+  secretName: ""
+  validatingWebhookName: ""
   certgen:
     image:
+      registry: docker.io
       repository: kubespheredev/kube-webhook-certgen
-      tag: v1.1.1
       pullPolicy: IfNotPresent
+      tag: v1.1.1
     serviceAccount:
       create: true
-      name: frontend-forge-webhook-certgen
+      automount: true
+      annotations: {}
+      name: ""
     ttlSecondsAfterFinished: 300
 
 buildService:
-  # Optional e2e/dev stub build service. Production installations normally point
-  # frontendForgeController.buildService.baseUrl to an existing build service.
   enabled: false
-  name: frontend-forge
-  replicas: 1
+  name: ""
+  replicaCount: 1
   image:
-    repository: ghcr.io/example/frontend-forge-build-service
-    tag: latest
+    registry: docker.io
+    repository: kubesphere/frontend-forge
     pullPolicy: IfNotPresent
+    tag: main
   service:
     type: ClusterIP
     port: 80

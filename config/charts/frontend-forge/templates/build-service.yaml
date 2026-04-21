@@ -2,24 +2,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.buildService.name }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.buildServiceName" . }}
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 4 }}
 spec:
-  replicas: {{ .Values.buildService.replicas }}
+  replicas: {{ .Values.buildService.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ .Values.buildService.name | quote }}
-      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      {{- include "frontend-forge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: build-service
   template:
     metadata:
       labels:
-        {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 8 }}
+        {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 8 }}
     spec:
       containers:
         - name: frontend-forge-build-service
-          image: {{ include "frontend-forge.image" .Values.buildService.image | quote }}
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.buildService.image) | quote }}
           imagePullPolicy: {{ .Values.buildService.image.pullPolicy }}
           ports:
             - containerPort: {{ .Values.buildService.service.targetPort }}
@@ -28,15 +27,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.buildService.name }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.buildServiceName" . }}
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 4 }}
 spec:
   type: {{ .Values.buildService.service.type }}
   selector:
-    app.kubernetes.io/name: {{ .Values.buildService.name | quote }}
-    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- include "frontend-forge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: build-service
   ports:
     - name: http
       port: {{ .Values.buildService.service.port }}

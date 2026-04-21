@@ -1,8 +1,9 @@
-{{- if .Values.frontendExtensionController.enabled }}
+{{- if .Values.rbac.create }}
+{{- if .Values.extensionController.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-extension-controller
+  name: {{ include "frontend-forge.fullname" . }}-extension-controller
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 4 }}
 rules:
@@ -25,23 +26,22 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-extension-controller
+  name: {{ include "frontend-forge.fullname" . }}-extension-controller
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-extension-controller
+  name: {{ include "frontend-forge.fullname" . }}-extension-controller
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.extensionControllerServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
-{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-forge-extension-packager-fe-reader
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-packager" "component" "extension-packager") | nindent 4 }}
 rules:
@@ -52,13 +52,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-forge-extension-packager-fe-reader
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-packager" "component" "extension-packager") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-forge-extension-packager-fe-reader
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.extensionPackagerServiceAccountName" . }}
@@ -67,7 +67,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: frontend-forge-extension-packager-artifact-writer
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager-config-writer
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-packager" "component" "extension-packager") | nindent 4 }}
@@ -79,14 +79,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: frontend-forge-extension-packager-artifact-writer
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager-config-writer
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-packager" "component" "extension-packager") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: frontend-forge-extension-packager-artifact-writer
+  name: {{ include "frontend-forge.fullname" . }}-extension-packager-config-writer
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.extensionPackagerServiceAccountName" . }}
@@ -95,7 +95,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-forge-extension-publisher
+  name: {{ include "frontend-forge.fullname" . }}-extension-publisher
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-publisher" "component" "extension-publisher") | nindent 4 }}
 rules:
@@ -109,23 +109,24 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-forge-extension-publisher
+  name: {{ include "frontend-forge.fullname" . }}-extension-publisher
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-publisher" "component" "extension-publisher") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-forge-extension-publisher
+  name: {{ include "frontend-forge.fullname" . }}-extension-publisher
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.extensionPublisherServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-{{- if .Values.frontendForgeExtensionApi.enabled }}
+{{- end }}
+{{- if .Values.extensionApi.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: frontend-forge-extension-api
+  name: {{ include "frontend-forge.fullname" . }}-extension-api
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
 rules:
@@ -139,15 +140,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: frontend-forge-extension-api
+  name: {{ include "frontend-forge.fullname" . }}-extension-api
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: frontend-forge-extension-api
+  name: {{ include "frontend-forge.fullname" . }}-extension-api
 subjects:
   - kind: ServiceAccount
     name: {{ include "frontend-forge.extensionApiServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}

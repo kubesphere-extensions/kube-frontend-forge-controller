@@ -96,13 +96,13 @@ config/charts/frontend-forge/
 | values 路径 | 默认 | 说明 |
 | --- | --- | --- |
 | `crds.installJsBundle` | `false` | 是否安装本地/e2e 用 `JSBundle` CRD。 |
-| `frontendForgeController.enabled` | `true` | 是否安装 FI runtime controller。 |
-| `frontendForgeController.runner.image` | `spike2044/frontend-forge-runner:latest` | FI build Job 使用的 runner 镜像。 |
-| `frontendForgeController.buildService.baseUrl` | `http://frontend-forge.<release-namespace>.svc` | runner 调用的外部 build-service；空值时由 chart 按 release namespace 派生。 |
-| `frontendExtensionController.enabled` | `true` | 是否安装 FE package/publish controller。 |
-| `frontendExtensionController.packager.image` | `spike2044/frontend-forge-extension-packager:latest` | package Job 镜像。 |
-| `frontendExtensionController.publisher.image` | `spike2044/frontend-forge-extension-publisher:latest` | 独立 `ksbuilder publish` Job 镜像。 |
-| `frontendForgeExtensionApi.enabled` | `true` | 是否安装 FE HTTP API。 |
+| `image.repository` | `kubesphere/frontend-forge-controller` | FI runtime controller 镜像。 |
+| `runner.image.repository` | `kubesphere/frontend-forge-runner` | FI build Job 使用的 runner 镜像。 |
+| `controller.buildServiceBaseUrl` | `http://<release-name>.<release-namespace>.svc` | runner 调用的外部 build-service；空值时由 chart 按 release namespace 派生。 |
+| `extensionController.enabled` | `true` | 是否安装 FE package/publish controller。 |
+| `extensionPackager.image.repository` | `kubesphere/frontend-forge-extension-packager` | package Job 镜像。 |
+| `extensionPublisher.image.repository` | `kubesphere/frontend-forge-extension-publisher` | 独立 `ksbuilder publish` Job 镜像。 |
+| `extensionApi.enabled` | `true` | 是否安装 FE HTTP API。 |
 | `webhook.enabled` | `false` | 是否安装并启用 FI admission webhook。 |
 | `buildService.enabled` | `false` | 是否安装本地/e2e build-service stub。 |
 

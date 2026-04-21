@@ -1,14 +1,12 @@
 Frontend Forge has been rendered for namespace {{ .Release.Namespace }}.
 
 Installed entry points:
-{{- if .Values.frontendForgeController.enabled }}
-- Runtime controller: deployment/frontend-forge-controller
+- Runtime controller: deployment/{{ include "frontend-forge.fullname" . }}-controller
+{{- if .Values.extensionController.enabled }}
+- FrontendExtension controller: deployment/{{ include "frontend-forge.fullname" . }}-extension-controller
 {{- end }}
-{{- if .Values.frontendExtensionController.enabled }}
-- FrontendExtension controller: deployment/frontend-extension-controller
-{{- end }}
-{{- if .Values.frontendForgeExtensionApi.enabled }}
-- FrontendExtension API: service/frontend-forge-extension-api
+{{- if .Values.extensionApi.enabled }}
+- FrontendExtension API: service/{{ include "frontend-forge.fullname" . }}-extension-api
 {{- end }}
 
 CRDs installed from crds/:

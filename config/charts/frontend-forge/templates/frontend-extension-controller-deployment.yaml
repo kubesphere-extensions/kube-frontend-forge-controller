@@ -1,57 +1,77 @@
-{{- if .Values.frontendExtensionController.enabled }}
+{{- if .Values.extensionController.enabled }}
+{{- $artifactNamespace := default .Release.Namespace .Values.extensionController.artifactConfigmapNamespace }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-extension-controller
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.fullname" . }}-extension-controller
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-controller") | nindent 4 }}
 spec:
-  replicas: {{ .Values.frontendExtensionController.replicas }}
+  replicas: {{ .Values.extensionController.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: frontend-extension-controller
-      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      {{- include "frontend-forge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: extension-controller
   template:
     metadata:
+      {{- with .Values.extensionController.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
-        {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 8 }}
+        {{- include "frontend-forge.labels" . | nindent 8 }}
+        app.kubernetes.io/component: extension-controller
+        {{- with .Values.extensionController.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "frontend-forge.extensionControllerServiceAccountName" . }}
+      {{- with .Values.extensionController.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend-extension-controller
-          image: {{ include "frontend-forge.image" .Values.frontendExtensionController.image | quote }}
-          imagePullPolicy: {{ .Values.frontendExtensionController.image.pullPolicy }}
+          {{- with .Values.extensionController.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.extensionController.image) | quote }}
+          imagePullPolicy: {{ .Values.extensionController.image.pullPolicy }}
           env:
             - name: PACKAGER_IMAGE
-              value: {{ .Values.frontendExtensionController.packager.image | quote }}
+              value: {{ default (include "frontend-forge.image" (dict "root" . "image" .Values.extensionPackager.image)) .Values.extensionController.packagerImage | quote }}
             - name: PACKAGER_SERVICE_ACCOUNT
-              value: {{ .Values.frontendExtensionController.packager.serviceAccountName | quote }}
+              value: {{ default (include "frontend-forge.extensionPackagerServiceAccountName" .) .Values.extensionController.packagerServiceAccountName | quote }}
             - name: PUBLISHER_IMAGE
-              value: {{ .Values.frontendExtensionController.publisher.image | quote }}
+              value: {{ default (include "frontend-forge.image" (dict "root" . "image" .Values.extensionPublisher.image)) .Values.extensionController.publisherImage | quote }}
             - name: PUBLISHER_SERVICE_ACCOUNT
-              value: {{ .Values.frontendExtensionController.publisher.serviceAccountName | quote }}
+              value: {{ default (include "frontend-forge.extensionPublisherServiceAccountName" .) .Values.extensionController.publisherServiceAccountName | quote }}
             - name: ARTIFACT_CONFIGMAP_NAMESPACE
-              value: {{ default .Release.Namespace .Values.frontendExtensionController.artifactConfigMapNamespace | quote }}
+              value: {{ $artifactNamespace | quote }}
             - name: RECONCILE_REQUEUE_SECONDS
-              value: {{ .Values.frontendExtensionController.reconcileRequeueSeconds | quote }}
+              value: {{ .Values.extensionController.reconcileRequeueSeconds | quote }}
             - name: JOB_ACTIVE_DEADLINE_SECONDS
-              value: {{ .Values.frontendExtensionController.jobActiveDeadlineSeconds | quote }}
+              value: {{ .Values.extensionController.jobActiveDeadlineSeconds | quote }}
             - name: JOB_TTL_SECONDS_AFTER_FINISHED
-              value: {{ .Values.frontendExtensionController.jobTtlSecondsAfterFinished | quote }}
-          {{- with .Values.frontendExtensionController.resources }}
+              value: {{ .Values.extensionController.jobTtlSecondsAfterFinished | quote }}
+          {{- with .Values.extensionController.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.frontendExtensionController.nodeSelector }}
+      {{- with .Values.extensionController.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.frontendExtensionController.affinity }}
+      {{- with .Values.extensionController.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.frontendExtensionController.tolerations }}
+      {{- with .Values.extensionController.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

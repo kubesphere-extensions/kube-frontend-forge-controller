@@ -2,14 +2,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.webhook.service.name }}
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "frontend-forge.webhookServiceName" . }}
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "webhook") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook") | nindent 4 }}
 spec:
   selector:
-    app.kubernetes.io/name: frontend-forge-controller
-    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- include "frontend-forge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime-controller
   ports:
     - name: https-webhook
       port: {{ .Values.webhook.service.port }}
@@ -18,9 +17,9 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ .Values.webhook.validatingWebhookName }}
+  name: {{ include "frontend-forge.validatingWebhookName" . }}
   labels:
-    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "webhook") | nindent 4 }}
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook") | nindent 4 }}
 webhooks:
   - name: frontendintegrations.frontend-forge.kubesphere.io
     admissionReviewVersions:
@@ -29,7 +28,7 @@ webhooks:
     failurePolicy: Fail
     clientConfig:
       service:
-        name: {{ .Values.webhook.service.name }}
+        name: {{ include "frontend-forge.webhookServiceName" . }}
         namespace: {{ .Release.Namespace }}
         path: /validate/frontendintegrations
         port: {{ .Values.webhook.service.port }}
