@@ -1,0 +1,134 @@
+nameOverride: ""
+fullnameOverride: ""
+
+commonLabels: {}
+
+crds:
+  # FrontendIntegration and FrontendExtension CRDs are installed from chart crds/.
+  # JSBundle is owned by KubeSphere extensions. Enable this only for local/e2e clusters
+  # that do not already provide jsbundles.extensions.kubesphere.io.
+  installJsBundle: false
+
+frontendForgeController:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/example/frontend-forge-controller
+    tag: latest
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: frontend-forge-controller
+  runner:
+    image: spike2044/frontend-forge-runner:latest
+    serviceAccountName: frontend-forge-runner
+  buildService:
+    # Empty means http://frontend-forge.<release-namespace>.svc.
+    baseUrl: ""
+    timeoutSeconds: 600
+  # Empty means release namespace.
+  jsBundleConfigMapNamespace: ""
+  staleCheckGraceSeconds: 30
+  reconcileRequeueSeconds: 5
+  jobActiveDeadlineSeconds: 300
+  jobTtlSecondsAfterFinished: 3600
+  webhook:
+    bindAddr: 0.0.0.0:9443
+    certPath: /tls/tls.crt
+    keyPath: /tls/tls.key
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+frontendForgeRunner:
+  serviceAccount:
+    create: true
+    name: frontend-forge-runner
+
+frontendExtensionController:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/example/frontend-extension-controller
+    tag: latest
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: frontend-extension-controller
+  packager:
+    image: spike2044/frontend-forge-extension-packager:latest
+    serviceAccountName: frontend-forge-extension-packager
+  publisher:
+    image: spike2044/frontend-forge-extension-publisher:latest
+    serviceAccountName: frontend-forge-extension-publisher
+  # Empty means release namespace.
+  artifactConfigMapNamespace: ""
+  reconcileRequeueSeconds: 5
+  jobActiveDeadlineSeconds: 300
+  jobTtlSecondsAfterFinished: 3600
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+frontendForgeExtensionPackager:
+  serviceAccount:
+    create: true
+    name: frontend-forge-extension-packager
+
+frontendForgeExtensionPublisher:
+  serviceAccount:
+    create: true
+    name: frontend-forge-extension-publisher
+
+frontendForgeExtensionApi:
+  enabled: true
+  replicas: 1
+  image:
+    repository: ghcr.io/example/frontend-forge-extension-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: frontend-forge-extension-api
+  bindAddr: 0.0.0.0:8080
+  service:
+    type: ClusterIP
+    port: 80
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+webhook:
+  enabled: false
+  service:
+    name: frontend-forge-controller-webhook
+    port: 443
+  secretName: frontend-forge-controller-webhook-tls
+  validatingWebhookName: frontend-forge-controller-validating-webhook
+  certgen:
+    image:
+      repository: kubespheredev/kube-webhook-certgen
+      tag: v1.1.1
+      pullPolicy: IfNotPresent
+    serviceAccount:
+      create: true
+      name: frontend-forge-webhook-certgen
+    ttlSecondsAfterFinished: 300
+
+buildService:
+  # Optional e2e/dev stub build service. Production installations normally point
+  # frontendForgeController.buildService.baseUrl to an existing build service.
+  enabled: false
+  name: frontend-forge
+  replicas: 1
+  image:
+    repository: ghcr.io/example/frontend-forge-build-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000

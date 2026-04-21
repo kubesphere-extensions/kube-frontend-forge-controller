@@ -2,9 +2,9 @@ use frontend_forge_api::{frontend_extension_crd, frontend_integration_crd};
 use std::{env, error::Error, fs, path::PathBuf, process};
 
 const FRONTEND_INTEGRATION_CRD_PATH: &str =
-    "config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml";
+    "config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendintegrations.yaml";
 const FRONTEND_EXTENSION_CRD_PATH: &str =
-    "config/crd/bases/frontend-forge.kubesphere.io_frontendextensions.yaml";
+    "config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendextensions.yaml";
 
 fn main() {
     if let Err(err) = run() {

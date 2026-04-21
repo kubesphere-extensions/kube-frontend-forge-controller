@@ -1,0 +1,45 @@
+{{- if .Values.buildService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.buildService.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 4 }}
+spec:
+  replicas: {{ .Values.buildService.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.buildService.name | quote }}
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 8 }}
+    spec:
+      containers:
+        - name: frontend-forge-build-service
+          image: {{ include "frontend-forge.image" .Values.buildService.image | quote }}
+          imagePullPolicy: {{ .Values.buildService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.buildService.service.targetPort }}
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.buildService.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" .Values.buildService.name "component" "build-service") | nindent 4 }}
+spec:
+  type: {{ .Values.buildService.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ .Values.buildService.name | quote }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  ports:
+    - name: http
+      port: {{ .Values.buildService.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.buildService.service.targetPort }}
+{{- end }}

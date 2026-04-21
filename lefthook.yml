@@ -7,4 +7,4 @@ pre-commit:
 pre-push:
   commands:
     gen-crd:
-      run: cargo xtask gen-crd && git diff --exit-code -- config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml
+      run: cargo xtask gen-crd && git diff --exit-code -- config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendintegrations.yaml config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendextensions.yaml

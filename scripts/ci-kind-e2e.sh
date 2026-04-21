@@ -5,13 +5,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 ARTIFACT_DIR="${ARTIFACT_DIR:-$ROOT_DIR/artifacts/ci-kind-e2e}"
-E2E_MANIFEST_DIR="${E2E_MANIFEST_DIR:-$ROOT_DIR/config/e2e}"
+CHART_DIR="${CHART_DIR:-$ROOT_DIR/config/charts/frontend-forge}"
+HELM_RELEASE="${HELM_RELEASE:-frontend-forge}"
 FRONTEND_FORGE_NAMESPACE="${FRONTEND_FORGE_NAMESPACE:-extension-frontend-forge}"
 SAMPLE_FILE="${SAMPLE_FILE:-$ROOT_DIR/config/samples/fi-lifecycle-smoke.yaml}"
-FRONTEND_INTEGRATION_CRD="${FRONTEND_INTEGRATION_CRD:-$ROOT_DIR/config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml}"
-CONTROLLER_RBAC_FILE="${CONTROLLER_RBAC_FILE:-$ROOT_DIR/config/rbac/frontend-forge-controller-rbac.yaml}"
-RUNNER_RBAC_FILE="${RUNNER_RBAC_FILE:-$ROOT_DIR/config/rbac/frontend-forge-runner-rbac.yaml}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-frontend-forge-e2e}"
+FRONTEND_FORGE_CONTROLLER_IMAGE="${FRONTEND_FORGE_CONTROLLER_IMAGE:-}"
+FRONTEND_FORGE_RUNNER_IMAGE="${FRONTEND_FORGE_RUNNER_IMAGE:-}"
+FRONTEND_FORGE_IMAGE="${FRONTEND_FORGE_IMAGE:-}"
 
 READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-600}"
 LIFECYCLE_TIMEOUT_SECONDS="${LIFECYCLE_TIMEOUT_SECONDS:-300}"
@@ -29,7 +30,8 @@ Usage:
 
 Environment:
   ARTIFACT_DIR                 Default: artifacts/ci-kind-e2e
-  E2E_MANIFEST_DIR             Default: config/e2e
+  CHART_DIR                    Default: config/charts/frontend-forge
+  HELM_RELEASE                 Default: frontend-forge
   FRONTEND_FORGE_NAMESPACE     Default: extension-frontend-forge
   KIND_CLUSTER_NAME            Default: frontend-forge-e2e
 EOF
@@ -50,18 +52,14 @@ require_cmd() {
 
 assert_local_prereqs() {
   require_cmd kubectl
+  require_cmd helm
   require_cmd kind
   require_cmd perl
-  require_cmd python3
   [[ -f "$SAMPLE_FILE" ]] || die "sample file not found: $SAMPLE_FILE"
-  [[ -f "$FRONTEND_INTEGRATION_CRD" ]] || die "frontendintegration CRD not found: $FRONTEND_INTEGRATION_CRD"
-  [[ -f "$CONTROLLER_RBAC_FILE" ]] || die "controller RBAC not found: $CONTROLLER_RBAC_FILE"
-  [[ -f "$RUNNER_RBAC_FILE" ]] || die "runner RBAC not found: $RUNNER_RBAC_FILE"
-  [[ -f "$E2E_MANIFEST_DIR/namespace.yaml" ]] || die "missing e2e manifest: namespace.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" ]] || die "missing e2e manifest: jsbundle-crd.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-controller-serviceaccount.yaml" ]] || die "missing e2e manifest: frontend-forge-controller-serviceaccount.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-controller-deployment-ci.yaml" ]] || die "missing e2e manifest: frontend-forge-controller-deployment-ci.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" ]] || die "missing e2e manifest: frontend-forge-build-service.yaml"
+  [[ -f "$CHART_DIR/Chart.yaml" ]] || die "chart not found: $CHART_DIR"
+  [[ -n "$FRONTEND_FORGE_CONTROLLER_IMAGE" ]] || die "FRONTEND_FORGE_CONTROLLER_IMAGE is required"
+  [[ -n "$FRONTEND_FORGE_RUNNER_IMAGE" ]] || die "FRONTEND_FORGE_RUNNER_IMAGE is required"
+  [[ -n "$FRONTEND_FORGE_IMAGE" ]] || die "FRONTEND_FORGE_IMAGE is required"
 }
 
 prepare_artifacts() {
@@ -94,16 +92,39 @@ assert_cluster_ready() {
   kubectl get nodes >/dev/null
 }
 
-apply_manifests() {
-  log "安装 e2e 测试清单"
-  kubectl apply -f "$E2E_MANIFEST_DIR/namespace.yaml" | tee "$ARTIFACT_DIR/apply-namespace.log"
-  kubectl apply -f "$FRONTEND_INTEGRATION_CRD" | tee "$ARTIFACT_DIR/apply-frontendintegration-crd.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" | tee "$ARTIFACT_DIR/apply-jsbundle-crd.log"
-  kubectl apply -f "$CONTROLLER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-controller-rbac.log"
-  kubectl apply -f "$RUNNER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-runner-rbac.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-controller-serviceaccount.yaml" | tee "$ARTIFACT_DIR/apply-controller-serviceaccount.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" | tee "$ARTIFACT_DIR/apply-build-service.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-controller-deployment-ci.yaml" | tee "$ARTIFACT_DIR/apply-controller.log"
+install_chart() {
+  log "通过 Helm 安装 e2e 测试 Chart"
+  local values_file="$ARTIFACT_DIR/frontend-forge-e2e-values.yaml"
+
+  cat > "$values_file" <<EOF
+crds:
+  installJsBundle: true
+
+frontendForgeController:
+  image:
+    repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+    tag: ""
+  runner:
+    image: ${FRONTEND_FORGE_RUNNER_IMAGE}
+
+frontendExtensionController:
+  enabled: false
+
+frontendForgeExtensionApi:
+  enabled: false
+
+buildService:
+  enabled: true
+  image:
+    repository: ${FRONTEND_FORGE_IMAGE}
+    tag: ""
+EOF
+
+  helm upgrade --install "$HELM_RELEASE" "$CHART_DIR" \
+    --namespace "$FRONTEND_FORGE_NAMESPACE" \
+    --create-namespace \
+    --values "$values_file" \
+    | tee "$ARTIFACT_DIR/helm-install.log"
 }
 
 wait_for_frontend_forge_readiness() {
@@ -313,7 +334,7 @@ main() {
   prepare_artifacts
   assert_cluster_ready
   cleanup_previous_test_resources
-  apply_manifests
+  install_chart
   create_lifecycle_manifests
 
   if ! wait_for_frontend_forge_readiness; then

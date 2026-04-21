@@ -1,0 +1,86 @@
+{{- if .Values.frontendForgeController.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-forge-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "runtime-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontendForgeController.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend-forge-controller
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-controller" "component" "runtime-controller") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "frontend-forge.controllerServiceAccountName" . }}
+      containers:
+        - name: frontend-forge-controller
+          image: {{ include "frontend-forge.image" .Values.frontendForgeController.image | quote }}
+          imagePullPolicy: {{ .Values.frontendForgeController.image.pullPolicy }}
+          ports:
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+          env:
+            - name: RUNNER_IMAGE
+              value: {{ .Values.frontendForgeController.runner.image | quote }}
+            - name: RUNNER_SERVICE_ACCOUNT
+              value: {{ .Values.frontendForgeController.runner.serviceAccountName | quote }}
+            - name: BUILD_SERVICE_BASE_URL
+              value: {{ default (printf "http://%s.%s.svc" .Values.buildService.name .Release.Namespace) .Values.frontendForgeController.buildService.baseUrl | quote }}
+            - name: JSBUNDLE_CONFIGMAP_NAMESPACE
+              value: {{ default .Release.Namespace .Values.frontendForgeController.jsBundleConfigMapNamespace | quote }}
+            - name: BUILD_SERVICE_TIMEOUT_SECONDS
+              value: {{ .Values.frontendForgeController.buildService.timeoutSeconds | quote }}
+            - name: STALE_CHECK_GRACE_SECONDS
+              value: {{ .Values.frontendForgeController.staleCheckGraceSeconds | quote }}
+            - name: RECONCILE_REQUEUE_SECONDS
+              value: {{ .Values.frontendForgeController.reconcileRequeueSeconds | quote }}
+            - name: JOB_ACTIVE_DEADLINE_SECONDS
+              value: {{ .Values.frontendForgeController.jobActiveDeadlineSeconds | quote }}
+            - name: JOB_TTL_SECONDS_AFTER_FINISHED
+              value: {{ .Values.frontendForgeController.jobTtlSecondsAfterFinished | quote }}
+            - name: WEBHOOK_ENABLED
+              value: {{ .Values.webhook.enabled | quote }}
+            - name: WEBHOOK_BIND_ADDR
+              value: {{ .Values.frontendForgeController.webhook.bindAddr | quote }}
+            - name: WEBHOOK_CERT_PATH
+              value: {{ .Values.frontendForgeController.webhook.certPath | quote }}
+            - name: WEBHOOK_KEY_PATH
+              value: {{ .Values.frontendForgeController.webhook.keyPath | quote }}
+          {{- with .Values.frontendForgeController.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: /tls
+              readOnly: true
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: {{ .Values.webhook.secretName }}
+            optional: true
+            items:
+              - key: cert
+                path: tls.crt
+              - key: key
+                path: tls.key
+      {{- with .Values.frontendForgeController.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendForgeController.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendForgeController.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+crds:
+  installJsBundle: true
+
+frontendForgeController:
+  image:
+    repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+    tag: ""
+  runner:
+    image: ${FRONTEND_FORGE_RUNNER_IMAGE}
+
+frontendExtensionController:
+  enabled: false
+
+frontendForgeExtensionApi:
+  enabled: false
+
+buildService:
+  enabled: true
+  image:
+    repository: ${FRONTEND_FORGE_IMAGE}
+    tag: ""

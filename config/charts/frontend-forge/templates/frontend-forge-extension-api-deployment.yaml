@@ -1,0 +1,65 @@
+{{- if .Values.frontendForgeExtensionApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-forge-extension-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontendForgeExtensionApi.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend-forge-extension-api
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "frontend-forge.extensionApiServiceAccountName" . }}
+      containers:
+        - name: frontend-forge-extension-api
+          image: {{ include "frontend-forge.image" .Values.frontendForgeExtensionApi.image | quote }}
+          imagePullPolicy: {{ .Values.frontendForgeExtensionApi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: EXTENSION_API_BIND_ADDR
+              value: {{ .Values.frontendForgeExtensionApi.bindAddr | quote }}
+          {{- with .Values.frontendForgeExtensionApi.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.frontendForgeExtensionApi.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendForgeExtensionApi.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendForgeExtensionApi.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-forge-extension-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-forge-extension-api" "component" "extension-api") | nindent 4 }}
+spec:
+  type: {{ .Values.frontendForgeExtensionApi.service.type }}
+  selector:
+    app.kubernetes.io/name: frontend-forge-extension-api
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  ports:
+    - name: http
+      port: {{ .Values.frontendForgeExtensionApi.service.port }}
+      targetPort: http
+{{- end }}

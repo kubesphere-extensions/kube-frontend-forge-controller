@@ -1,68 +1,114 @@
-# Kubernetes 资源清单
+# Helm Chart 交付资源
 
-本文基于仓库最新 `main` 分支扫描以下范围汇总：
+本文记录 frontend-forge 当前的 Kubernetes 交付面。仓库不再维护逐个 `kubectl apply` 的安装清单；安装入口统一为 Helm chart：
 
-- 运行时代码：`crates/api`、`crates/frontend-forge-controller`、`crates/frontend-forge-runner`、`crates/manifest`
-- 交付清单：`config/**`
-- 调试脚本：`scripts/dev-webhook.sh`
-- 样例与设计文档：`config/samples/**`、`README.md`、`spec/**`
+```text
+config/charts/frontend-forge
+```
 
-口径说明：
+示例 CR 仍保留在 `config/samples/`，用于开发、文档和 e2e。
 
-- “使用到的资源”分成三类：
-  - 运行时直接读写、监听、创建、校验的资源
-  - 仓库部署清单会直接安装或依赖的资源
-- 不单列 `Pod`、`AdmissionReview` 这类嵌入式/协议级对象。
-  - 本项目会通过 `Deployment` / `Job` 模板间接生成 Pod，但不会直接用 Pod API 管理它们。
+Helm chart 的设计细节见 [`helm-chart.md`](helm-chart.md)。
 
-## 1. 运行时直接使用的资源
+## 1. 安装方式
 
-| Group / Version | Kind | 作用域 | 使用方式 | 说明 |
+默认安装 runtime 与发布态组件：
+
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace
+```
+
+本地或 e2e 集群如果没有 KubeSphere 提供的 `JSBundle` CRD，可以显式开启：
+
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace \
+  --set crds.installJsBundle=true
+```
+
+启用 admission webhook：
+
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace \
+  --set webhook.enabled=true
+```
+
+## 2. Chart 结构
+
+```text
+config/charts/frontend-forge/
+  Chart.yaml
+  values.yaml
+  values-e2e.yaml
+  crds/
+    frontend-forge.kubesphere.io_frontendintegrations.yaml
+    frontend-forge.kubesphere.io_frontendextensions.yaml
+  templates/
+    _helpers.tpl
+    frontend-forge-controller-deployment.yaml
+    frontend-extension-controller-deployment.yaml
+    frontend-forge-extension-api-deployment.yaml
+    rbac-runtime.yaml
+    rbac-extension.yaml
+    serviceaccounts.yaml
+    webhook.yaml
+    webhook-certgen.yaml
+    jsbundle-crd.yaml
+    build-service.yaml
+```
+
+## 3. Chart 管理的资源
+
+| 资源 | 默认 | 来源 | 说明 |
+| --- | --- | --- | --- |
+| `FrontendIntegration` CRD | 是 | `crds/` | FI runtime 主 CRD。 |
+| `FrontendExtension` CRD | 是 | `crds/` | FE package/publish 主 CRD。 |
+| `JSBundle` CRD | 否 | `templates/jsbundle-crd.yaml` | KubeSphere 通常外部提供；本地/e2e 用 `crds.installJsBundle=true` 开启。 |
+| `Deployment/frontend-forge-controller` | 是 | `templates/frontend-forge-controller-deployment.yaml` | FI runtime controller 和可选 webhook server。 |
+| `Deployment/frontend-extension-controller` | 是 | `templates/frontend-extension-controller-deployment.yaml` | FE package/publish controller。 |
+| `Deployment/frontend-forge-extension-api` | 是 | `templates/frontend-forge-extension-api-deployment.yaml` | 前端访问 FE 列表、详情、下载、publish 的 HTTP API。 |
+| `Service/frontend-forge-extension-api` | 是 | 同上 | 暴露 extension API。 |
+| Runtime RBAC | 是 | `templates/rbac-runtime.yaml` | controller 与 runner 所需权限。 |
+| Extension RBAC | 是 | `templates/rbac-extension.yaml` | FE controller、packager、publisher、extension API 所需权限。 |
+| Webhook Service / VWC | 否 | `templates/webhook.yaml` | `webhook.enabled=true` 时安装。 |
+| Webhook certgen RBAC / Job | 否 | `templates/webhook-certgen.yaml` | `webhook.enabled=true` 时安装。 |
+| Dev/e2e build-service | 否 | `templates/build-service.yaml` | `buildService.enabled=true` 时安装。 |
+
+## 4. 运行时直接使用的资源
+
+| Group / Version | Kind | 作用域 | 使用方 | 说明 |
 | --- | --- | --- | --- | --- |
-| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | controller `watch/get/patch/patch_status`，runner `get/patch_status`，webhook `validate` | 项目的主入口 CR。Rust 类型定义在 `crates/api/src/lib.rs`，controller 和 runner 都直接操作它。 |
-| `extensions.kubesphere.io/v1alpha1` | `JSBundle` | Cluster | controller `get/patch/patch_status`，runner `create-or-apply/patch/patch_status` | 构建产物 CR。仓库只声明 Rust 类型，不生成这个 CRD；`crates/api/examples/print_crds.rs` 明确说明它是第三方 CRD。 |
-| `v1` | `ConfigMap` | Namespaced | runner `get/create/patch/update` | runner 把构建出的前端 bundle 落到 ConfigMap，再让 `JSBundle.spec.rawFrom.configMapKeyRef` 指向它。 |
-| `batch/v1` | `Job` | Namespaced | controller `create/get/list/watch` | controller 为每次构建创建 runner Job，并根据 Job 状态驱动 `FrontendIntegration.status`。 |
-| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | Cluster | certgen Job `get/update/patch`，调试脚本 `get/patch` | 可选 webhook 开启后依赖该资源把 `FrontendIntegration` 的校验前移到 admission 阶段。 |
-| `core/v1` | `Secret` | Namespaced | certgen Job `get/create/patch/update`，controller Deployment `mount` | webhook TLS 证书存放在 `frontend-forge-controller-webhook-tls` Secret 中。 |
-| `apiextensions.k8s.io/v1` | `CustomResourceDefinition` | Cluster | `xtask` 生成，安装清单应用 | 仓库当前只生成并交付 `FrontendIntegration` 的 CRD。 |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | `frontend-forge-controller`、`frontend-forge-runner`、FI webhook | runtime 生效入口。 |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendExtension` | Cluster | `frontend-extension-controller`、`frontend-forge-extension-api`、packager Job | package/publish 发布态入口。 |
+| `extensions.kubesphere.io/v1alpha1` | `JSBundle` | Cluster | FI controller、runner | 安装后 runtime 前端 bundle CR。 |
+| `batch/v1` | `Job` | Namespaced | FI controller、FE controller | runtime build、package、publish 都通过独立 Job 执行。 |
+| `v1` | `ConfigMap` | Namespaced | runner、packager、extension API | runtime bundle 或 FE package artifact 存储。 |
+| `v1` | `Secret` | Namespaced | webhook certgen、publisher Job | webhook TLS；publish target 凭据。 |
+| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | Cluster | webhook certgen、apiserver | 可选 FI admission 校验。 |
 
-补充说明：
+## 5. 关键 values
 
-- `FrontendIntegration` 的类型与 CRD 生成逻辑在 `crates/api/src/lib.rs`。
-- controller 的主要 runtime 入口在 `crates/frontend-forge-controller/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<Job>`、`Api::<JSBundle>`。
-- runner 的主要 runtime 入口在 `crates/frontend-forge-runner/src/main.rs`，其中直接创建 `Api::<FrontendIntegration>`、`Api::<ConfigMap>`、`Api::<JSBundle>`。
-- webhook 的 HTTP 校验逻辑在 `crates/frontend-forge-controller/src/webhook.rs`，校验对象是 `AdmissionReview<FrontendIntegration>`。
+| values 路径 | 默认 | 说明 |
+| --- | --- | --- |
+| `crds.installJsBundle` | `false` | 是否安装本地/e2e 用 `JSBundle` CRD。 |
+| `frontendForgeController.enabled` | `true` | 是否安装 FI runtime controller。 |
+| `frontendForgeController.runner.image` | `spike2044/frontend-forge-runner:latest` | FI build Job 使用的 runner 镜像。 |
+| `frontendForgeController.buildService.baseUrl` | `http://frontend-forge.<release-namespace>.svc` | runner 调用的外部 build-service；空值时由 chart 按 release namespace 派生。 |
+| `frontendExtensionController.enabled` | `true` | 是否安装 FE package/publish controller。 |
+| `frontendExtensionController.packager.image` | `spike2044/frontend-forge-extension-packager:latest` | package Job 镜像。 |
+| `frontendExtensionController.publisher.image` | `spike2044/frontend-forge-extension-publisher:latest` | 独立 `ksbuilder publish` Job 镜像。 |
+| `frontendForgeExtensionApi.enabled` | `true` | 是否安装 FE HTTP API。 |
+| `webhook.enabled` | `false` | 是否安装并启用 FI admission webhook。 |
+| `buildService.enabled` | `false` | 是否安装本地/e2e build-service stub。 |
 
-## 2. 仓库部署清单直接安装的资源
+## 6. 设计约束
 
-这些资源不会都被 Rust 代码直接操作，但仓库交付物会直接创建或依赖它们。
-
-| Group / Version | Kind | 主要来源 | 用途 |
-| --- | --- | --- | --- |
-| `v1` | `Namespace` | `config/manager/frontend-forge-controller-deployment.yaml` | 安装命名空间 `extension-frontend-forge`。 |
-| `apps/v1` | `Deployment` | `config/manager/frontend-forge-controller-deployment.yaml` | 部署 controller 进程，并可选承载 webhook。 |
-| `v1` | `Service` | `config/webhook/frontend-forge-controller-webhook.yaml` | 为 webhook 暴露集群内访问入口。 |
-| `v1` | `ServiceAccount` | `config/rbac/frontend-forge-controller-rbac.yaml`、`config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 分别供 controller、runner、certgen Job 使用。 |
-| `rbac.authorization.k8s.io/v1` | `ClusterRole` | `config/rbac/frontend-forge-controller-rbac.yaml`、`config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 赋予 cluster-scoped 资源访问权限。 |
-| `rbac.authorization.k8s.io/v1` | `ClusterRoleBinding` | 同上 | 绑定 cluster-scoped 权限到对应 ServiceAccount。 |
-| `rbac.authorization.k8s.io/v1` | `Role` | `config/rbac/frontend-forge-runner-rbac.yaml`、`config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 赋予 namespaced 资源权限，如 `ConfigMap`、`Secret`。 |
-| `rbac.authorization.k8s.io/v1` | `RoleBinding` | 同上 | 绑定 namespaced 权限到对应 ServiceAccount。 |
-| `batch/v1` | `Job` | `config/rbac/frontend-forge-webhook-certgen-rbac.yaml` | 两个一次性 certgen Job，分别负责创建 TLS Secret 和回填 `caBundle`。 |
-| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | `config/webhook/frontend-forge-controller-webhook.yaml` | 注册 webhook 到 apiserver。 |
-| `apiextensions.k8s.io/v1` | `CustomResourceDefinition` | `config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml` | 安装 `FrontendIntegration` CRD。 |
-
-## 3. 只在权限或 schema 中出现的资源点
-
-这部分值得单独记下来，因为它们容易被误解成“项目已经在直接使用”。
-
-| Group / Version | Kind | 出现位置 | 当前状态 |
-| --- | --- | --- | --- |
-| `core/v1` | `Event` | `config/rbac/frontend-forge-controller-rbac.yaml` | controller ClusterRole 预留了 `create/patch/update` 权限，但当前代码里没有发现事件记录实现。 |
-| `core/v1` | `Secret` | `crates/api/src/fi.rs` 中 `JSBundle.spec.rawFrom.secretKeyRef` | `JSBundle` schema 允许 Secret 作为内容来源，但当前 runner 实际只写 `configMapKeyRef`。 |
-
-## 4. 当前资源面结论
-
-- 项目真正的控制面核心资源只有 3 个：`FrontendIntegration`、`Job`、`JSBundle`。
-- runner 的产物落盘资源是 `ConfigMap`，它通过 `JSBundle` 间接暴露给前端系统。
-- webhook 相关资源是可选交付面：`Service`、`Secret`、`ValidatingWebhookConfiguration`、certgen `Job` 及其 RBAC。
+- Chart 是唯一安装入口，文档和 CI 不再要求用户逐个 `kubectl apply` 安装 manager/RBAC/webhook 清单。
+- `crds/` 下的 FI/FE CRD 由 `cargo xtask gen-crd` 生成并提交。
+- `JSBundle` CRD 默认视为外部依赖；只有本地/e2e 场景才由 chart 条件安装。
+- `ksbuilder publish` 只允许在 `frontend-forge-extension-publisher` Job 中执行，不能进入 controller 或 API Deployment。

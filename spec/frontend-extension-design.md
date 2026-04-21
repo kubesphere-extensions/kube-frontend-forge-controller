@@ -620,16 +620,21 @@ crates/
     # axum HTTP API：list/get/download/publish
 
 config/
-  crd/bases/
-    frontend-forge.kubesphere.io_frontendextensions.yaml
-  rbac/
-    frontend-extension-controller-rbac.yaml
-    frontend-forge-extension-packager-rbac.yaml
-    frontend-forge-extension-publisher-rbac.yaml
-    frontend-forge-extension-api-rbac.yaml
-  manager/
-    frontend-extension-controller-deployment.yaml
-    frontend-forge-extension-api-deployment.yaml
+  charts/frontend-forge/
+    Chart.yaml
+    values.yaml
+    crds/
+      frontend-forge.kubesphere.io_frontendintegrations.yaml
+      frontend-forge.kubesphere.io_frontendextensions.yaml
+    templates/
+      frontend-forge-controller-deployment.yaml
+      frontend-extension-controller-deployment.yaml
+      frontend-forge-extension-api-deployment.yaml
+      rbac-runtime.yaml
+      rbac-extension.yaml
+      webhook.yaml
+      webhook-certgen.yaml
+      jsbundle-crd.yaml
 ```
 
 binary 建议：
@@ -797,4 +802,4 @@ FrontendExtension -> ExtensionPackage -> ConfigMap/ObjectStorage/OCI
 6. 新增 `frontend-forge-extension-api` binary，提供列表、详情、下载 API。
 7. 新增 publish API 和 `frontend-forge-extension-publisher` binary，支持手动 `ksbuilder publish`。
 
-每一步都应避免改变现有 `FrontendIntegration` runtime 行为。v2 发布态能力可以作为独立 Deployment 安装，确保回归风险可控。
+每一步都应避免改变现有 `FrontendIntegration` runtime 行为。v2 发布态能力作为 Helm chart 中的独立 Deployment 安装，确保回归风险可控；交付层不再维护逐个 `kubectl apply` 的散装安装路径。

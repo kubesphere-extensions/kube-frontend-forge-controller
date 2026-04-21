@@ -39,7 +39,6 @@ jobs:
     env:
       KIND_CLUSTER_NAME: frontend-forge-e2e-${{ matrix.arch }}
       ARTIFACT_DIR: ${{ github.workspace }}/.tmp/e2e-artifacts/${{ matrix.arch }}
-      RENDERED_MANIFEST_DIR: ${{ github.workspace }}/.tmp/e2e-manifests/${{ matrix.arch }}
       FRONTEND_FORGE_CONTROLLER_IMAGE: ${{ inputs.frontend_forge_controller_image }}
       FRONTEND_FORGE_RUNNER_IMAGE: ${{ inputs.frontend_forge_runner_image }}
       FRONTEND_FORGE_IMAGE: ${{ inputs.frontend_forge_image }}
@@ -140,39 +139,16 @@ jobs:
           kind load docker-image --name "${KIND_CLUSTER_NAME}" "${FRONTEND_FORGE_RUNNER_IMAGE}"
           kind load docker-image --name "${KIND_CLUSTER_NAME}" "${FRONTEND_FORGE_IMAGE}"
 
-      - name: Render e2e manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${RENDERED_MANIFEST_DIR}"
-          cp -R config/e2e/. "${RENDERED_MANIFEST_DIR}/"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          base = Path(os.environ["RENDERED_MANIFEST_DIR"])
-          replacements = {
-              "${FRONTEND_FORGE_CONTROLLER_IMAGE}": os.environ["FRONTEND_FORGE_CONTROLLER_IMAGE"],
-              "${FRONTEND_FORGE_RUNNER_IMAGE}": os.environ["FRONTEND_FORGE_RUNNER_IMAGE"],
-              "${FRONTEND_FORGE_IMAGE}": os.environ["FRONTEND_FORGE_IMAGE"],
-          }
-
-          for name in ("controller-deployment-ci.yaml", "frontend-forge-build-service.yaml"):
-              path = base / name
-              text = path.read_text()
-              for needle, value in replacements.items():
-                  text = text.replace(needle, value)
-              path.write_text(text)
-          PY
-
       - name: Run kind e2e
         shell: bash
         run: |
           set -euo pipefail
           chmod +x scripts/ci-kind-e2e.sh
           ARTIFACT_DIR="${ARTIFACT_DIR}" \
-          E2E_MANIFEST_DIR="${RENDERED_MANIFEST_DIR}" \
           KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+          FRONTEND_FORGE_CONTROLLER_IMAGE="${FRONTEND_FORGE_CONTROLLER_IMAGE}" \
+          FRONTEND_FORGE_RUNNER_IMAGE="${FRONTEND_FORGE_RUNNER_IMAGE}" \
+          FRONTEND_FORGE_IMAGE="${FRONTEND_FORGE_IMAGE}" \
           ./scripts/ci-kind-e2e.sh
 
       - name: Upload e2e artifacts

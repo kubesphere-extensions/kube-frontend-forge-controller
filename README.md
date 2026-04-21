@@ -10,7 +10,7 @@
 
 相关设计见 [`spec/design.md`](spec/design.md)。
 
-Kubernetes 资源清单见 [`spec/k8s-resources.md`](spec/k8s-resources.md)。
+Kubernetes 交付面见 [`spec/k8s-resources.md`](spec/k8s-resources.md)，Helm chart 设计见 [`spec/helm-chart.md`](spec/helm-chart.md)。
 
 ## Kubernetes 支持区间
 
@@ -108,14 +108,13 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
 
 ### 运行与交付
 
-- 提供 controller 与 runner 的 Dockerfile
-- 提供基础部署 YAML：
-  - [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)
-  - [`config/rbac/frontend-forge-controller-rbac.yaml`](config/rbac/frontend-forge-controller-rbac.yaml)
-  - [`config/rbac/frontend-forge-runner-rbac.yaml`](config/rbac/frontend-forge-runner-rbac.yaml)
-- 提供可选 webhook 配置 YAML：
-  - [`config/webhook/frontend-forge-controller-webhook.yaml`](config/webhook/frontend-forge-controller-webhook.yaml)
-  - [`config/rbac/frontend-forge-webhook-certgen-rbac.yaml`](config/rbac/frontend-forge-webhook-certgen-rbac.yaml)
+- 提供 controller、runner、extension controller、extension API、packager、publisher 的 Dockerfile
+- 提供完整 Helm chart：[`config/charts/frontend-forge`](config/charts/frontend-forge)
+- chart 内包含：
+  - `FrontendIntegration` / `FrontendExtension` CRD
+  - runtime controller / runner RBAC
+  - FrontendExtension controller / packager / publisher / API RBAC
+  - 可选 admission webhook、webhook certgen、可选本地/e2e `JSBundle` CRD
 - 提供示例 `FrontendIntegration` 清单：
   - [`config/samples/frontend-forge_v1alpha1_frontendintegration.yaml`](config/samples/frontend-forge_v1alpha1_frontendintegration.yaml)
   - [`config/samples/fi-inspecttask.yaml`](config/samples/fi-inspecttask.yaml)
@@ -125,8 +124,35 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
 
 - 当前依赖外部 build-service，仓库本身不包含前端构建服务实现
 - Manifest 渲染引擎目前只有 `v1`
-- 部署方式当前以原生 YAML 为主，未提供 Helm chart 或 Kustomize 方案
-- admission webhook 默认关闭，需要显式部署证书和 webhook 清单后再开启
+- 部署方式以 Helm chart 为主，不再维护逐个 `kubectl apply` 的安装流程
+- admission webhook 默认关闭，通过 Helm values 开启
+
+## Helm 安装
+
+默认安装 runtime 与发布态组件：
+
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace
+```
+
+如果当前集群没有 KubeSphere 提供的 `JSBundle` CRD，本地或 e2e 环境可以一并安装：
+
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace \
+  --set crds.installJsBundle=true
+```
+
+渲染检查：
+
+```bash
+helm template frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --include-crds
+```
 
 ## Admission Webhook
 
@@ -137,17 +163,16 @@ webhook 通过现有 controller Deployment 提供，默认配置如下：
 - `WEBHOOK_CERT_PATH=/tls/tls.crt`
 - `WEBHOOK_KEY_PATH=/tls/tls.key`
 
-启用顺序：
+启用方式：
 
-1. 应用基础清单：
-   - [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)
-   - [`config/rbac/frontend-forge-controller-rbac.yaml`](config/rbac/frontend-forge-controller-rbac.yaml)
-   - [`config/rbac/frontend-forge-runner-rbac.yaml`](config/rbac/frontend-forge-runner-rbac.yaml)
-2. 应用 certgen 与 webhook 清单：
-   - [`config/rbac/frontend-forge-webhook-certgen-rbac.yaml`](config/rbac/frontend-forge-webhook-certgen-rbac.yaml)
-   - [`config/webhook/frontend-forge-controller-webhook.yaml`](config/webhook/frontend-forge-controller-webhook.yaml)
-3. 等待 `frontend-forge-controller-webhook-tls` Secret 和 `ValidatingWebhookConfiguration` 就绪
-4. 把 controller Deployment 中的 `WEBHOOK_ENABLED` 改为 `true`
+```bash
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
+  --create-namespace \
+  --set webhook.enabled=true
+```
+
+chart 会渲染 webhook Service、`ValidatingWebhookConfiguration`、certgen RBAC 和 certgen Job。证书默认写入 `frontend-forge-controller-webhook-tls` Secret。
 
 证书由 `kubespheredev/kube-webhook-certgen:v1.1.1` 生成并回填 `caBundle`。
 
@@ -195,10 +220,16 @@ REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh stop
 - [`crates/api`](crates/api)：CRD 类型定义、状态结构、CRD 导出
 - [`crates/common`](crates/common)：通用常量、hash 和命名工具
 - [`crates/manifest`](crates/manifest)：共享 Manifest 渲染与语义校验
-- [`crates/controller`](crates/controller)：controller 主逻辑
-- [`crates/runner`](crates/runner)：runner Job 逻辑
+- [`crates/frontend-forge-controller`](crates/frontend-forge-controller)：FrontendIntegration runtime controller 与 webhook
+- [`crates/frontend-extension-controller`](crates/frontend-extension-controller)：FrontendExtension package/publish controller
+- [`crates/frontend-forge-runner`](crates/frontend-forge-runner)：runtime runner Job 逻辑
+- [`crates/frontend-forge-extension-api`](crates/frontend-forge-extension-api)：FrontendExtension HTTP API
+- [`crates/extension-package-core`](crates/extension-package-core)：extension package artifact 生成核心
+- [`crates/extension-packager`](crates/extension-packager)：package Job binary
+- [`crates/extension-publisher`](crates/extension-publisher)：独立 `ksbuilder publish` Job binary
 - [`xtask`](xtask)：开发辅助命令，如生成 CRD
-- [`config`](config)：部署、RBAC、CRD 和样例清单
+- [`config/charts/frontend-forge`](config/charts/frontend-forge)：Helm chart 交付入口
+- [`config/samples`](config/samples)：样例清单
 - [`spec`](spec)：设计文档
 
 ## 开发
@@ -215,6 +246,10 @@ cargo xtask gen-crd
 ```bash
 cargo build --release -p frontend-forge-controller
 cargo build --release -p frontend-forge-runner
+cargo build --release -p frontend-extension-controller
+cargo build --release -p frontend-forge-extension-api
+cargo build --release -p frontend-forge-extension-packager
+cargo build --release -p frontend-forge-extension-publisher
 ```
 
 Git hooks：
@@ -227,10 +262,10 @@ Git hooks：
 
 当前运行时默认依赖一个可访问的 build-service，controller 会把其地址通过 `BUILD_SERVICE_BASE_URL` 传递给 runner。
 
-默认值见 [`config/manager/frontend-forge-controller-deployment.yaml`](config/manager/frontend-forge-controller-deployment.yaml)：
+默认值见 [`config/charts/frontend-forge/values.yaml`](config/charts/frontend-forge/values.yaml)：
 
 ```yaml
 env:
   - name: BUILD_SERVICE_BASE_URL
-    value: http://frontend-forge.extension-frontend-forge.svc
+    value: http://frontend-forge.<release-namespace>.svc
 ```

@@ -1,0 +1,58 @@
+{{- if .Values.frontendExtensionController.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-extension-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontendExtensionController.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend-extension-controller
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.componentLabels" (dict "root" . "name" "frontend-extension-controller" "component" "extension-controller") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "frontend-forge.extensionControllerServiceAccountName" . }}
+      containers:
+        - name: frontend-extension-controller
+          image: {{ include "frontend-forge.image" .Values.frontendExtensionController.image | quote }}
+          imagePullPolicy: {{ .Values.frontendExtensionController.image.pullPolicy }}
+          env:
+            - name: PACKAGER_IMAGE
+              value: {{ .Values.frontendExtensionController.packager.image | quote }}
+            - name: PACKAGER_SERVICE_ACCOUNT
+              value: {{ .Values.frontendExtensionController.packager.serviceAccountName | quote }}
+            - name: PUBLISHER_IMAGE
+              value: {{ .Values.frontendExtensionController.publisher.image | quote }}
+            - name: PUBLISHER_SERVICE_ACCOUNT
+              value: {{ .Values.frontendExtensionController.publisher.serviceAccountName | quote }}
+            - name: ARTIFACT_CONFIGMAP_NAMESPACE
+              value: {{ default .Release.Namespace .Values.frontendExtensionController.artifactConfigMapNamespace | quote }}
+            - name: RECONCILE_REQUEUE_SECONDS
+              value: {{ .Values.frontendExtensionController.reconcileRequeueSeconds | quote }}
+            - name: JOB_ACTIVE_DEADLINE_SECONDS
+              value: {{ .Values.frontendExtensionController.jobActiveDeadlineSeconds | quote }}
+            - name: JOB_TTL_SECONDS_AFTER_FINISHED
+              value: {{ .Values.frontendExtensionController.jobTtlSecondsAfterFinished | quote }}
+          {{- with .Values.frontendExtensionController.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.frontendExtensionController.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendExtensionController.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontendExtensionController.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
