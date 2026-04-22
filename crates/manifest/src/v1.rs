@@ -6,13 +6,11 @@ use frontend_forge_api::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::{FrontendRenderInput, ManifestRenderError};
+use crate::{FrontendRenderInput, ManifestRenderError, ResolvedFrontendPage};
 
 const DEFAULT_MENU_ICON: &str = "GridDuotone";
 
-pub(super) fn render_v1_manifest(
-    input: &FrontendRenderInput,
-) -> Result<Value, ManifestRenderError> {
+pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, ManifestRenderError> {
     let fi_name = input.name.clone();
     let display_name = input
         .display_name
@@ -63,6 +61,35 @@ pub(super) fn render_v1_manifest(
     );
 
     Ok(Value::Object(manifest))
+}
+
+pub fn resolve_v1_pages(
+    input: &FrontendRenderInput,
+) -> Result<Vec<ResolvedFrontendPage>, ManifestRenderError> {
+    let fi_name = input.name.clone();
+    let resolved_menus = resolve_spec(input, &fi_name, &input.route_namespace)?;
+    let mut pages = Vec::new();
+
+    for menu in resolved_menus {
+        match menu {
+            ResolvedTopMenu::Page(page) => pages.push(resolved_frontend_page(*page)),
+            ResolvedTopMenu::Organization { children, .. } => {
+                pages.extend(children.into_iter().map(resolved_frontend_page));
+            }
+        }
+    }
+
+    Ok(pages)
+}
+
+fn resolved_frontend_page(page: ResolvedPageBinding) -> ResolvedFrontendPage {
+    ResolvedFrontendPage {
+        title: page.title,
+        placement: page.placement,
+        route_suffix: page.route_suffix,
+        action_key: page.page.key.clone(),
+        page: page.page,
+    }
 }
 
 #[derive(Clone, Debug)]

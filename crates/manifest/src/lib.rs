@@ -3,7 +3,8 @@ mod v1;
 use std::collections::BTreeMap;
 
 use frontend_forge_api::{
-    FrontendExtension, FrontendExtensionSourceType, FrontendIntegration, PageSpec, PrimaryMenuSpec,
+    FrontendExtension, FrontendExtensionSourceType, FrontendIntegration, MenuPlacement, PageSpec,
+    PrimaryMenuSpec,
 };
 use kube::ResourceExt;
 use serde_json::Value;
@@ -91,6 +92,15 @@ pub struct FrontendRenderInput {
     pub locales: BTreeMap<String, BTreeMap<String, String>>,
     pub menus: Vec<PrimaryMenuSpec>,
     pub pages: Vec<PageSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedFrontendPage {
+    pub title: String,
+    pub placement: MenuPlacement,
+    pub route_suffix: String,
+    pub action_key: String,
+    pub page: PageSpec,
 }
 
 impl FrontendRenderInput {
@@ -186,6 +196,33 @@ pub fn render_frontend_extension_manifest(
 
     match normalized.as_str() {
         "v1" | "v1alpha1" | "1" | "1.0" => v1::render_v1_manifest(&input),
+        _ => Err(ManifestRenderError::UnsupportedSchemaVersion {
+            fe_name: fe.name_any(),
+            schema_version: requested.to_string(),
+        }),
+    }
+}
+
+/// Resolve a `FrontendExtension` source into validated page/menu bindings.
+///
+/// # Errors
+///
+/// Returns an error when the source schema version is unsupported or when the
+/// frontend source violates the shared renderer validation rules.
+pub fn resolve_frontend_extension_pages(
+    fe: &FrontendExtension,
+) -> Result<Vec<ResolvedFrontendPage>, ManifestRenderError> {
+    let input = FrontendRenderInput::from_frontend_extension(fe)?;
+    let requested = input.schema_version.as_deref().unwrap_or("v1").trim();
+    let normalized = if requested.is_empty() {
+        "v1"
+    } else {
+        requested
+    }
+    .to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "v1" | "v1alpha1" | "1" | "1.0" => v1::resolve_v1_pages(&input),
         _ => Err(ManifestRenderError::UnsupportedSchemaVersion {
             fe_name: fe.name_any(),
             schema_version: requested.to_string(),

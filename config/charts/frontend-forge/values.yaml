@@ -12,7 +12,7 @@ controller:
   runnerServiceAccountName: ""
   buildServiceBaseUrl: ""
   jsbundleConfigKey: index.js
-  buildServiceTimeoutSeconds: 600
+  buildServiceTimeoutSeconds: 240
   staleCheckGraceSeconds: 30
   reconcileRequeueSeconds: 5
   jobActiveDeadlineSeconds: 300
@@ -89,6 +89,9 @@ extensionController:
     annotations: {}
     name: ""
   artifactConfigmapNamespace: ""
+  buildServiceBaseUrl: ""
+  buildServiceTimeoutSeconds: 240
+  jsbundleConfigKey: index.js
   packagerServiceAccountName: ""
   packagerImage: ""
   publisherServiceAccountName: ""

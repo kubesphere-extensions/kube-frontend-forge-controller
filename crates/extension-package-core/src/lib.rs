@@ -1,19 +1,22 @@
-use std::{collections::BTreeMap, io::Write};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    io::Write,
+};
 
 use chrono::{DateTime, Utc};
 use flate2::{Compression, GzBuilder};
 use frontend_forge_api::{
-    ExtensionDependencySpec, ExtensionMaintainerSpec, ExtensionProviderSpec,
-    ExtensionResourcesSpec, FrontendExtension, FrontendExtensionPackageSpec,
-    FrontendExtensionSourceSpec,
+    CrdScope, ExtensionDependencySpec, ExtensionMaintainerSpec, ExtensionProviderSpec,
+    FrontendExtension, FrontendExtensionFrontendSpec, FrontendExtensionPackageSpec,
+    FrontendExtensionSourceType, MenuPlacement, PageType,
 };
-use frontend_forge_common::{
-    CommonError, manifest_content_and_hash, serializable_hash, sha256_hex,
+use frontend_forge_common::{CommonError, serializable_hash, sha256_hex};
+use frontend_forge_manifest::{
+    ManifestRenderError, ResolvedFrontendPage, resolve_frontend_extension_pages,
 };
-use frontend_forge_manifest::{ManifestRenderError, render_frontend_extension_manifest};
 use kube::ResourceExt;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value};
 use snafu::{ResultExt, Snafu};
 use tar::{Builder as TarBuilder, Header};
 
@@ -38,8 +41,6 @@ pub enum ExtensionPackageError {
         name: &'static str,
         source: serde_json::Error,
     },
-    #[snafu(display("failed to hash package payload: {source}"))]
-    PackageHash { source: CommonError },
     #[snafu(display("failed to build package archive: {source}"))]
     Archive { source: std::io::Error },
 }
@@ -96,16 +97,38 @@ pub struct ExtensionPackageArtifact {
 #[derive(Serialize)]
 struct SourceIdentity<'a> {
     package: &'a FrontendExtensionPackageSpec,
-    source: &'a FrontendExtensionSourceSpec,
+    source: NormalizedSourceIdentity<'a>,
 }
 
+#[derive(Serialize)]
+struct NormalizedSourceIdentity<'a> {
+    #[serde(rename = "type")]
+    type_: &'a FrontendExtensionSourceType,
+    inline: NormalizedInlineSourceIdentity<'a>,
+}
+
+#[derive(Serialize)]
+struct NormalizedInlineSourceIdentity<'a> {
+    #[serde(rename = "schemaVersion")]
+    schema_version: &'a str,
+    frontend: &'a FrontendExtensionFrontendSpec,
+}
+
+/// Build a deterministic ksbuilder extension package artifact.
+///
+/// # Errors
+///
+/// Returns an error when source hashing, frontend source validation,
+/// `RoleTemplate` rendering, YAML/JSON serialization, or archive generation
+/// fails.
 pub fn build_extension_package(
     fe: &FrontendExtension,
     generated_at: DateTime<Utc>,
+    index_js_content: &str,
 ) -> Result<ExtensionPackageArtifact, ExtensionPackageError> {
     let source_hash = frontend_extension_source_hash(fe)?;
 
-    let mut files = package_files(fe)?;
+    let mut files = package_files(fe, index_js_content)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
 
     let file_meta = package_file_meta(&files);
@@ -151,31 +174,42 @@ pub fn build_extension_package(
     })
 }
 
-fn package_files(fe: &FrontendExtension) -> Result<Vec<PackageFile>, ExtensionPackageError> {
-    let manifest = render_frontend_extension_manifest(fe).context(RenderManifestSnafu)?;
-    let manifest_content = canonical_json(&manifest)?;
+fn package_files(
+    fe: &FrontendExtension,
+    index_js_content: &str,
+) -> Result<Vec<PackageFile>, ExtensionPackageError> {
     let package_metadata = package_metadata(fe);
-    let charts_values = fe
-        .spec
-        .package
-        .charts
-        .as_ref()
-        .map(|charts| charts.values.clone())
-        .unwrap_or_default();
-    let charts_values_path = format!("charts/{}/values.yaml", frontend_extension_package_name(fe));
+    let package_name = frontend_extension_package_name(fe);
+    let helper_chart_name = helper_chart_name(&package_name);
+    let pages = resolve_frontend_extension_pages(fe).context(RenderManifestSnafu)?;
 
-    let mut files = vec![
+    Ok(vec![
         yaml_file("extension.yaml", &package_metadata)?,
-        yaml_file(&charts_values_path, &charts_values)?,
-        PackageFile {
-            path: "frontend/manifest.json".to_string(),
-            content: manifest_content.into_bytes(),
-        },
-    ];
-
-    files.extend(extension_resource_files(fe, &manifest)?);
-
-    Ok(files)
+        yaml_file("values.yaml", &root_values(fe, &helper_chart_name))?,
+        yaml_file("frontend/Chart.yaml", &frontend_chart(fe, &package_name))?,
+        frontend_values_file(index_js_content),
+        text_file(
+            "frontend/templates/configmap.yaml",
+            FRONTEND_CONFIGMAP_TEMPLATE,
+        ),
+        text_file(
+            "frontend/templates/extensions.yaml",
+            FRONTEND_EXTENSIONS_TEMPLATE,
+        ),
+        text_file("frontend/templates/helps.tpl", FRONTEND_HELPERS_TEMPLATE),
+        yaml_file(
+            &format!("{helper_chart_name}/Chart.yaml"),
+            &helper_chart(fe, &helper_chart_name),
+        )?,
+        yaml_file(
+            &format!("{helper_chart_name}/values.yaml"),
+            &helper_values(),
+        )?,
+        text_file(
+            &format!("{helper_chart_name}/templates/roleTemplate.yaml"),
+            &role_template_template(&package_name, &pages)?,
+        ),
+    ])
 }
 
 #[derive(Serialize)]
@@ -236,6 +270,96 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     }
 }
 
+#[derive(Serialize)]
+struct HelmChartYaml {
+    #[serde(rename = "apiVersion")]
+    api_version: String,
+    name: String,
+    description: String,
+    #[serde(rename = "type")]
+    type_: String,
+    version: String,
+    #[serde(rename = "appVersion")]
+    app_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<String>,
+}
+
+fn frontend_chart(fe: &FrontendExtension, package_name: &str) -> HelmChartYaml {
+    HelmChartYaml {
+        api_version: "v2".to_string(),
+        name: "frontend".to_string(),
+        description: format!("Frontend of {package_name} extension."),
+        type_: "application".to_string(),
+        version: fe.spec.package.version.clone(),
+        app_version: fe.spec.package.version.clone(),
+        home: fe.spec.package.home.clone(),
+        sources: fe.spec.package.sources.clone(),
+    }
+}
+
+fn helper_chart(fe: &FrontendExtension, helper_chart_name: &str) -> HelmChartYaml {
+    HelmChartYaml {
+        api_version: "v2".to_string(),
+        name: helper_chart_name.to_string(),
+        description: format!("Helper resources for {helper_chart_name}."),
+        type_: "application".to_string(),
+        version: fe.spec.package.version.clone(),
+        app_version: fe.spec.package.version.clone(),
+        home: None,
+        sources: Vec::new(),
+    }
+}
+
+fn root_values(fe: &FrontendExtension, helper_chart_name: &str) -> BTreeMap<String, Value> {
+    let mut values = fe
+        .spec
+        .package
+        .charts
+        .as_ref()
+        .map(|charts| charts.values.clone())
+        .unwrap_or_default();
+
+    let helper = values
+        .entry(helper_chart_name.to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Value::Object(helper) = helper {
+        let role_template = helper
+            .entry("roleTemplate".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Value::Object(role_template) = role_template {
+            role_template
+                .entry("enabled".to_string())
+                .or_insert(Value::Bool(true));
+        }
+    }
+
+    values
+}
+
+#[derive(Serialize)]
+struct HelperValues {
+    #[serde(rename = "roleTemplate")]
+    role_template: RoleTemplateValues,
+}
+
+#[derive(Serialize)]
+struct RoleTemplateValues {
+    enabled: bool,
+}
+
+const fn helper_values() -> HelperValues {
+    HelperValues {
+        role_template: RoleTemplateValues { enabled: true },
+    }
+}
+
+fn helper_chart_name(package_name: &str) -> String {
+    format!("{package_name}-helper")
+}
+
 #[must_use]
 pub fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
     fe.spec
@@ -245,76 +369,521 @@ pub fn frontend_extension_package_name(fe: &FrontendExtension) -> String {
         .unwrap_or_else(|| fe.name_any())
 }
 
+/// Calculate the normalized source hash used by package jobs and artifacts.
+///
+/// # Errors
+///
+/// Returns an error if the source identity cannot be serialized into canonical
+/// JSON for hashing.
 pub fn frontend_extension_source_hash(
     fe: &FrontendExtension,
 ) -> Result<String, ExtensionPackageError> {
+    let inline = &fe.spec.source.inline;
     serializable_hash(&SourceIdentity {
         package: &fe.spec.package,
-        source: &fe.spec.source,
+        source: NormalizedSourceIdentity {
+            type_: &fe.spec.source.type_,
+            inline: NormalizedInlineSourceIdentity {
+                schema_version: &inline.schema_version,
+                frontend: &inline.frontend,
+            },
+        },
     })
     .context(SourceHashSnafu)
 }
 
-fn extension_resource_files(
-    fe: &FrontendExtension,
-    manifest: &Value,
-) -> Result<Vec<PackageFile>, ExtensionPackageError> {
-    let resources = &fe.spec.source.inline.extension_resources;
-    let mut files = Vec::new();
+const FRONTEND_CONFIGMAP_TEMPLATE: &str = r#"apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "frontend.fullname" . }}
+  labels:
+    {{- include "frontend.labels" . | nindent 4 }}
+data:
+  index.js: {{ .Values.indexJsContent | quote }}
+"#;
 
-    if let Some(resources) = resources {
-        if let Some(jsbundle) = resources.js_bundle.as_ref() {
-            files.push(yaml_file(
-                "resources/jsbundle.yaml",
-                &json!({
-                    "apiVersion": "extensions.kubesphere.io/v1alpha1",
-                    "kind": "JSBundle",
-                    "metadata": {
-                        "name": jsbundle.name,
-                        "annotations": {
-                            "frontend-forge.io/frontend-manifest-path": "frontend/manifest.json"
-                        }
-                    },
-                    "spec": {
-                        "raw": canonical_json(manifest)?
-                    }
-                }),
-            )?);
-        }
+const FRONTEND_EXTENSIONS_TEMPLATE: &str = r#"apiVersion: extensions.kubesphere.io/v1alpha1
+kind: JSBundle
+metadata:
+  name: {{ include "frontend.fullname" . }}-js-bundle
+spec:
+  rawFrom:
+    configMapKeyRef:
+      namespace: {{ .Release.Namespace }}
+      name: {{ include "frontend.fullname" . }}
+      key: index.js
+status:
+  state: Available
+  link: /dist/{{ include "frontend.fullname" . }}/index.js
+"#;
 
-        for role_template in &resources.role_templates {
-            files.push(yaml_file(
-                &format!("resources/roletemplates/{}.yaml", role_template.name),
-                &json!({
-                    "apiVersion": "iam.kubesphere.io/v1beta1",
-                    "kind": "RoleTemplate",
-                    "metadata": {
-                        "name": role_template.name
-                    },
-                    "spec": {
-                        "displayName": role_template.display_name,
-                        "rules": role_template.rules
-                    }
-                }),
-            )?);
-        }
-    }
+const FRONTEND_HELPERS_TEMPLATE: &str = r#"{{/*
+Expand the name of the chart.
+*/}}
+{{- define "frontend.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
 
-    if resources_missing(resources.as_ref()) {
-        files.push(yaml_file(
-            "resources/extension-resources.yaml",
-            &json!({
-                "jsBundle": null,
-                "roleTemplates": []
-            }),
-        )?);
-    }
+{{/*
+Create a default fully qualified app name.
+*/}}
+{{- define "frontend.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
 
-    Ok(files)
+{{/*
+Create chart name and version as used by the chart label.
+*/}}
+{{- define "frontend.chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "frontend.labels" -}}
+helm.sh/chart: {{ include "frontend.chart" . }}
+{{ include "frontend.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Selector labels
+*/}}
+{{- define "frontend.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "frontend.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+"#;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum RoleScope {
+    Cluster,
+    Namespace,
 }
 
-fn resources_missing(resources: Option<&ExtensionResourcesSpec>) -> bool {
-    resources.is_none_or(|r| r.js_bundle.is_none() && r.role_templates.is_empty())
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum RoleAction {
+    View,
+    Manage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct GeneratedRule {
+    api_group: String,
+    resource: String,
+    verbs: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RoleTemplateAggregate {
+    action_keys: BTreeSet<String>,
+    rules: BTreeSet<GeneratedRule>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RoleTemplateAggregates {
+    cluster_view: RoleTemplateAggregate,
+    cluster_manage: RoleTemplateAggregate,
+    namespace_view: RoleTemplateAggregate,
+    namespace_manage: RoleTemplateAggregate,
+}
+
+fn role_template_template(
+    package_name: &str,
+    pages: &[ResolvedFrontendPage],
+) -> Result<String, ExtensionPackageError> {
+    let aggregates = role_template_aggregates(pages);
+    let mut out = String::from("{{- if .Values.roleTemplate.enabled }}\n");
+
+    if aggregates.has_scope(RoleScope::Cluster) {
+        out.push_str(&category_template(
+            RoleScope::Cluster,
+            "cluster-fe-management",
+            "Quick Integration",
+            "快速集成",
+        ));
+    }
+    append_role_template(
+        &mut out,
+        package_name,
+        RoleScope::Cluster,
+        RoleAction::View,
+        &aggregates.cluster_view,
+    )?;
+    append_role_template(
+        &mut out,
+        package_name,
+        RoleScope::Cluster,
+        RoleAction::Manage,
+        &aggregates.cluster_manage,
+    )?;
+
+    if aggregates.has_scope(RoleScope::Namespace) {
+        out.push_str(&category_template(
+            RoleScope::Namespace,
+            "namespace-fe-management",
+            "Quick Integration",
+            "快速集成",
+        ));
+    }
+    append_role_template(
+        &mut out,
+        package_name,
+        RoleScope::Namespace,
+        RoleAction::View,
+        &aggregates.namespace_view,
+    )?;
+    append_role_template(
+        &mut out,
+        package_name,
+        RoleScope::Namespace,
+        RoleAction::Manage,
+        &aggregates.namespace_manage,
+    )?;
+
+    out.push_str("{{- end }}\n");
+    Ok(out)
+}
+
+impl RoleTemplateAggregates {
+    const fn aggregate_mut(
+        &mut self,
+        scope: RoleScope,
+        action: RoleAction,
+    ) -> &mut RoleTemplateAggregate {
+        match (scope, action) {
+            (RoleScope::Cluster, RoleAction::View) => &mut self.cluster_view,
+            (RoleScope::Cluster, RoleAction::Manage) => &mut self.cluster_manage,
+            (RoleScope::Namespace, RoleAction::View) => &mut self.namespace_view,
+            (RoleScope::Namespace, RoleAction::Manage) => &mut self.namespace_manage,
+        }
+    }
+
+    fn has_scope(&self, scope: RoleScope) -> bool {
+        match scope {
+            RoleScope::Cluster => !self.cluster_view.is_empty() || !self.cluster_manage.is_empty(),
+            RoleScope::Namespace => {
+                !self.namespace_view.is_empty() || !self.namespace_manage.is_empty()
+            }
+        }
+    }
+}
+
+impl RoleTemplateAggregate {
+    fn is_empty(&self) -> bool {
+        self.action_keys.is_empty()
+    }
+}
+
+fn role_template_aggregates(pages: &[ResolvedFrontendPage]) -> RoleTemplateAggregates {
+    let mut aggregates = RoleTemplateAggregates::default();
+
+    for page in pages {
+        match page.page.type_ {
+            PageType::CrdTable => {
+                let Some(crd) = page.page.crd_table.as_ref() else {
+                    continue;
+                };
+                let scope = crd_role_scope(page.placement, crd.scope);
+                let action_key = crd
+                    .auth_key
+                    .clone()
+                    .unwrap_or_else(|| page.action_key.clone());
+                let view_rule = GeneratedRule {
+                    api_group: crd.group.clone(),
+                    resource: crd.names.plural.clone(),
+                    verbs: vec!["get".to_string(), "list".to_string(), "watch".to_string()],
+                };
+                let manage_rule = GeneratedRule {
+                    api_group: crd.group.clone(),
+                    resource: crd.names.plural.clone(),
+                    verbs: vec!["*".to_string()],
+                };
+                add_role_rule(
+                    &mut aggregates,
+                    scope,
+                    RoleAction::View,
+                    &action_key,
+                    Some(view_rule),
+                );
+                add_role_rule(
+                    &mut aggregates,
+                    scope,
+                    RoleAction::Manage,
+                    &action_key,
+                    Some(manage_rule),
+                );
+            }
+            PageType::Iframe => {
+                if let Some(scope) = iframe_role_scope(page.placement) {
+                    add_role_rule(
+                        &mut aggregates,
+                        scope,
+                        RoleAction::View,
+                        &page.action_key,
+                        None,
+                    );
+                }
+            }
+        }
+    }
+
+    aggregates
+}
+
+fn add_role_rule(
+    aggregates: &mut RoleTemplateAggregates,
+    scope: RoleScope,
+    action: RoleAction,
+    action_key: &str,
+    rule: Option<GeneratedRule>,
+) {
+    let aggregate = aggregates.aggregate_mut(scope, action);
+    aggregate.action_keys.insert(action_key.to_string());
+    if let Some(rule) = rule {
+        aggregate.rules.insert(rule);
+    }
+}
+
+const fn crd_role_scope(placement: MenuPlacement, crd_scope: CrdScope) -> RoleScope {
+    match placement {
+        MenuPlacement::Cluster => RoleScope::Cluster,
+        MenuPlacement::Workspace => RoleScope::Namespace,
+        MenuPlacement::Global => match crd_scope {
+            CrdScope::Cluster => RoleScope::Cluster,
+            CrdScope::Namespaced => RoleScope::Namespace,
+        },
+    }
+}
+
+const fn iframe_role_scope(placement: MenuPlacement) -> Option<RoleScope> {
+    match placement {
+        MenuPlacement::Cluster => Some(RoleScope::Cluster),
+        MenuPlacement::Workspace => Some(RoleScope::Namespace),
+        MenuPlacement::Global => None,
+    }
+}
+
+fn category_template(
+    scope: RoleScope,
+    category_name: &str,
+    display_name_en: &str,
+    display_name_zh: &str,
+) -> String {
+    let scope_name = role_scope_name(scope);
+    format!(
+        r#"---
+{{{{- $existing := lookup "iam.kubesphere.io/v1beta1" "Category" "" "{category_name}" -}}}}
+
+{{{{- if not $existing }}}}
+apiVersion: iam.kubesphere.io/v1beta1
+kind: Category
+metadata:
+  name: {category_name}
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    iam.kubesphere.io/scope: {scope_name}
+    kubesphere.io/managed: "true"
+spec:
+  displayName:
+    en: {display_name_en}
+    zh: {display_name_zh}
+{{{{- end }}}}
+"#
+    )
+}
+
+#[allow(clippy::format_push_string)]
+fn append_role_template(
+    out: &mut String,
+    package_name: &str,
+    scope: RoleScope,
+    action: RoleAction,
+    aggregate: &RoleTemplateAggregate,
+) -> Result<(), ExtensionPackageError> {
+    if aggregate.is_empty() {
+        return Ok(());
+    }
+
+    let scope_name = role_scope_name(scope);
+    let action_name = role_action_name(action);
+    let role_name = format!("{scope_name}-{action_name}-{package_name}");
+    let category = format!("{scope_name}-fe-management");
+    let annotation = role_action_annotation(&aggregate.action_keys, action)?;
+    let dependency = if action == RoleAction::Manage {
+        Some(format!("{scope_name}-view-{package_name}"))
+    } else {
+        None
+    };
+
+    out.push_str("---\n");
+    out.push_str("apiVersion: iam.kubesphere.io/v1beta1\n");
+    out.push_str("kind: RoleTemplate\n");
+    out.push_str("metadata:\n");
+    out.push_str("  annotations:\n");
+    if let Some(dependency) = dependency {
+        out.push_str(&format!(
+            "    iam.kubesphere.io/dependencies: '[\"{dependency}\"]'\n"
+        ));
+    }
+    out.push_str(&format!(
+        "    iam.kubesphere.io/role-template-rules: '{}'\n",
+        annotation.replace('\'', "''")
+    ));
+    out.push_str("  labels:\n");
+    append_role_labels(out, scope, action, &category);
+    out.push_str(&format!("  name: {role_name}\n"));
+    out.push_str("spec:\n");
+    append_role_description(out, package_name, scope, action);
+    append_role_display_name(out, package_name, action);
+    append_rules(out, &aggregate.rules);
+    Ok(())
+}
+
+fn role_action_annotation(
+    action_keys: &BTreeSet<String>,
+    action: RoleAction,
+) -> Result<String, ExtensionPackageError> {
+    let values = action_keys
+        .iter()
+        .map(|key| (key.clone(), role_action_name(action).to_string()))
+        .collect::<BTreeMap<_, _>>();
+    serde_json::to_string(&values).context(SerializeJsonSnafu {
+        name: "role-template-rules annotation",
+    })
+}
+
+#[allow(clippy::format_push_string)]
+fn append_role_labels(out: &mut String, scope: RoleScope, action: RoleAction, category: &str) {
+    match (scope, action) {
+        (RoleScope::Cluster, RoleAction::View) => {
+            out.push_str("    iam.kubesphere.io/aggregate-to-cluster-viewer: \"\"\n");
+        }
+        (RoleScope::Namespace, RoleAction::View) => {
+            out.push_str("    iam.kubesphere.io/aggregate-to-viewer: \"\"\n");
+            out.push_str("    iam.kubesphere.io/aggregate-to-operator: \"\"\n");
+        }
+        (RoleScope::Namespace, RoleAction::Manage) => {
+            out.push_str("    iam.kubesphere.io/aggregate-to-operator: \"\"\n");
+        }
+        (RoleScope::Cluster, RoleAction::Manage) => {}
+    }
+    out.push_str(&format!("    iam.kubesphere.io/category: {category}\n"));
+    out.push_str(&format!(
+        "    iam.kubesphere.io/scope: {}\n",
+        role_scope_name(scope)
+    ));
+    out.push_str("    kubesphere.io/managed: \"true\"\n");
+}
+
+#[allow(clippy::format_push_string)]
+fn append_role_description(
+    out: &mut String,
+    package_name: &str,
+    scope: RoleScope,
+    action: RoleAction,
+) {
+    out.push_str("  description:\n");
+    match (scope, action) {
+        (_, RoleAction::View) => {
+            out.push_str(&format!("    en: View {package_name} list.\n"));
+            out.push_str(&format!("    zh: 查看 {package_name} 列表。\n"));
+        }
+        (RoleScope::Cluster, RoleAction::Manage) => {
+            out.push_str(&format!("    en: Manage {package_name}.\n"));
+            out.push_str(&format!("    zh: 管理 {package_name}。\n"));
+        }
+        (RoleScope::Namespace, RoleAction::Manage) => {
+            out.push_str(&format!("    en: Namespace {package_name} management.\n"));
+            out.push_str(&format!("    zh: 项目 {package_name} 管理。\n"));
+        }
+    }
+}
+
+#[allow(clippy::format_push_string)]
+fn append_role_display_name(out: &mut String, package_name: &str, action: RoleAction) {
+    out.push_str("  displayName:\n");
+    match action {
+        RoleAction::View => {
+            out.push_str(&format!("    en: View {package_name} List\n"));
+            out.push_str(&format!("    zh: 查看 {package_name} 列表\n"));
+        }
+        RoleAction::Manage => {
+            out.push_str(&format!("    en: Manage {package_name}\n"));
+            out.push_str(&format!("    zh: 管理 {package_name}\n"));
+        }
+    }
+}
+
+#[allow(clippy::format_push_string)]
+fn append_rules(out: &mut String, rules: &BTreeSet<GeneratedRule>) {
+    if rules.is_empty() {
+        out.push_str("  rules: []\n");
+        return;
+    }
+
+    out.push_str("  rules:\n");
+    for rule in rules {
+        out.push_str("  - apiGroups:\n");
+        out.push_str(&format!("    - '{}'\n", rule.api_group.replace('\'', "''")));
+        out.push_str("    resources:\n");
+        out.push_str(&format!("    - '{}'\n", rule.resource.replace('\'', "''")));
+        out.push_str("    verbs:\n");
+        for verb in &rule.verbs {
+            out.push_str(&format!("    - {verb}\n"));
+        }
+    }
+}
+
+const fn role_scope_name(scope: RoleScope) -> &'static str {
+    match scope {
+        RoleScope::Cluster => "cluster",
+        RoleScope::Namespace => "namespace",
+    }
+}
+
+const fn role_action_name(action: RoleAction) -> &'static str {
+    match action {
+        RoleAction::View => "view",
+        RoleAction::Manage => "manage",
+    }
+}
+
+fn frontend_values_file(index_js_content: &str) -> PackageFile {
+    let mut content = String::from("indexJsContent: |\n");
+    for line in index_js_content.lines() {
+        content.push_str("  ");
+        content.push_str(line);
+        content.push('\n');
+    }
+    if index_js_content.ends_with('\n') {
+        content.push_str("  \n");
+    }
+    PackageFile {
+        path: "frontend/values.yaml".to_string(),
+        content: content.into_bytes(),
+    }
+}
+
+fn text_file(path: &str, content: &str) -> PackageFile {
+    PackageFile {
+        path: path.to_string(),
+        content: content.as_bytes().to_vec(),
+    }
 }
 
 fn yaml_file<T>(path: &str, value: &T) -> Result<PackageFile, ExtensionPackageError>
@@ -326,11 +895,6 @@ where
         path: path.to_string(),
         content: content.into_bytes(),
     })
-}
-
-fn canonical_json(value: &Value) -> Result<String, ExtensionPackageError> {
-    let (content, _) = manifest_content_and_hash(value).context(PackageHashSnafu)?;
-    Ok(content)
 }
 
 fn package_file_meta(files: &[PackageFile]) -> Vec<PackageFileMeta> {
@@ -472,7 +1036,12 @@ spec:
     #[test]
     fn builds_extension_package_artifact_payload() {
         let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
-        let artifact = build_extension_package(&sample_fe(), generated_at).unwrap();
+        let artifact = build_extension_package(
+            &sample_fe(),
+            generated_at,
+            "System.register([], function () {});",
+        )
+        .unwrap();
 
         assert_eq!(artifact.filename, "inspecttask-0.1.0.tgz");
         assert_eq!(artifact.media_type, PACKAGE_MEDIA_TYPE);
@@ -484,36 +1053,25 @@ spec:
             artifact.payload.binary_data[PACKAGE_KEY][..3],
             [0x1f, 0x8b, 0x08]
         );
-        assert!(
-            artifact
-                .files
-                .iter()
-                .any(|file| file.path == "frontend/manifest.json")
-        );
-        assert!(
-            artifact
-                .files
-                .iter()
-                .any(|file| file.path == "charts/inspecttask/values.yaml")
-        );
-        assert!(
-            !artifact
-                .files
-                .iter()
-                .any(|file| file.path == "charts/values.yaml")
-        );
-        assert!(
-            artifact
-                .files
-                .iter()
-                .any(|file| file.path == "resources/jsbundle.yaml")
-        );
-        assert!(
-            artifact
-                .files
-                .iter()
-                .any(|file| file.path == "resources/roletemplates/inspecttask-view.yaml")
-        );
+        let paths = artifact
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&"extension.yaml"));
+        assert!(paths.contains(&"values.yaml"));
+        assert!(paths.contains(&"frontend/Chart.yaml"));
+        assert!(paths.contains(&"frontend/values.yaml"));
+        assert!(paths.contains(&"frontend/templates/configmap.yaml"));
+        assert!(paths.contains(&"frontend/templates/extensions.yaml"));
+        assert!(paths.contains(&"frontend/templates/helps.tpl"));
+        assert!(paths.contains(&"inspecttask-helper/Chart.yaml"));
+        assert!(paths.contains(&"inspecttask-helper/values.yaml"));
+        assert!(paths.contains(&"inspecttask-helper/templates/roleTemplate.yaml"));
+        assert!(!paths.contains(&"frontend/manifest.json"));
+        assert!(!paths.contains(&"charts/inspecttask/values.yaml"));
+        assert!(!paths.contains(&"resources/jsbundle.yaml"));
+        assert!(!paths.contains(&"resources/roletemplates/inspecttask-view.yaml"));
 
         let extension_yaml = artifact
             .files
@@ -530,18 +1088,44 @@ spec:
     }
 
     #[test]
-    fn package_manifest_uses_frontend_extension_routes() {
+    fn frontend_values_embed_index_js_content() {
         let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
-        let artifact = build_extension_package(&sample_fe(), generated_at).unwrap();
-        let manifest = artifact
+        let artifact = build_extension_package(
+            &sample_fe(),
+            generated_at,
+            "System.register([], function () {\n  console.log('ok');\n});",
+        )
+        .unwrap();
+        let values = artifact
             .files
             .iter()
-            .find(|file| file.path == "frontend/manifest.json")
+            .find(|file| file.path == "frontend/values.yaml")
             .unwrap();
-        let content = std::str::from_utf8(&manifest.content).unwrap();
+        let content = std::str::from_utf8(&values.content).unwrap();
 
-        assert!(content.contains("/frontendextensions/inspecttask/inspecttasks"));
-        assert!(!content.contains("/frontendintegrations/inspecttask/inspecttasks"));
+        assert!(content.contains("indexJsContent: |"));
+        assert!(content.contains("  System.register([], function () {"));
+        assert!(content.contains("    console.log('ok');"));
+    }
+
+    #[test]
+    fn role_templates_are_generated_from_pages_and_ignore_explicit_resources() {
+        let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+        let artifact =
+            build_extension_package(&sample_fe(), generated_at, "console.log('ok');").unwrap();
+        let template = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "inspecttask-helper/templates/roleTemplate.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&template.content).unwrap();
+
+        assert!(content.contains("name: cluster-view-inspecttask"));
+        assert!(content.contains("rules: []"));
+        assert!(
+            content.contains(r#"iam.kubesphere.io/role-template-rules: '{"inspecttasks":"view"}'"#)
+        );
+        assert!(!content.contains("inspecttask-view"));
     }
 
     #[test]
@@ -551,23 +1135,151 @@ spec:
         let mut b = sample_fe();
         b.spec.package.version = "0.2.0".to_string();
 
-        let a = build_extension_package(&a, generated_at).unwrap();
-        let b = build_extension_package(&b, generated_at).unwrap();
+        let a = build_extension_package(&a, generated_at, "console.log('a');").unwrap();
+        let b = build_extension_package(&b, generated_at, "console.log('a');").unwrap();
 
         assert_ne!(a.source_hash, b.source_hash);
         assert_ne!(a.digest, b.digest);
     }
 
     #[test]
+    fn source_hash_ignores_deprecated_extension_resources() {
+        let mut a = sample_fe();
+        let mut b = sample_fe();
+        let resources = b.spec.source.inline.extension_resources.as_mut().unwrap();
+        resources.js_bundle.as_mut().unwrap().name = "changed-jsbundle".to_string();
+        resources.role_templates[0].name = "changed-role-template".to_string();
+        resources.role_templates[0].rules[0].verbs = vec!["delete".to_string()];
+
+        assert_eq!(
+            frontend_extension_source_hash(&a).unwrap(),
+            frontend_extension_source_hash(&b).unwrap()
+        );
+
+        a.spec.source.inline.extension_resources = None;
+        assert_eq!(
+            frontend_extension_source_hash(&a).unwrap(),
+            frontend_extension_source_hash(&b).unwrap()
+        );
+    }
+
+    #[test]
     fn gzip_payload_is_deterministic() {
         let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
-        let a = build_extension_package(&sample_fe(), generated_at).unwrap();
-        let b = build_extension_package(&sample_fe(), generated_at).unwrap();
+        let a = build_extension_package(&sample_fe(), generated_at, "console.log('a');").unwrap();
+        let b = build_extension_package(&sample_fe(), generated_at, "console.log('a');").unwrap();
 
         assert_eq!(a.digest, b.digest);
         assert_eq!(
             a.payload.binary_data[PACKAGE_KEY],
             b.payload.binary_data[PACKAGE_KEY]
         );
+    }
+
+    #[test]
+    fn crd_table_role_templates_are_aggregated_by_scope_and_action() {
+        let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+        let fe: FrontendExtension = serde_yaml::from_str(
+            r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: mixed
+spec:
+  package:
+    name: mixed
+    version: 0.1.0
+    displayName:
+      en: Mixed
+    description:
+      en: Mixed
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Cluster Tasks
+            key: cluster-tasks
+            placement: cluster
+            type: page
+          - displayName: Workspace Reports
+            key: workspace-reports
+            placement: workspace
+            type: page
+          - displayName: Global Items
+            key: global-items
+            placement: global
+            type: page
+        pages:
+          - key: cluster-tasks
+            type: crdTable
+            crdTable:
+              group: kubeeye.kubesphere.io
+              version: v1alpha2
+              scope: Cluster
+              authKey: inspecttask-auth
+              names:
+                kind: InspectTask
+                plural: inspecttasks
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+          - key: workspace-reports
+            type: crdTable
+            crdTable:
+              group: reports.kubesphere.io
+              version: v1alpha1
+              scope: Namespaced
+              names:
+                kind: Report
+                plural: reports
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+          - key: global-items
+            type: crdTable
+            crdTable:
+              group: items.kubesphere.io
+              version: v1
+              scope: Namespaced
+              names:
+                kind: Item
+                plural: items
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+        )
+        .unwrap();
+        let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+        let template = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "mixed-helper/templates/roleTemplate.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&template.content).unwrap();
+
+        assert!(content.contains("name: cluster-view-mixed"));
+        assert!(content.contains("name: cluster-manage-mixed"));
+        assert!(content.contains("name: namespace-view-mixed"));
+        assert!(content.contains("name: namespace-manage-mixed"));
+        assert!(content.contains(r#""inspecttask-auth":"view""#));
+        assert!(content.contains(r#""workspace-reports":"view""#));
+        assert!(content.contains(r#""global-items":"manage""#));
+        assert!(content.contains("- 'inspecttasks'"));
+        assert!(content.contains("- 'reports'"));
+        assert!(content.contains("- 'items'"));
+        assert!(content.contains("iam.kubesphere.io/dependencies: '[\"cluster-view-mixed\"]'"));
+        assert!(content.contains("iam.kubesphere.io/dependencies: '[\"namespace-view-mixed\"]'"));
     }
 }

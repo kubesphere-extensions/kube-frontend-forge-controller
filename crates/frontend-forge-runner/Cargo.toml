@@ -7,11 +7,11 @@ license.workspace = true
 [dependencies]
 chrono.workspace = true
 frontend-forge-api = { path = "../api" }
+frontend-forge-build-service-client = { path = "../build-service-client" }
 frontend-forge-common = { path = "../common" }
 frontend-forge-manifest = { path = "../manifest" }
 k8s-openapi.workspace = true
 kube.workspace = true
-reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true

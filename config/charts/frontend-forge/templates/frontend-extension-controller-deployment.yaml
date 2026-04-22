@@ -53,6 +53,12 @@ spec:
               value: {{ default (include "frontend-forge.extensionPublisherServiceAccountName" .) .Values.extensionController.publisherServiceAccountName | quote }}
             - name: ARTIFACT_CONFIGMAP_NAMESPACE
               value: {{ $artifactNamespace | quote }}
+            - name: BUILD_SERVICE_BASE_URL
+              value: {{ default (printf "http://%s.%s.svc" (include "frontend-forge.buildServiceName" .) .Release.Namespace) .Values.extensionController.buildServiceBaseUrl | quote }}
+            - name: BUILD_SERVICE_TIMEOUT_SECONDS
+              value: {{ .Values.extensionController.buildServiceTimeoutSeconds | quote }}
+            - name: JSBUNDLE_CONFIG_KEY
+              value: {{ .Values.extensionController.jsbundleConfigKey | quote }}
             - name: RECONCILE_REQUEUE_SECONDS
               value: {{ .Values.extensionController.reconcileRequeueSeconds | quote }}
             - name: JOB_ACTIVE_DEADLINE_SECONDS

@@ -559,6 +559,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "frontend-forge-build-service-client"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "snafu",
+ "tokio",
+]
+
+[[package]]
 name = "frontend-forge-common"
 version = "0.1.0"
 dependencies = [
@@ -635,8 +645,10 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "frontend-forge-api",
+ "frontend-forge-build-service-client",
  "frontend-forge-common",
  "frontend-forge-extension-package-core",
+ "frontend-forge-manifest",
  "k8s-openapi",
  "kube",
  "serde_yaml",
@@ -678,11 +690,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "frontend-forge-api",
+ "frontend-forge-build-service-client",
  "frontend-forge-common",
  "frontend-forge-manifest",
  "k8s-openapi",
  "kube",
- "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",

@@ -110,6 +110,9 @@ struct ControllerConfig {
     publisher_image: String,
     publisher_service_account: Option<String>,
     artifact_configmap_namespace: String,
+    build_service_base_url: String,
+    build_service_timeout_seconds: u64,
+    jsbundle_config_key: String,
     reconcile_requeue_seconds: u64,
     job_active_deadline_seconds: i64,
     job_ttl_seconds_after_finished: Option<i32>,
@@ -131,6 +134,15 @@ impl ControllerConfig {
             publisher_service_account: env::var("PUBLISHER_SERVICE_ACCOUNT").ok(),
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
                 .unwrap_or(work_namespace),
+            build_service_base_url: env::var("BUILD_SERVICE_BASE_URL").unwrap_or_else(|_| {
+                "http://frontend-forge.extension-frontend-forge.svc".to_string()
+            }),
+            build_service_timeout_seconds: env::var("BUILD_SERVICE_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(240),
+            jsbundle_config_key: env::var("JSBUNDLE_CONFIG_KEY")
+                .unwrap_or_else(|_| "index.js".to_string()),
             reconcile_requeue_seconds: env::var("RECONCILE_REQUEUE_SECONDS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -908,6 +920,21 @@ fn make_package_job(
         EnvVar {
             name: "ARTIFACT_CONFIGMAP_NAME".to_string(),
             value: Some(artifact_configmap_name.to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "BUILD_SERVICE_BASE_URL".to_string(),
+            value: Some(config.build_service_base_url.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "BUILD_SERVICE_TIMEOUT_SECONDS".to_string(),
+            value: Some(config.build_service_timeout_seconds.to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "JSBUNDLE_CONFIG_KEY".to_string(),
+            value: Some(config.jsbundle_config_key.clone()),
             ..Default::default()
         },
     ];

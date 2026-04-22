@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/common",
+  "crates/build-service-client",
   "crates/api",
   "crates/manifest",
   "crates/extension-package-core",

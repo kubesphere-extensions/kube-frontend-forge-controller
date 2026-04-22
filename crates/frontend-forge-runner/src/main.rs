@@ -9,6 +9,9 @@ use frontend_forge_api::{
     FrontendIntegration, FrontendIntegrationPhase, JSBundle, JsBundleNamespacedKeyRef,
     JsBundleRawFromSpec, JsBundleSpec, JsBundleStatus, LastBuildError,
 };
+use frontend_forge_build_service_client::{
+    BuildServiceClient, BuildServiceError, select_bundle_artifact,
+};
 use frontend_forge_common::{
     ANNO_BUILD_JOB, ANNO_MANIFEST_CONTENT, ANNO_MANIFEST_HASH, ANNO_SOURCE_GENERATION,
     ANNO_SOURCE_SPEC, ANNO_SOURCE_SPEC_HASH, CommonError, LABEL_ENABLED, LABEL_FI_NAME,
@@ -21,7 +24,6 @@ use kube::{
     Api, Client, Resource, ResourceExt,
     api::{Patch, PatchParams},
 };
-use serde::Deserialize;
 use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tokio::time::sleep;
@@ -78,35 +80,8 @@ enum Error {
     ManifestHash { source: CommonError },
     #[snafu(display("failed to canonicalize/hash FrontendIntegration spec: {source}"))]
     SpecHash { source: CommonError },
-    #[snafu(display(
-        "failed to initialize build-service HTTP client (timeout={timeout_seconds}s): {source}"
-    ))]
-    BuildServiceClientInit {
-        timeout_seconds: u64,
-        source: reqwest::Error,
-    },
-    #[snafu(display("build-service request failed during {operation} {url}: {source}"))]
-    BuildServiceRequest {
-        operation: &'static str,
-        url: String,
-        source: reqwest::Error,
-    },
-    #[snafu(display("build-service returned non-success during {operation} {url}: {source}"))]
-    BuildServiceResponseStatus {
-        operation: &'static str,
-        url: String,
-        source: reqwest::Error,
-    },
-    #[snafu(display("failed to decode build-service response during {operation} {url}: {source}"))]
-    BuildServiceDecode {
-        operation: &'static str,
-        url: String,
-        source: reqwest::Error,
-    },
-    #[snafu(display("build-service returned failure: {message}"))]
-    BuildFailed { message: String },
-    #[snafu(display("no suitable JS bundle artifact found (wanted key '{desired_key}')"))]
-    MissingBundleArtifact { desired_key: String },
+    #[snafu(display("build-service failed: {source}"))]
+    BuildService { source: BuildServiceError },
     #[snafu(display("fi status.observed_spec_hash not available within grace period"))]
     StaleCheckTimeout,
 }
@@ -145,17 +120,14 @@ fn required_env(key: &'static str) -> Result<String, Error> {
 }
 
 fn required_env_alias(primary: &'static str, legacy: &'static str) -> Result<String, Error> {
-    match env::var(primary) {
-        Ok(v) => Ok(v),
-        Err(_) => required_env(legacy),
-    }
+    env::var(primary).map_or_else(|_| required_env(legacy), Ok)
 }
 
 fn parse_env_u64(key: &'static str, default: u64) -> Result<u64, Error> {
-    match env::var(key) {
-        Ok(v) => v.parse::<u64>().context(InvalidEnvSnafu { key }),
-        Err(_) => Ok(default),
-    }
+    env::var(key).map_or_else(
+        |_| Ok(default),
+        |v| v.parse::<u64>().context(InvalidEnvSnafu { key }),
+    )
 }
 
 const fn enabled_label_value(enabled: bool) -> &'static str {
@@ -164,75 +136,6 @@ const fn enabled_label_value(enabled: bool) -> &'static str {
 
 fn build_spec_hash(fi: &FrontendIntegration) -> Result<String, CommonError> {
     serializable_hash(&fi.spec.without_enabled())
-}
-
-#[derive(Clone)]
-struct BuildServiceClient {
-    base_url: String,
-    client: reqwest::Client,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProjectBuildResponse {
-    ok: bool,
-    #[serde(default)]
-    message: Option<String>,
-    #[serde(default)]
-    files: Vec<RemoteFile>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteFile {
-    path: String,
-    content: String,
-}
-
-impl BuildServiceClient {
-    fn new(cfg: &RunnerConfig) -> Result<Self, Error> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(cfg.build_service_timeout_seconds))
-            .build()
-            .context(BuildServiceClientInitSnafu {
-                timeout_seconds: cfg.build_service_timeout_seconds,
-            })?;
-        Ok(Self {
-            base_url: cfg.build_service_base_url.trim_end_matches('/').to_string(),
-            client,
-        })
-    }
-
-    async fn build_project(&self, manifest: &str) -> Result<Vec<RemoteFile>, Error> {
-        let url = format!("{}/api/project/build", self.base_url);
-        let resp = self
-            .client
-            .post(&url)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(manifest.to_string())
-            .send()
-            .await
-            .context(BuildServiceRequestSnafu {
-                operation: "project_build",
-                url: url.clone(),
-            })?;
-        let resp = resp
-            .error_for_status()
-            .context(BuildServiceResponseStatusSnafu {
-                operation: "project_build",
-                url: url.clone(),
-            })?;
-        let payload: ProjectBuildResponse = resp.json().await.context(BuildServiceDecodeSnafu {
-            operation: "project_build",
-            url,
-        })?;
-        if !payload.ok {
-            return Err(Error::BuildFailed {
-                message: payload
-                    .message
-                    .unwrap_or_else(|| "build-service returned ok=false".to_string()),
-            });
-        }
-        Ok(payload.files)
-    }
 }
 
 #[tokio::main]
@@ -281,7 +184,11 @@ async fn run() -> Result<(), Error> {
         let (manifest, manifest_hash) =
             manifest_content_and_hash(&manifest_value).context(ManifestHashSnafu)?;
 
-        let build_client = BuildServiceClient::new(&cfg)?;
+        let build_client = BuildServiceClient::new(
+            &cfg.build_service_base_url,
+            cfg.build_service_timeout_seconds,
+        )
+        .context(BuildServiceSnafu)?;
 
         info!(
             fi = %cfg.fi_name,
@@ -289,7 +196,10 @@ async fn run() -> Result<(), Error> {
             manifest_hash = %manifest_hash,
             "starting build runner"
         );
-        let files = build_client.build_project(&manifest).await?;
+        let files = build_client
+            .build_project(&manifest)
+            .await
+            .context(BuildServiceSnafu)?;
         info!(files = files.len(), "build artifacts fetched");
         let fi = stale_check(&fi_api, &cfg).await?;
         let Some(fi) = fi else {
@@ -297,7 +207,8 @@ async fn run() -> Result<(), Error> {
             return Ok(());
         };
 
-        let (bundle_key, bundle_content) = select_bundle_artifact(&cfg, files)?;
+        let (bundle_key, bundle_content) =
+            select_bundle_artifact(&cfg.jsbundle_config_key, files).context(BuildServiceSnafu)?;
         let configmap_name = bundle_configmap_name(&cfg.jsbundle_name);
         let configmap_api =
             Api::<ConfigMap>::namespaced(kube.clone(), &cfg.jsbundle_configmap_namespace);
@@ -637,49 +548,6 @@ fn runner_failure_status_patch(
     })
 }
 
-fn select_bundle_artifact(
-    cfg: &RunnerConfig,
-    remote_files: Vec<RemoteFile>,
-) -> Result<(String, String), Error> {
-    let desired_key = cfg.jsbundle_config_key.clone();
-    let selected_idx = remote_files
-        .iter()
-        .position(|f| f.path == desired_key)
-        .or_else(|| {
-            if remote_files.len() == 1 {
-                Some(0)
-            } else {
-                remote_files.iter().position(|f| {
-                    std::path::Path::new(&f.path)
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("js"))
-                })
-            }
-        })
-        .ok_or_else(|| Error::MissingBundleArtifact {
-            desired_key: desired_key.clone(),
-        })?;
-
-    let file =
-        remote_files
-            .into_iter()
-            .nth(selected_idx)
-            .ok_or_else(|| Error::MissingBundleArtifact {
-                desired_key: desired_key.clone(),
-            })?;
-    let content = decode_remote_file_to_utf8(&file);
-    let key = if file.path.contains('/') {
-        desired_key
-    } else {
-        file.path
-    };
-    Ok((key, content))
-}
-
-fn decode_remote_file_to_utf8(remote: &RemoteFile) -> String {
-    remote.content.clone()
-}
-
 fn job_name_from_env() -> String {
     env::var("HOSTNAME").unwrap_or_else(|_| "unknown-job".to_string())
 }
@@ -724,49 +592,6 @@ mod tests {
             },
             status: None,
         }
-    }
-
-    #[test]
-    fn decodes_plain_file_passthrough() {
-        let file = RemoteFile {
-            path: "index.js".to_string(),
-            content: "console.log('ok')".to_string(),
-        };
-
-        let decoded = decode_remote_file_to_utf8(&file);
-        assert_eq!(decoded, "console.log('ok')");
-    }
-
-    #[test]
-    fn selects_js_fallback_artifact() {
-        let cfg = RunnerConfig {
-            fi_name: "demo".to_string(),
-            spec_hash: "sha256:abc".to_string(),
-            jsbundle_name: "fi-demo".to_string(),
-            jsbundle_configmap_namespace: "extension-frontend-forge-config".to_string(),
-            jsbundle_config_key: "index.js".to_string(),
-            build_service_base_url: "http://builder".to_string(),
-            build_service_timeout_seconds: 30,
-            stale_check_grace_seconds: 30,
-        };
-
-        let (key, content) = select_bundle_artifact(
-            &cfg,
-            vec![
-                RemoteFile {
-                    path: "style.css".to_string(),
-                    content: "body{}".to_string(),
-                },
-                RemoteFile {
-                    path: "bundle/main.js".to_string(),
-                    content: "console.log('js')".to_string(),
-                },
-            ],
-        )
-        .unwrap();
-
-        assert_eq!(key, "index.js");
-        assert_eq!(content, "console.log('js')");
     }
 
     #[test]

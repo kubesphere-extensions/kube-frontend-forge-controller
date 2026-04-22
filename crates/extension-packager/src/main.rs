@@ -2,15 +2,19 @@ use std::{collections::BTreeMap, env};
 
 use chrono::Utc;
 use frontend_forge_api::FrontendExtension;
+use frontend_forge_build_service_client::{
+    BuildServiceClient, BuildServiceError, select_bundle_artifact,
+};
 use frontend_forge_common::{
     ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_FILENAME, ANNO_SOURCE_HASH, LABEL_FE_NAME,
     LABEL_MANAGED_BY, LABEL_PACKAGE_KIND, LABEL_SOURCE_HASH, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE,
-    hash_label_value,
+    hash_label_value, manifest_content_and_hash,
 };
 use frontend_forge_extension_package_core::{
     ExtensionPackageArtifact, ExtensionPackageError, build_extension_package,
     frontend_extension_source_hash,
 };
+use frontend_forge_manifest::{ManifestRenderError, render_frontend_extension_manifest};
 use k8s_openapi::{
     ByteString, api::core::v1::ConfigMap, apimachinery::pkg::apis::meta::v1::ObjectMeta,
 };
@@ -50,6 +54,21 @@ enum Error {
         name: String,
         source: ExtensionPackageError,
     },
+    #[snafu(display("failed to render FrontendExtension manifest for {name}: {source}"))]
+    RenderManifest {
+        name: String,
+        source: ManifestRenderError,
+    },
+    #[snafu(display("failed to canonicalize FrontendExtension manifest for {name}: {source}"))]
+    ManifestContent {
+        name: String,
+        source: frontend_forge_common::CommonError,
+    },
+    #[snafu(display("build-service failed for FrontendExtension {name}: {source}"))]
+    BuildService {
+        name: String,
+        source: BuildServiceError,
+    },
     #[snafu(display("failed to create artifact ConfigMap {namespace}/{name}: {source}"))]
     CreateArtifactConfigMap {
         namespace: String,
@@ -79,6 +98,9 @@ struct PackagerConfig {
     source_hash: String,
     artifact_configmap_namespace: String,
     artifact_configmap_name: String,
+    build_service_base_url: String,
+    build_service_timeout_seconds: u64,
+    jsbundle_config_key: String,
 }
 
 impl PackagerConfig {
@@ -89,6 +111,13 @@ impl PackagerConfig {
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
                 .unwrap_or_else(|_| "extension-frontend-forge".to_string()),
             artifact_configmap_name: required_env("ARTIFACT_CONFIGMAP_NAME")?,
+            build_service_base_url: required_env("BUILD_SERVICE_BASE_URL")?,
+            build_service_timeout_seconds: env::var("BUILD_SERVICE_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(240),
+            jsbundle_config_key: env::var("JSBUNDLE_CONFIG_KEY")
+                .unwrap_or_else(|_| "index.js".to_string()),
         })
     }
 }
@@ -130,9 +159,37 @@ async fn main() -> Result<(), Error> {
         });
     }
 
-    let artifact =
-        build_extension_package(&fe, Utc::now()).with_context(|_| BuildPackageSnafu {
+    let manifest_value =
+        render_frontend_extension_manifest(&fe).with_context(|_| RenderManifestSnafu {
             name: cfg.fe_name.clone(),
+        })?;
+    let (manifest_content, _) =
+        manifest_content_and_hash(&manifest_value).with_context(|_| ManifestContentSnafu {
+            name: cfg.fe_name.clone(),
+        })?;
+    let build_client = BuildServiceClient::new(
+        &cfg.build_service_base_url,
+        cfg.build_service_timeout_seconds,
+    )
+    .with_context(|_| BuildServiceSnafu {
+        name: cfg.fe_name.clone(),
+    })?;
+    let files = build_client
+        .build_project(&manifest_content)
+        .await
+        .with_context(|_| BuildServiceSnafu {
+            name: cfg.fe_name.clone(),
+        })?;
+    let (_, index_js_content) = select_bundle_artifact(&cfg.jsbundle_config_key, files)
+        .with_context(|_| BuildServiceSnafu {
+            name: cfg.fe_name.clone(),
+        })?;
+
+    let artifact =
+        build_extension_package(&fe, Utc::now(), &index_js_content).with_context(|_| {
+            BuildPackageSnafu {
+                name: cfg.fe_name.clone(),
+            }
         })?;
     let configmap = artifact_configmap(&cfg, &fe, &artifact);
     upsert_configmap(&cm_api, &cfg, configmap).await?;
@@ -239,6 +296,9 @@ mod tests {
             source_hash: "sha256:source".to_string(),
             artifact_configmap_namespace: "extension-frontend-forge".to_string(),
             artifact_configmap_name: "fe-inspecttask-a1b2c3d4".to_string(),
+            build_service_base_url: "http://builder".to_string(),
+            build_service_timeout_seconds: 240,
+            jsbundle_config_key: "index.js".to_string(),
         };
         let fe: FrontendExtension = serde_yaml::from_str(
             r#"

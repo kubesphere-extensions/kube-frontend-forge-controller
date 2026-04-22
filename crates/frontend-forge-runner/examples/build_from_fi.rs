@@ -3,32 +3,15 @@ use std::{
     error::Error,
     fs,
     path::{Component, Path, PathBuf},
-    time::Duration,
 };
 
 use frontend_forge_api::FrontendIntegration;
+use frontend_forge_build_service_client::BuildServiceClient;
 use frontend_forge_common::manifest_content_and_hash;
 use frontend_forge_manifest::render_extension_manifest;
-use reqwest::header::CONTENT_TYPE;
-use serde::Deserialize;
 use serde_json::json;
 
 type DynError = Box<dyn Error + Send + Sync>;
-
-#[derive(Debug, Deserialize)]
-struct ProjectBuildResponse {
-    ok: bool,
-    #[serde(default)]
-    message: Option<String>,
-    #[serde(default)]
-    files: Vec<RemoteFile>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RemoteFile {
-    path: String,
-    content: String,
-}
 
 struct CliArgs {
     fi_yaml_path: PathBuf,
@@ -50,37 +33,20 @@ async fn main() -> Result<(), DynError> {
     fs::write(&manifest_path, &manifest_content)?;
 
     let request_url = format!("{}/api/project/build", args.base_url.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(args.timeout_seconds))
-        .build()?;
-    let resp = client
-        .post(&request_url)
-        .header(CONTENT_TYPE, "application/json")
-        .body(manifest_content.clone())
-        .send()
-        .await?
-        .error_for_status()?;
-    let payload: ProjectBuildResponse = resp.json().await?;
+    let client = BuildServiceClient::new(&args.base_url, args.timeout_seconds)?;
+    let files = client.build_project(&manifest_content).await?;
     let response_path = args.output_dir.join("build_response.json");
     fs::write(
         &response_path,
         serde_json::to_string_pretty(&json!({
-            "ok": payload.ok,
-            "message": payload.message,
-            "files_count": payload.files.len(),
+            "ok": true,
+            "files_count": files.len(),
             "manifest_hash": manifest_hash,
             "request_url": request_url
         }))?,
     )?;
 
-    if !payload.ok {
-        let msg = payload
-            .message
-            .unwrap_or_else(|| "build-service returned ok=false".to_string());
-        return Err(msg.into());
-    }
-
-    for file in payload.files {
+    for file in files {
         let rel = safe_relative_path(&file.path)?;
         let target = args.output_dir.join(rel);
         if let Some(parent) = target.parent() {
