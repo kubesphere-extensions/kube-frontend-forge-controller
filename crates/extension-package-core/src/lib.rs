@@ -289,6 +289,7 @@ struct KsbuilderExtensionYaml {
 fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     let package = &fe.spec.package;
     let package_name = frontend_extension_package_name(fe);
+    let dependencies = package_dependencies(&package_name, package.dependencies.as_ref());
     KsbuilderExtensionYaml {
         api_version: "kubesphere.io/v1alpha1".to_string(),
         name: package_name.clone(),
@@ -304,10 +305,32 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
         home: package.home.clone(),
         provider: package.provider.clone(),
         icon: package.icon.clone(),
-        dependencies: package.dependencies.clone(),
+        dependencies,
         installation_mode: package.installation_mode.clone(),
         images: package.images.clone(),
     }
+}
+
+fn package_dependencies(
+    package_name: &str,
+    dependencies: Option<&Vec<ExtensionDependencySpec>>,
+) -> Vec<ExtensionDependencySpec> {
+    dependencies
+        .cloned()
+        .unwrap_or_else(|| default_package_dependencies(package_name))
+}
+
+fn default_package_dependencies(package_name: &str) -> Vec<ExtensionDependencySpec> {
+    vec![
+        ExtensionDependencySpec {
+            name: helper_chart_name(package_name),
+            tags: vec!["agent".to_string()],
+        },
+        ExtensionDependencySpec {
+            name: "frontend".to_string(),
+            tags: vec!["extension".to_string()],
+        },
+    ]
 }
 
 #[derive(Serialize)]
@@ -404,6 +427,7 @@ pub fn frontend_extension_source_hash(
     let inline = &fe.spec.source.inline;
     let package = &fe.spec.package;
     let package_name = frontend_extension_package_name(fe);
+    let dependencies = package_dependencies(&package_name, package.dependencies.as_ref());
     serializable_hash(&SourceIdentity {
         package: NormalizedPackageIdentity {
             name: &package_name,
@@ -419,7 +443,7 @@ pub fn frontend_extension_source_hash(
             home: &package.home,
             provider: &package.provider,
             icon: &package.icon,
-            dependencies: &package.dependencies,
+            dependencies: &dependencies,
             installation_mode: &package.installation_mode,
             images: &package.images,
             charts: &package.charts,
@@ -1223,10 +1247,10 @@ spec:
     fn source_hash_changes_with_package_dependencies() {
         let a = sample_fe();
         let mut b = sample_fe();
-        b.spec.package.dependencies = vec![ExtensionDependencySpec {
+        b.spec.package.dependencies = Some(vec![ExtensionDependencySpec {
             name: "legacy-chart".to_string(),
             tags: vec!["extension".to_string()],
-        }];
+        }]);
 
         assert_ne!(
             frontend_extension_source_hash(&a).unwrap(),
@@ -1235,10 +1259,30 @@ spec:
     }
 
     #[test]
-    fn extension_yaml_defaults_missing_dependencies_to_empty_list() {
+    fn extension_yaml_defaults_missing_dependencies_to_generated_charts() {
         let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
         let mut fe = sample_fe();
-        fe.spec.package.dependencies.clear();
+        fe.spec.package.dependencies = None;
+
+        let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+        let extension_yaml = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "extension.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&extension_yaml.content).unwrap();
+
+        assert!(content.contains("name: inspecttask-helper"));
+        assert!(content.contains("- agent"));
+        assert!(content.contains("name: frontend\n"));
+        assert!(content.contains("- extension"));
+    }
+
+    #[test]
+    fn extension_yaml_uses_explicit_empty_dependencies() {
+        let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+        let mut fe = sample_fe();
+        fe.spec.package.dependencies = Some(Vec::new());
 
         let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
         let extension_yaml = artifact

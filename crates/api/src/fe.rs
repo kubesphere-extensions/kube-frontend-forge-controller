@@ -58,8 +58,8 @@ pub struct FrontendExtensionPackageSpec {
     pub provider: BTreeMap<String, ExtensionProviderSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub dependencies: Vec<ExtensionDependencySpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependencies: Option<Vec<ExtensionDependencySpec>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -455,7 +455,7 @@ spec:
             "QingCloud Technologies"
         );
         assert_eq!(
-            fe.spec.package.dependencies[0].tags,
+            fe.spec.package.dependencies.as_ref().unwrap()[0].tags,
             vec!["extension".to_string()]
         );
         assert_eq!(fe.spec.source.type_, FrontendExtensionSourceType::Inline);
@@ -467,7 +467,7 @@ spec:
     }
 
     #[test]
-    fn defaults_missing_package_dependencies_to_empty_list() {
+    fn keeps_missing_package_dependencies_unset() {
         let fe: FrontendExtension = serde_yaml::from_str(
             r#"
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
@@ -490,7 +490,7 @@ spec:
         )
         .unwrap();
 
-        assert!(fe.spec.package.dependencies.is_empty());
+        assert!(fe.spec.package.dependencies.is_none());
     }
 
     #[test]
