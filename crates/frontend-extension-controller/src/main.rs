@@ -1456,6 +1456,9 @@ mod tests {
 
         let patch = frontend_extension_status_patch(&status, "inspecttask").unwrap();
 
-        assert_eq!(patch["status"]["packageJob"]["message"], serde_json::Value::Null);
+        assert_eq!(
+            patch["status"]["packageJob"]["message"],
+            serde_json::Value::Null
+        );
     }
 }

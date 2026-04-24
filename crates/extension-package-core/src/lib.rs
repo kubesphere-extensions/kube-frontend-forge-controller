@@ -482,6 +482,14 @@ struct RoleTemplateAggregates {
     namespace_manage: RoleTemplateAggregate,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RoleTemplateContribution {
+    scope: RoleScope,
+    action: RoleAction,
+    action_key: String,
+    rule: Option<GeneratedRule>,
+}
+
 fn role_template_template(
     package_name: &str,
     pages: &[ResolvedFrontendPage],
@@ -573,70 +581,88 @@ fn role_template_aggregates(pages: &[ResolvedFrontendPage]) -> RoleTemplateAggre
     let mut aggregates = RoleTemplateAggregates::default();
 
     for page in pages {
-        match page.page.type_ {
-            PageType::CrdTable => {
-                let Some(crd) = page.page.crd_table.as_ref() else {
-                    continue;
-                };
-                let scope = crd_role_scope(page.placement, crd.scope);
-                let action_key = crd
-                    .auth_key
-                    .clone()
-                    .unwrap_or_else(|| page.action_key.clone());
-                let view_rule = GeneratedRule {
-                    api_group: crd.group.clone(),
-                    resource: crd.names.plural.clone(),
-                    verbs: vec!["get".to_string(), "list".to_string(), "watch".to_string()],
-                };
-                let manage_rule = GeneratedRule {
-                    api_group: crd.group.clone(),
-                    resource: crd.names.plural.clone(),
-                    verbs: vec!["*".to_string()],
-                };
-                add_role_rule(
-                    &mut aggregates,
-                    scope,
-                    RoleAction::View,
-                    &action_key,
-                    Some(view_rule),
-                );
-                add_role_rule(
-                    &mut aggregates,
-                    scope,
-                    RoleAction::Manage,
-                    &action_key,
-                    Some(manage_rule),
-                );
-            }
-            PageType::Iframe => {
-                if let Some(scope) = iframe_role_scope(page.placement) {
-                    add_role_rule(
-                        &mut aggregates,
-                        scope,
-                        RoleAction::View,
-                        &page.action_key,
-                        None,
-                    );
-                }
-            }
+        for contribution in role_template_contributions(page) {
+            add_role_rule(&mut aggregates, contribution);
         }
     }
 
     aggregates
 }
 
-fn add_role_rule(
-    aggregates: &mut RoleTemplateAggregates,
-    scope: RoleScope,
-    action: RoleAction,
-    action_key: &str,
-    rule: Option<GeneratedRule>,
-) {
-    let aggregate = aggregates.aggregate_mut(scope, action);
-    aggregate.action_keys.insert(action_key.to_string());
-    if let Some(rule) = rule {
+fn role_template_contributions(page: &ResolvedFrontendPage) -> Vec<RoleTemplateContribution> {
+    match page.page.type_ {
+        PageType::CrdTable => crd_table_role_template_contributions(page),
+        PageType::Iframe => iframe_role_template_contribution(page)
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn crd_table_role_template_contributions(
+    page: &ResolvedFrontendPage,
+) -> Vec<RoleTemplateContribution> {
+    let Some(crd) = page.page.crd_table.as_ref() else {
+        return Vec::new();
+    };
+    let scope = crd_role_scope(page.placement, crd.scope);
+    let action_key = crd
+        .auth_key
+        .clone()
+        .unwrap_or_else(|| page.action_key.clone());
+
+    vec![
+        RoleTemplateContribution {
+            scope,
+            action: RoleAction::View,
+            action_key: action_key.clone(),
+            rule: Some(GeneratedRule {
+                api_group: crd.group.clone(),
+                resource: crd.names.plural.clone(),
+                verbs: view_verbs(),
+            }),
+        },
+        RoleTemplateContribution {
+            scope,
+            action: RoleAction::Manage,
+            action_key,
+            rule: Some(GeneratedRule {
+                api_group: crd.group.clone(),
+                resource: crd.names.plural.clone(),
+                verbs: manage_verbs(),
+            }),
+        },
+    ]
+}
+
+fn iframe_role_template_contribution(
+    page: &ResolvedFrontendPage,
+) -> Option<RoleTemplateContribution> {
+    let scope = iframe_role_scope(page.placement)?;
+    Some(RoleTemplateContribution {
+        scope,
+        action: RoleAction::View,
+        action_key: page.action_key.clone(),
+        rule: None,
+    })
+}
+
+fn add_role_rule(aggregates: &mut RoleTemplateAggregates, contribution: RoleTemplateContribution) {
+    let aggregate = aggregates.aggregate_mut(contribution.scope, contribution.action);
+    aggregate.action_keys.insert(contribution.action_key);
+    if let Some(rule) = contribution.rule {
         aggregate.rules.insert(rule);
     }
+}
+
+fn view_verbs() -> Vec<String> {
+    ["get", "list", "watch"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+fn manage_verbs() -> Vec<String> {
+    vec!["*".to_string()]
 }
 
 const fn crd_role_scope(placement: MenuPlacement, crd_scope: CrdScope) -> RoleScope {
@@ -1343,5 +1369,82 @@ spec:
         assert!(content.contains("- 'items'"));
         assert!(content.contains("iam.kubesphere.io/dependencies: '[\"cluster-view-mixed\"]'"));
         assert!(content.contains("iam.kubesphere.io/dependencies: '[\"namespace-view-mixed\"]'"));
+    }
+
+    #[test]
+    fn role_template_scope_resolution_matches_page_rules() {
+        assert_eq!(
+            crd_role_scope(MenuPlacement::Cluster, CrdScope::Namespaced),
+            RoleScope::Cluster
+        );
+        assert_eq!(
+            crd_role_scope(MenuPlacement::Workspace, CrdScope::Cluster),
+            RoleScope::Namespace
+        );
+        assert_eq!(
+            crd_role_scope(MenuPlacement::Global, CrdScope::Cluster),
+            RoleScope::Cluster
+        );
+        assert_eq!(
+            crd_role_scope(MenuPlacement::Global, CrdScope::Namespaced),
+            RoleScope::Namespace
+        );
+        assert_eq!(
+            iframe_role_scope(MenuPlacement::Cluster),
+            Some(RoleScope::Cluster)
+        );
+        assert_eq!(
+            iframe_role_scope(MenuPlacement::Workspace),
+            Some(RoleScope::Namespace)
+        );
+        assert_eq!(iframe_role_scope(MenuPlacement::Global), None);
+    }
+
+    #[test]
+    fn iframe_global_pages_do_not_generate_role_templates() {
+        let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+        let fe: FrontendExtension = serde_yaml::from_str(
+            r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: global-frame
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: Global Frame
+    description:
+      en: Global Frame
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Global Frame
+            key: global-frame
+            placement: global
+            type: page
+        pages:
+          - key: global-frame
+            type: iframe
+            iframe:
+              src: http://example.test
+"#,
+        )
+        .unwrap();
+        let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+        let template = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "charts/global-frame-helper/templates/roleTemplate.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&template.content).unwrap();
+
+        assert_eq!(
+            content.trim(),
+            "{{- if .Values.roleTemplate.enabled }}\n{{- end }}"
+        );
     }
 }

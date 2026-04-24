@@ -503,6 +503,59 @@ package 内部建议包含：
 - rendered frontend manifest。
 - package metadata。
 
+### 7.1.1 RoleTemplate 生成规则
+
+`FrontendExtension` package 的 `RoleTemplate` 不再直接使用
+`spec.source.inline.extensionResources.roleTemplates`。该字段视为废弃输入，仅为兼容旧
+source 结构保留；package 生成时应忽略它，也不应让它参与归一化 source hash。
+
+RoleTemplate 从 `spec.source.inline.frontend.menus/pages` 解析出的 page binding 推导，
+并按 `scope + action` 聚合，最多生成四类对象：
+
+| 对象名 | scope | action | 说明 |
+| --- | --- | --- | --- |
+| `cluster-view-{packageName}` | cluster | view | 集群级查看权限 |
+| `cluster-manage-{packageName}` | cluster | manage | 集群级管理权限，依赖同 scope view |
+| `namespace-view-{packageName}` | namespace | view | 命名空间级查看权限 |
+| `namespace-manage-{packageName}` | namespace | manage | 命名空间级管理权限，依赖同 scope view |
+
+page 到 scope/action 的规则：
+
+| page type | placement | CRD scope | 生成结果 |
+| --- | --- | --- | --- |
+| `crdTable` | `cluster` | 任意 | cluster view + cluster manage |
+| `crdTable` | `workspace` | 任意 | namespace view + namespace manage |
+| `crdTable` | `global` | `Cluster` | cluster view + cluster manage |
+| `crdTable` | `global` | `Namespaced` | namespace view + namespace manage |
+| `iframe` | `cluster` | 不适用 | cluster view |
+| `iframe` | `workspace` | 不适用 | namespace view |
+| `iframe` | `global` | 不适用 | 不生成 RoleTemplate |
+
+`crdTable` 规则内容：
+
+- view verbs 固定为 `get/list/watch`。
+- manage verbs 固定为 `*`。
+- rule 使用 `apiGroups: [crdTable.group]`、`resources: [crdTable.names.plural]`。
+- `iam.kubesphere.io/role-template-rules` 的 action key 优先使用
+  `crdTable.authKey`，没有时使用 page/menu key。
+
+`iframe` 规则内容：
+
+- 只贡献 view action key，不贡献 Kubernetes RBAC rule。
+- 如果同一个 `scope + view` 聚合中只有 iframe，则 `spec.rules: []`。
+- 如果同一个聚合中同时存在 iframe 和 `crdTable`，最终 RoleTemplate 会同时包含
+  iframe 的 action key 和 `crdTable` 推导出的 RBAC rules。
+- action key 使用 page/menu key。
+
+Category 生成规则：
+
+- 存在任意 cluster scope RoleTemplate 时，生成或复用 `cluster-fe-management`。
+- 存在任意 namespace scope RoleTemplate 时，生成或复用 `namespace-fe-management`。
+- Category 通过 Helm `lookup` 判断是否已存在，并带
+  `helm.sh/resource-policy: keep`，避免卸载 extension 时删除共享分类。
+- 安装执行账号必须具备 `iam.kubesphere.io/categories` 的 cluster-scope `get`
+  权限，否则 Helm 渲染阶段的 `lookup` 会失败。
+
 ### 7.2 Package Job
 
 package Job 的职责：
