@@ -863,7 +863,7 @@ fn append_rules(out: &mut String, rules: &BTreeSet<GeneratedRule>) {
         out.push_str(&format!("    - '{}'\n", rule.resource.replace('\'', "''")));
         out.push_str("    verbs:\n");
         for verb in &rule.verbs {
-            out.push_str(&format!("    - {verb}\n"));
+            out.push_str(&format!("    - '{}'\n", verb.replace('\'', "''")));
         }
     }
 }
@@ -1459,6 +1459,8 @@ spec:
         assert!(content.contains("- 'inspecttasks'"));
         assert!(content.contains("- 'reports'"));
         assert!(content.contains("- 'items'"));
+        assert!(content.contains("- '*'"));
+        assert!(!content.contains("    - *\n"));
         assert!(content.contains("iam.kubesphere.io/dependencies: '[\"cluster-view-mixed\"]'"));
         assert!(content.contains("iam.kubesphere.io/dependencies: '[\"namespace-view-mixed\"]'"));
     }
