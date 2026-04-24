@@ -147,36 +147,11 @@ pub struct FrontendExtensionFrontendSpec {
 pub struct ExtensionResourcesSpec {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "jsBundle")]
     pub js_bundle: Option<ExtensionJsBundleSpec>,
-    #[serde(
-        default,
-        skip_serializing_if = "Vec::is_empty",
-        rename = "roleTemplates"
-    )]
-    pub role_templates: Vec<RoleTemplateSpec>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ExtensionJsBundleSpec {
     pub name: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct RoleTemplateSpec {
-    pub name: String,
-    #[serde(rename = "displayName")]
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub rules: Vec<RoleTemplateRuleSpec>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-pub struct RoleTemplateRuleSpec {
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "apiGroups")]
-    pub api_groups: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub resources: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub verbs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -463,13 +438,6 @@ spec:
       extensionResources:
         jsBundle:
           name: inspecttask
-        roleTemplates:
-          - name: inspecttask-view
-            displayName: InspectTask Viewer
-            rules:
-              - apiGroups: ["kubeeye.kubesphere.io"]
-                resources: ["inspecttasks"]
-                verbs: ["get", "list", "watch"]
   publishPolicy:
     mode: Manual
     defaultTargetRef:
@@ -496,10 +464,6 @@ spec:
         assert_eq!(inline.frontend.menus[0].key, "inspecttasks");
         let resources = inline.extension_resources.unwrap();
         assert_eq!(resources.js_bundle.unwrap().name, "inspecttask");
-        assert_eq!(
-            resources.role_templates[0].rules[0].verbs,
-            vec!["get", "list", "watch"]
-        );
     }
 
     #[test]
@@ -509,6 +473,8 @@ spec:
         let spec_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
             ["properties"]["spec"]["properties"];
         let package = &spec_properties["package"];
+        let extension_resources = &spec_properties["source"]["properties"]["inline"]["properties"]
+            ["extensionResources"]["properties"];
         let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
             ["properties"]["status"]["properties"];
 
@@ -525,6 +491,8 @@ spec:
         );
         assert!(package["properties"].get("kubeVersion").is_some());
         assert!(package["properties"].get("installationMode").is_some());
+        assert!(extension_resources.get("jsBundle").is_some());
+        assert!(extension_resources.get("roleTemplates").is_none());
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
         assert!(status_properties.get("packageJob").is_some());

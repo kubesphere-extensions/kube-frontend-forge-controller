@@ -81,13 +81,6 @@ spec:
       extensionResources:
         jsBundle:
           name: inspecttask
-        roleTemplates:
-          - name: inspecttask-view
-            displayName: InspectTask Viewer
-            rules:
-              - apiGroups: ["kubeeye.kubesphere.io"]
-                resources: ["inspecttasks"]
-                verbs: ["get", "list", "watch"]
   publishPolicy:
     mode: Manual
     defaultTargetRef:

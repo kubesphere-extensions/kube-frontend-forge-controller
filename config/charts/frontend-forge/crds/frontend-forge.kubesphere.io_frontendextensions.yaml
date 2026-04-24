@@ -159,35 +159,6 @@ spec:
                             required:
                             - name
                             type: object
-                          roleTemplates:
-                            items:
-                              properties:
-                                displayName:
-                                  type: string
-                                name:
-                                  type: string
-                                rules:
-                                  items:
-                                    properties:
-                                      apiGroups:
-                                        items:
-                                          type: string
-                                        type: array
-                                      resources:
-                                        items:
-                                          type: string
-                                        type: array
-                                      verbs:
-                                        items:
-                                          type: string
-                                        type: array
-                                    type: object
-                                  type: array
-                              required:
-                              - displayName
-                              - name
-                              type: object
-                            type: array
                         type: object
                       frontend:
                         properties:

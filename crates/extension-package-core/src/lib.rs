@@ -1052,13 +1052,6 @@ spec:
       extensionResources:
         jsBundle:
           name: inspecttask
-        roleTemplates:
-          - name: inspecttask-view
-            displayName: InspectTask Viewer
-            rules:
-              - apiGroups: ["kubeeye.kubesphere.io"]
-                resources: ["inspecttasks"]
-                verbs: ["get", "list", "watch"]
 "#,
         )
         .unwrap()
@@ -1225,8 +1218,6 @@ spec:
         let mut b = sample_fe();
         let resources = b.spec.source.inline.extension_resources.as_mut().unwrap();
         resources.js_bundle.as_mut().unwrap().name = "changed-jsbundle".to_string();
-        resources.role_templates[0].name = "changed-role-template".to_string();
-        resources.role_templates[0].rules[0].verbs = vec!["delete".to_string()];
 
         assert_eq!(
             frontend_extension_source_hash(&a).unwrap(),

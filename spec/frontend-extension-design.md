@@ -199,13 +199,6 @@ spec:
       extensionResources:
         jsBundle:
           name: inspecttask
-        roleTemplates:
-          - name: inspecttask-view
-            displayName: InspectTask Viewer
-            rules:
-              - apiGroups: ["kubeeye.kubesphere.io"]
-                resources: ["inspecttasks"]
-                verbs: ["get", "list", "watch"]
 
   publishPolicy:
     mode: Manual
@@ -249,7 +242,7 @@ spec:
 | `spec.source.type` | source 类型。当前先支持 `Inline`，未来可扩展 `Git`、`ConfigMap`、`OCI`。 |
 | `spec.source.inline.schemaVersion` | 发布态 source schema 版本，不使用 runtime `builder.engineVersion` 命名。 |
 | `spec.source.inline.frontend` | 前端菜单、页面、locales 等渲染输入。 |
-| `spec.source.inline.extensionResources` | install-time Kubernetes 资源声明，包括 `jsBundle` 和 `roleTemplates`。 |
+| `spec.source.inline.extensionResources` | install-time Kubernetes 资源声明，包括 `jsBundle`。 |
 | `spec.publishPolicy.mode` | publish 策略。当前建议 `Manual`，未来可扩展 `Auto`、`Disabled`。 |
 | `spec.publishPolicy.defaultTargetRef` | 默认 publish target 配置引用，通常指向包含 registry/ksbuilder 配置的 Secret 或 ConfigMap。 |
 
@@ -505,9 +498,8 @@ package 内部建议包含：
 
 ### 7.1.1 RoleTemplate 生成规则
 
-`FrontendExtension` package 的 `RoleTemplate` 不再直接使用
-`spec.source.inline.extensionResources.roleTemplates`。该字段视为废弃输入，仅为兼容旧
-source 结构保留；package 生成时应忽略它，也不应让它参与归一化 source hash。
+`FrontendExtension` package 的 `RoleTemplate` 不接受显式 source 输入；package 生成时
+也不应让 install-time `extensionResources` 参与归一化 source hash。
 
 RoleTemplate 从 `spec.source.inline.frontend.menus/pages` 解析出的 page binding 推导，
 并按 `scope + action` 聚合，最多生成四类对象：
