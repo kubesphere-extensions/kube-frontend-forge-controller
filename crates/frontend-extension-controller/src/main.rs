@@ -327,6 +327,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         frontend_extension_source_hash(&fe).context(FrontendExtensionSourceHashSnafu)?;
     let package_name = frontend_extension_package_name(&fe);
     let artifact_name = artifact_configmap_name(&package_name, &source_hash);
+    let current_job = find_package_job_for_hash(&job_api, &work_ns, &fe_name, &source_hash).await?;
 
     info!(
         fe = %fe_name,
@@ -350,8 +351,13 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
     {
         let publish = sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
-        let mut status =
-            ready_fe_status(&fe, &source_hash, &cm, metadata, existing_package_job(&fe));
+        let mut status = ready_fe_status(
+            &fe,
+            &source_hash,
+            &cm,
+            metadata,
+            current_or_existing_package_job(current_job.as_ref(), &fe),
+        );
         apply_publish_sync(&mut status, &publish);
         patch_fe_status(&fe_api, &fe, status).await?;
         return Ok(requeue_if_publish_running(
@@ -359,8 +365,6 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
             ctx.config.reconcile_requeue_seconds,
         ));
     }
-
-    let current_job = find_package_job_for_hash(&job_api, &work_ns, &fe_name, &source_hash).await?;
 
     if let Some(job) = current_job {
         match observed_job_phase(job.status.as_ref()) {
@@ -1019,6 +1023,15 @@ fn existing_package_job(fe: &FrontendExtension) -> Option<PackageJobStatus> {
         .and_then(|status| status.package_job.clone())
 }
 
+fn current_or_existing_package_job(
+    current_job: Option<&Job>,
+    fe: &FrontendExtension,
+) -> Option<PackageJobStatus> {
+    current_job
+        .map(package_job_status)
+        .or_else(|| existing_package_job(fe))
+}
+
 fn packaging_fe_status(
     fe: &FrontendExtension,
     source_hash: &str,
@@ -1269,6 +1282,15 @@ fn frontend_extension_status_patch(
     }
     if status.package_job.is_none() {
         status_object.insert("packageJob".to_string(), serde_json::Value::Null);
+    } else if status
+        .package_job
+        .as_ref()
+        .is_some_and(|package_job| package_job.message.is_none())
+        && let Some(package_job) = status_object
+            .get_mut("packageJob")
+            .and_then(serde_json::Value::as_object_mut)
+    {
+        package_job.insert("message".to_string(), serde_json::Value::Null);
     }
     if status.publish.is_none() {
         status_object.insert("publish".to_string(), serde_json::Value::Null);
@@ -1277,4 +1299,163 @@ fn frontend_extension_status_patch(
     Ok(json!({
         "status": status_value,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_job_status_overrides_existing_package_job() {
+        let fe: FrontendExtension = serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": {
+                        "en": "Inspect Task",
+                    },
+                    "description": {
+                        "en": "InspectTask extension package",
+                    },
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {
+                            "menus": [{
+                                "displayName": "Inspect Tasks",
+                                "key": "inspecttasks",
+                                "placement": "cluster",
+                                "type": "page",
+                            }],
+                            "pages": [{
+                                "key": "inspecttasks",
+                                "type": "iframe",
+                                "iframe": {
+                                    "src": "http://example.test",
+                                },
+                            }],
+                        },
+                    },
+                },
+            },
+            "status": {
+                "phase": "Ready",
+                "packageJob": {
+                    "namespace": "extension-frontend-forge",
+                    "name": "fe-inspecttask-package-oldhash",
+                    "phase": "Running",
+                },
+            },
+        }))
+        .unwrap();
+
+        let job = Job {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-package-newhash".to_string()),
+                namespace: Some("extension-frontend-forge".to_string()),
+                uid: Some("job-uid".to_string()),
+                ..Default::default()
+            },
+            status: Some(JobStatus {
+                succeeded: Some(1),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let package_job = current_or_existing_package_job(Some(&job), &fe).unwrap();
+
+        assert_eq!(package_job.name, "fe-inspecttask-package-newhash");
+        assert_eq!(package_job.phase, PackageJobPhase::Succeeded);
+    }
+
+    #[test]
+    fn existing_package_job_is_fallback_when_current_job_missing() {
+        let fe: FrontendExtension = serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": {
+                        "en": "Inspect Task",
+                    },
+                    "description": {
+                        "en": "InspectTask extension package",
+                    },
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {
+                            "menus": [{
+                                "displayName": "Inspect Tasks",
+                                "key": "inspecttasks",
+                                "placement": "cluster",
+                                "type": "page",
+                            }],
+                            "pages": [{
+                                "key": "inspecttasks",
+                                "type": "iframe",
+                                "iframe": {
+                                    "src": "http://example.test",
+                                },
+                            }],
+                        },
+                    },
+                },
+            },
+            "status": {
+                "phase": "Ready",
+                "packageJob": {
+                    "namespace": "extension-frontend-forge",
+                    "name": "fe-inspecttask-package-oldhash",
+                    "phase": "Succeeded",
+                },
+            },
+        }))
+        .unwrap();
+
+        let package_job = current_or_existing_package_job(None, &fe).unwrap();
+
+        assert_eq!(package_job.name, "fe-inspecttask-package-oldhash");
+        assert_eq!(package_job.phase, PackageJobPhase::Succeeded);
+    }
+
+    #[test]
+    fn status_patch_clears_stale_package_job_message() {
+        let status = FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Ready,
+            observed_generation: Some(1),
+            observed_source_hash: Some("sha256:source".to_string()),
+            artifact: None,
+            download: None,
+            package_job: Some(PackageJobStatus {
+                namespace: "extension-frontend-forge".to_string(),
+                name: "fe-inspecttask-package-newhash".to_string(),
+                uid: None,
+                phase: PackageJobPhase::Succeeded,
+                started_at: None,
+                finished_at: None,
+                message: None,
+            }),
+            publish: None,
+            conditions: vec![],
+        };
+
+        let patch = frontend_extension_status_patch(&status, "inspecttask").unwrap();
+
+        assert_eq!(patch["status"]["packageJob"]["message"], serde_json::Value::Null);
+    }
 }
