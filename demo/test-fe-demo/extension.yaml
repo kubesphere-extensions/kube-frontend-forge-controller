@@ -1,29 +1,61 @@
 apiVersion: kubesphere.io/v1alpha1
 name: fe-demo
-version: 0.0.1
+version: 0.1.0
 displayName:
   en: Frontend Demo
   zh: 前端演示
 description:
-  en: A frontend demo extension
-  zh: 一个前端演示扩展
-category: other
+  zh: 这是一个示例扩展组件，这是它的描述
+  en: This is a sample extension, and this is its description
+category: dev-tools
 keywords:
-  - other
+  - dev-tools
 home: https://kubesphere.io
 sources:
   - https://github.com/kubesphere
 kubeVersion: ">=1.19.0-0"
 ksVersion: ">=4.2.0-0"
+maintainers:
+  - name: "admin"
+    email: "admin@kubesphere.io"
+    url: ""
 provider:
   zh:
-    name: "KubeSphere"
-    email: "kubesphere@yunify.com"
-    url: "https://kubesphere.com.cn/"
+    name: "admin"
+    email: "admin@kubesphere.io"
+    url: ""
   en:
-    name: "KubeSphere"
-    email: "kubesphere@yunify.com"
-    url: "https://kubesphere.com.cn/"
-icon: ./favicon.svg
+    name: "admin"
+    email: "admin@kubesphere.io"
+    url: ""
+icon: ./static/favicon.svg
+dependencies:
+  - name: fe-demo-helper
+    tags:
+    - agent
+  - name: frontend
+    tags:
+    - extension
+# installationMode describes how to install subcharts, it can be HostOnly or Multicluster.
+# In Multicluster mode, the subchart with tag `extension` will only be deployed to the host cluster,
+# and the subchart with tag `agent` will be deployed to all selected clusters.
 installationMode: Multicluster
-images: []
+# Custom namespace example: If not specified, it will be installed in the namespace named extension-{name}.
+#namespace: ""
+# external dependencies example
+#externalDependencies:
+#  - name: a
+#    type: extension
+#    version: ">= 2.6.0"
+#    required: true
+#  - name: b
+#    type: extension
+#    version: ">= 2.2.0"
+#    required: true
+# Add init containers to the extension installation job to execute custom tasks (eg: CRDs upgrade).
+# Support unified or separate configuration of init container image for each stage.
+#annotations:
+#  executor-hook-image.kubesphere.io: ...
+#  executor-hook-image.kubesphere.io/install: ...
+#  executor-hook-image.kubesphere.io/upgrade: ...
+#  executor-hook-image.kubesphere.io/uninstall: ...

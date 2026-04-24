@@ -5,4 +5,4 @@ metadata:
   labels:
     {{- include "frontend.labels" . | nindent 4 }}
 data:
-  index.js: {{ .Values.indexJsContent | quote }}
+{{ (.Files.Glob "scripts/index.js").AsConfig | indent 2 }}

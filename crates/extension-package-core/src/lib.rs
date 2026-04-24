@@ -6,8 +6,8 @@ use std::{
 use chrono::{DateTime, Utc};
 use flate2::{Compression, GzBuilder};
 use frontend_forge_api::{
-    CrdScope, ExtensionDependencySpec, ExtensionMaintainerSpec, ExtensionProviderSpec,
-    FrontendExtension, FrontendExtensionFrontendSpec, FrontendExtensionPackageSpec,
+    CrdScope, ExtensionChartsSpec, ExtensionDependencySpec, ExtensionMaintainerSpec,
+    ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
     FrontendExtensionSourceType, MenuPlacement, PageType,
 };
 use frontend_forge_common::{CommonError, serializable_hash, sha256_hex};
@@ -96,8 +96,32 @@ pub struct ExtensionPackageArtifact {
 
 #[derive(Serialize)]
 struct SourceIdentity<'a> {
-    package: &'a FrontendExtensionPackageSpec,
+    package: NormalizedPackageIdentity<'a>,
     source: NormalizedSourceIdentity<'a>,
+}
+
+#[derive(Serialize)]
+struct NormalizedPackageIdentity<'a> {
+    name: &'a str,
+    version: &'a str,
+    #[serde(rename = "displayName")]
+    display_name: &'a BTreeMap<String, String>,
+    description: &'a BTreeMap<String, String>,
+    category: &'a Option<String>,
+    keywords: &'a Vec<String>,
+    sources: &'a Vec<String>,
+    #[serde(rename = "kubeVersion")]
+    kube_version: &'a Option<String>,
+    #[serde(rename = "ksVersion")]
+    ks_version: &'a Option<String>,
+    maintainers: &'a Vec<ExtensionMaintainerSpec>,
+    home: &'a Option<String>,
+    provider: &'a BTreeMap<String, ExtensionProviderSpec>,
+    icon: &'a Option<String>,
+    #[serde(rename = "installationMode")]
+    installation_mode: &'a Option<String>,
+    images: &'a Vec<String>,
+    charts: &'a Option<ExtensionChartsSpec>,
 }
 
 #[derive(Serialize)]
@@ -185,28 +209,36 @@ fn package_files(
 
     Ok(vec![
         yaml_file("extension.yaml", &package_metadata)?,
+        text_file("permissions.yaml", PERMISSIONS_TEMPLATE),
         yaml_file("values.yaml", &root_values(fe, &helper_chart_name))?,
-        yaml_file("frontend/Chart.yaml", &frontend_chart(fe, &package_name))?,
-        frontend_values_file(index_js_content),
+        yaml_file(
+            "charts/frontend/Chart.yaml",
+            &frontend_chart(fe, &package_name),
+        )?,
+        frontend_values_file(),
+        frontend_script_file(index_js_content),
         text_file(
-            "frontend/templates/configmap.yaml",
+            "charts/frontend/templates/configmap.yaml",
             FRONTEND_CONFIGMAP_TEMPLATE,
         ),
         text_file(
-            "frontend/templates/extensions.yaml",
+            "charts/frontend/templates/extensions.yaml",
             FRONTEND_EXTENSIONS_TEMPLATE,
         ),
-        text_file("frontend/templates/helps.tpl", FRONTEND_HELPERS_TEMPLATE),
+        text_file(
+            "charts/frontend/templates/helps.tpl",
+            FRONTEND_HELPERS_TEMPLATE,
+        ),
         yaml_file(
-            &format!("{helper_chart_name}/Chart.yaml"),
+            &format!("charts/{helper_chart_name}/Chart.yaml"),
             &helper_chart(fe, &helper_chart_name),
         )?,
         yaml_file(
-            &format!("{helper_chart_name}/values.yaml"),
+            &format!("charts/{helper_chart_name}/values.yaml"),
             &helper_values(),
         )?,
         text_file(
-            &format!("{helper_chart_name}/templates/roleTemplate.yaml"),
+            &format!("charts/{helper_chart_name}/templates/roleTemplate.yaml"),
             &role_template_template(&package_name, &pages)?,
         ),
     ])
@@ -249,9 +281,10 @@ struct KsbuilderExtensionYaml {
 
 fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     let package = &fe.spec.package;
+    let package_name = frontend_extension_package_name(fe);
     KsbuilderExtensionYaml {
         api_version: "kubesphere.io/v1alpha1".to_string(),
-        name: frontend_extension_package_name(fe),
+        name: package_name.clone(),
         version: package.version.clone(),
         display_name: package.display_name.clone(),
         description: package.description.clone(),
@@ -264,10 +297,23 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
         home: package.home.clone(),
         provider: package.provider.clone(),
         icon: package.icon.clone(),
-        dependencies: package.dependencies.clone(),
+        dependencies: package_dependencies(&package_name),
         installation_mode: package.installation_mode.clone(),
         images: package.images.clone(),
     }
+}
+
+fn package_dependencies(package_name: &str) -> Vec<ExtensionDependencySpec> {
+    vec![
+        ExtensionDependencySpec {
+            name: helper_chart_name(package_name),
+            tags: vec!["agent".to_string()],
+        },
+        ExtensionDependencySpec {
+            name: "frontend".to_string(),
+            tags: vec!["extension".to_string()],
+        },
+    ]
 }
 
 #[derive(Serialize)]
@@ -379,8 +425,27 @@ pub fn frontend_extension_source_hash(
     fe: &FrontendExtension,
 ) -> Result<String, ExtensionPackageError> {
     let inline = &fe.spec.source.inline;
+    let package = &fe.spec.package;
+    let package_name = frontend_extension_package_name(fe);
     serializable_hash(&SourceIdentity {
-        package: &fe.spec.package,
+        package: NormalizedPackageIdentity {
+            name: &package_name,
+            version: &package.version,
+            display_name: &package.display_name,
+            description: &package.description,
+            category: &package.category,
+            keywords: &package.keywords,
+            sources: &package.sources,
+            kube_version: &package.kube_version,
+            ks_version: &package.ks_version,
+            maintainers: &package.maintainers,
+            home: &package.home,
+            provider: &package.provider,
+            icon: &package.icon,
+            installation_mode: &package.installation_mode,
+            images: &package.images,
+            charts: &package.charts,
+        },
         source: NormalizedSourceIdentity {
             type_: &fe.spec.source.type_,
             inline: NormalizedInlineSourceIdentity {
@@ -392,6 +457,43 @@ pub fn frontend_extension_source_hash(
     .context(SourceHashSnafu)
 }
 
+const PERMISSIONS_TEMPLATE: &str = r"kind: ClusterRole
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'extensions.kubesphere.io'
+    resources:
+      - '*'
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'iam.kubesphere.io'
+    resources:
+      - 'categories'
+      - 'roletemplates'
+---
+kind: Role
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - ''
+      - 'apps'
+      - 'batch'
+      - 'app.k8s.io'
+      - 'autoscaling'
+    resources:
+      - '*'
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'networking.k8s.io'
+    resources:
+      - 'ingresses'
+      - 'networkpolicies'
+";
+
 const FRONTEND_CONFIGMAP_TEMPLATE: &str = r#"apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -399,7 +501,7 @@ metadata:
   labels:
     {{- include "frontend.labels" . | nindent 4 }}
 data:
-  index.js: {{ .Values.indexJsContent | quote }}
+{{ (.Files.Glob "scripts/index.js").AsConfig | indent 2 }}
 "#;
 
 const FRONTEND_EXTENSIONS_TEMPLATE: &str = r#"apiVersion: extensions.kubesphere.io/v1alpha1
@@ -863,19 +965,17 @@ const fn role_action_name(action: RoleAction) -> &'static str {
     }
 }
 
-fn frontend_values_file(index_js_content: &str) -> PackageFile {
-    let mut content = String::from("indexJsContent: |\n");
-    for line in index_js_content.lines() {
-        content.push_str("  ");
-        content.push_str(line);
-        content.push('\n');
-    }
-    if index_js_content.ends_with('\n') {
-        content.push_str("  \n");
-    }
+fn frontend_values_file() -> PackageFile {
     PackageFile {
-        path: "frontend/values.yaml".to_string(),
-        content: content.into_bytes(),
+        path: "charts/frontend/values.yaml".to_string(),
+        content: b"# This is a YAML-formatted file.\n# Declare variables to be passed into your templates.\n".to_vec(),
+    }
+}
+
+fn frontend_script_file(index_js_content: &str) -> PackageFile {
+    PackageFile {
+        path: "charts/frontend/scripts/index.js".to_string(),
+        content: index_js_content.as_bytes().to_vec(),
     }
 }
 
@@ -1059,16 +1159,19 @@ spec:
             .map(|file| file.path.as_str())
             .collect::<Vec<_>>();
         assert!(paths.contains(&"extension.yaml"));
+        assert!(paths.contains(&"permissions.yaml"));
         assert!(paths.contains(&"values.yaml"));
-        assert!(paths.contains(&"frontend/Chart.yaml"));
-        assert!(paths.contains(&"frontend/values.yaml"));
-        assert!(paths.contains(&"frontend/templates/configmap.yaml"));
-        assert!(paths.contains(&"frontend/templates/extensions.yaml"));
-        assert!(paths.contains(&"frontend/templates/helps.tpl"));
-        assert!(paths.contains(&"inspecttask-helper/Chart.yaml"));
-        assert!(paths.contains(&"inspecttask-helper/values.yaml"));
-        assert!(paths.contains(&"inspecttask-helper/templates/roleTemplate.yaml"));
+        assert!(paths.contains(&"charts/frontend/Chart.yaml"));
+        assert!(paths.contains(&"charts/frontend/values.yaml"));
+        assert!(paths.contains(&"charts/frontend/scripts/index.js"));
+        assert!(paths.contains(&"charts/frontend/templates/configmap.yaml"));
+        assert!(paths.contains(&"charts/frontend/templates/extensions.yaml"));
+        assert!(paths.contains(&"charts/frontend/templates/helps.tpl"));
+        assert!(paths.contains(&"charts/inspecttask-helper/Chart.yaml"));
+        assert!(paths.contains(&"charts/inspecttask-helper/values.yaml"));
+        assert!(paths.contains(&"charts/inspecttask-helper/templates/roleTemplate.yaml"));
         assert!(!paths.contains(&"frontend/manifest.json"));
+        assert!(!paths.contains(&"frontend/Chart.yaml"));
         assert!(!paths.contains(&"charts/inspecttask/values.yaml"));
         assert!(!paths.contains(&"resources/jsbundle.yaml"));
         assert!(!paths.contains(&"resources/roletemplates/inspecttask-view.yaml"));
@@ -1083,12 +1186,39 @@ spec:
         assert!(content.contains("apiVersion: kubesphere.io/v1alpha1"));
         assert!(content.contains("name: inspecttask"));
         assert!(content.contains("displayName:"));
+        assert!(content.contains("name: inspecttask-helper"));
+        assert!(content.contains("- agent"));
+        assert!(content.contains("name: frontend"));
+        assert!(content.contains("- extension"));
+        assert!(!content.contains("name: frontend-forge\n"));
         assert!(content.contains("installationMode: HostOnly"));
         assert!(content.contains("kubesphere/frontend-forge-controller:v1.0.0"));
+
+        let frontend_chart = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "charts/frontend/Chart.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&frontend_chart.content).unwrap();
+
+        assert!(content.contains("apiVersion: v2"));
+        assert!(content.contains("type: application"));
+
+        let permissions = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "permissions.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&permissions.content).unwrap();
+
+        assert!(content.contains("kind: ClusterRole"));
+        assert!(content.contains("kind: Role"));
+        assert!(content.contains("- 'categories'"));
+        assert!(content.contains("- 'roletemplates'"));
     }
 
     #[test]
-    fn frontend_values_embed_index_js_content() {
+    fn frontend_configmap_loads_index_js_from_chart_file() {
         let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
         let artifact = build_extension_package(
             &sample_fe(),
@@ -1096,16 +1226,26 @@ spec:
             "System.register([], function () {\n  console.log('ok');\n});",
         )
         .unwrap();
-        let values = artifact
+
+        let script = artifact
             .files
             .iter()
-            .find(|file| file.path == "frontend/values.yaml")
+            .find(|file| file.path == "charts/frontend/scripts/index.js")
             .unwrap();
-        let content = std::str::from_utf8(&values.content).unwrap();
+        let content = std::str::from_utf8(&script.content).unwrap();
 
-        assert!(content.contains("indexJsContent: |"));
-        assert!(content.contains("  System.register([], function () {"));
-        assert!(content.contains("    console.log('ok');"));
+        assert!(content.contains("System.register([], function () {"));
+        assert!(content.contains("  console.log('ok');"));
+
+        let template = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "charts/frontend/templates/configmap.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&template.content).unwrap();
+
+        assert!(content.contains(r#"{{ (.Files.Glob "scripts/index.js").AsConfig | indent 2 }}"#));
+        assert!(!content.contains(".Values.indexJsContent"));
     }
 
     #[test]
@@ -1116,7 +1256,7 @@ spec:
         let template = artifact
             .files
             .iter()
-            .find(|file| file.path == "inspecttask-helper/templates/roleTemplate.yaml")
+            .find(|file| file.path == "charts/inspecttask-helper/templates/roleTemplate.yaml")
             .unwrap();
         let content = std::str::from_utf8(&template.content).unwrap();
 
@@ -1157,6 +1297,21 @@ spec:
         );
 
         a.spec.source.inline.extension_resources = None;
+        assert_eq!(
+            frontend_extension_source_hash(&a).unwrap(),
+            frontend_extension_source_hash(&b).unwrap()
+        );
+    }
+
+    #[test]
+    fn source_hash_ignores_package_dependencies() {
+        let a = sample_fe();
+        let mut b = sample_fe();
+        b.spec.package.dependencies = vec![ExtensionDependencySpec {
+            name: "legacy-chart".to_string(),
+            tags: vec!["extension".to_string()],
+        }];
+
         assert_eq!(
             frontend_extension_source_hash(&a).unwrap(),
             frontend_extension_source_hash(&b).unwrap()
@@ -1265,7 +1420,7 @@ spec:
         let template = artifact
             .files
             .iter()
-            .find(|file| file.path == "mixed-helper/templates/roleTemplate.yaml")
+            .find(|file| file.path == "charts/mixed-helper/templates/roleTemplate.yaml")
             .unwrap();
         let content = std::str::from_utf8(&template.content).unwrap();
 

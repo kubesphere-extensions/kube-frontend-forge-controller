@@ -1,0 +1,35 @@
+kind: ClusterRole
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'extensions.kubesphere.io'
+    resources:
+      - '*'
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'iam.kubesphere.io'
+    resources:
+      - 'categories'
+      - 'roletemplates'
+---
+kind: Role
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - ''
+      - 'apps'
+      - 'batch'
+      - 'app.k8s.io'
+      - 'autoscaling'
+    resources:
+      - '*'
+  - verbs:
+      - '*'
+    apiGroups:
+      - 'networking.k8s.io'
+    resources:
+      - 'ingresses'
+      - 'networkpolicies'
