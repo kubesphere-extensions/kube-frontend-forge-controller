@@ -5,7 +5,7 @@ metadata:
 spec:
   package:
     name: inspecttask
-    version: 0.1.0
+    version: 0.2.0
     displayName:
       zh: 巡检任务
       en: Inspect Task
@@ -32,15 +32,9 @@ spec:
         name: QingCloud Technologies
         email: kubesphere@yunify.com
         url: https://kubesphere.co/
-    icon: ./static/frontend-forge.ico
-    dependencies:
-      - name: frontend
-        tags:
-          - extension
-      - name: frontend-forge
-        tags:
-          - extension
-    installationMode: HostOnly
+    icon: /static/favicon.svg
+    dependencies: []
+    installationMode: Multicluster
     images:
       - kubesphere/frontend-forge-console:v1.0.0
       - kubesphere/frontend-forge-controller:v1.0.0
