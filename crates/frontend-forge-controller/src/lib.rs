@@ -9,11 +9,7 @@ use std::{
 };
 
 use frontend_forge_common::CommonError;
-use k8s_openapi::{
-    api::batch::v1::{Job, JobStatus},
-    apimachinery::pkg::apis::meta::v1::OwnerReference,
-};
-use kube::{Api, Client, Resource, api::PostParams};
+use kube::Client;
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
@@ -84,19 +80,9 @@ pub enum Error {
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
     },
-    #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
-    CreateJob {
-        namespace: String,
-        name: String,
-        #[snafu(source(from(kube::Error, Box::new)))]
-        source: Box<kube::Error>,
-    },
-    #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
-    GetJobAfterConflict {
-        namespace: String,
-        name: String,
-        #[snafu(source(from(kube::Error, Box::new)))]
-        source: Box<kube::Error>,
+    #[snafu(transparent)]
+    Job {
+        source: frontend_forge_common::JobError,
     },
     #[snafu(display("invalid WEBHOOK_ENABLED value '{value}': {source}"))]
     InvalidWebhookEnabled {
@@ -184,14 +170,6 @@ pub(crate) struct ContextData {
     pub(crate) config: ControllerConfig,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ObservedJobPhase {
-    Pending,
-    Running,
-    Succeeded,
-    Failed,
-}
-
 pub(crate) const DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED: i32 = 60 * 60;
 
 fn install_rustls_crypto_provider() {
@@ -238,80 +216,4 @@ pub async fn run() -> Result<(), Error> {
     info!("frontend integration controller shutdown complete");
 
     Ok(())
-}
-
-pub(crate) fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
-    let Some(status) = status else {
-        return ObservedJobPhase::Pending;
-    };
-
-    if status.failed.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Failed;
-    }
-    if status.succeeded.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Succeeded;
-    }
-    if status.active.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Running;
-    }
-
-    if let Some(conditions) = &status.conditions {
-        for cond in conditions {
-            if cond.status != "True" {
-                continue;
-            }
-            if cond.type_ == "Failed" {
-                return ObservedJobPhase::Failed;
-            }
-            if cond.type_ == "Complete" {
-                return ObservedJobPhase::Succeeded;
-            }
-        }
-    }
-
-    ObservedJobPhase::Pending
-}
-
-pub(crate) fn extract_job_message(job: &Job) -> Option<String> {
-    let status = job.status.as_ref()?;
-    if let Some(conditions) = &status.conditions
-        && let Some(cond) = conditions
-            .iter()
-            .find(|c| c.status == "True" && c.type_ == "Failed")
-    {
-        return cond.message.clone().or_else(|| cond.reason.clone());
-    }
-    None
-}
-
-pub(crate) fn base_owner_ref<T>(obj: &T) -> Option<OwnerReference>
-where
-    T: Resource<DynamicType = ()>,
-{
-    obj.controller_owner_ref(&())
-}
-
-pub(crate) async fn create_or_get_job(
-    job_api: &Api<Job>,
-    namespace: &str,
-    job: Job,
-    name: &str,
-) -> Result<Job, Error> {
-    match job_api.create(&PostParams::default(), &job).await {
-        Ok(created) => Ok(created),
-        Err(kube::Error::Api(ae)) if ae.code == 409 => {
-            Ok(job_api
-                .get(name)
-                .await
-                .with_context(|_| GetJobAfterConflictSnafu {
-                    namespace: namespace.to_string(),
-                    name: name.to_string(),
-                })?)
-        }
-        Err(err) => Err(Error::CreateJob {
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-            source: Box::new(err),
-        }),
-    }
 }

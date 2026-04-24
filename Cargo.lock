@@ -573,6 +573,8 @@ name = "frontend-forge-common"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "k8s-openapi",
+ "kube",
  "serde",
  "serde_json",
  "sha2",

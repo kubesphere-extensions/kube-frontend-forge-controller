@@ -11,8 +11,9 @@ use frontend_forge_common::{
     ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME,
     ANNO_PUBLISH_TARGET_NAMESPACE, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_MANAGED_BY,
     LABEL_PACKAGE_KIND, LABEL_PUBLISH_KIND, LABEL_PUBLISH_REQUEST_HASH, LABEL_SOURCE_HASH,
-    MANAGED_BY_VALUE, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE, artifact_configmap_name,
-    hash_label_value, package_job_name, publish_job_name, sha256_hex,
+    MANAGED_BY_VALUE, ObservedJobPhase, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE,
+    artifact_configmap_name, base_owner_ref, create_or_get_job, extract_job_message,
+    hash_label_value, observed_job_phase, package_job_name, publish_job_name, sha256_hex,
 };
 use frontend_forge_extension_package_core::{
     ARTIFACT_METADATA_KEY, ExtensionPackageError, PACKAGE_KEY, PackageArtifactMetadata,
@@ -22,14 +23,14 @@ use frontend_forge_manifest::validate_frontend_extension;
 use futures::StreamExt;
 use k8s_openapi::{
     api::{
-        batch::v1::{Job, JobSpec, JobStatus},
+        batch::v1::{Job, JobSpec},
         core::v1::{ConfigMap, Container, EnvVar, PodSpec, PodTemplateSpec},
     },
-    apimachinery::pkg::apis::meta::v1::{ObjectMeta, OwnerReference, Time},
+    apimachinery::pkg::apis::meta::v1::{ObjectMeta, Time},
 };
 use kube::{
     Api, Client, Resource, ResourceExt,
-    api::{ListParams, Patch, PatchParams, PostParams},
+    api::{ListParams, Patch, PatchParams},
 };
 use kube_runtime::{
     controller::{Action, Controller},
@@ -79,19 +80,9 @@ enum Error {
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
     },
-    #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
-    CreateJob {
-        namespace: String,
-        name: String,
-        #[snafu(source(from(kube::Error, Box::new)))]
-        source: Box<kube::Error>,
-    },
-    #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
-    GetJobAfterConflict {
-        namespace: String,
-        name: String,
-        #[snafu(source(from(kube::Error, Box::new)))]
-        source: Box<kube::Error>,
+    #[snafu(transparent)]
+    Job {
+        source: frontend_forge_common::JobError,
     },
     #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
     GetPublishJob {
@@ -165,14 +156,6 @@ struct ContextData {
     config: ControllerConfig,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ObservedJobPhase {
-    Pending,
-    Running,
-    Succeeded,
-    Failed,
-}
-
 const DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED: i32 = 60 * 60;
 
 fn install_rustls_crypto_provider() {
@@ -231,82 +214,6 @@ async fn run(ctx: Arc<ContextData>) -> Result<(), Error> {
 fn error_policy(_fe: Arc<FrontendExtension>, err: &Error, _ctx: Arc<ContextData>) -> Action {
     warn!(error = %err, "frontend extension reconcile failed; requeueing");
     Action::requeue(Duration::from_secs(10))
-}
-
-fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
-    let Some(status) = status else {
-        return ObservedJobPhase::Pending;
-    };
-
-    if status.failed.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Failed;
-    }
-    if status.succeeded.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Succeeded;
-    }
-    if status.active.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Running;
-    }
-
-    if let Some(conditions) = &status.conditions {
-        for cond in conditions {
-            if cond.status != "True" {
-                continue;
-            }
-            if cond.type_ == "Failed" {
-                return ObservedJobPhase::Failed;
-            }
-            if cond.type_ == "Complete" {
-                return ObservedJobPhase::Succeeded;
-            }
-        }
-    }
-
-    ObservedJobPhase::Pending
-}
-
-fn extract_job_message(job: &Job) -> Option<String> {
-    let status = job.status.as_ref()?;
-    if let Some(conditions) = &status.conditions
-        && let Some(cond) = conditions
-            .iter()
-            .find(|c| c.status == "True" && c.type_ == "Failed")
-    {
-        return cond.message.clone().or_else(|| cond.reason.clone());
-    }
-    None
-}
-
-fn base_owner_ref<T>(obj: &T) -> Option<OwnerReference>
-where
-    T: Resource<DynamicType = ()>,
-{
-    obj.controller_owner_ref(&())
-}
-
-async fn create_or_get_job(
-    job_api: &Api<Job>,
-    namespace: &str,
-    job: Job,
-    name: &str,
-) -> Result<Job, Error> {
-    match job_api.create(&PostParams::default(), &job).await {
-        Ok(created) => Ok(created),
-        Err(kube::Error::Api(ae)) if ae.code == 409 => {
-            Ok(job_api
-                .get(name)
-                .await
-                .with_context(|_| GetJobAfterConflictSnafu {
-                    namespace: namespace.to_string(),
-                    name: name.to_string(),
-                })?)
-        }
-        Err(err) => Err(Error::CreateJob {
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-            source: Box::new(err),
-        }),
-    }
 }
 
 async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<Action, Error> {
@@ -1303,6 +1210,8 @@ fn frontend_extension_status_patch(
 
 #[cfg(test)]
 mod tests {
+    use k8s_openapi::api::batch::v1::JobStatus;
+
     use super::*;
 
     #[test]

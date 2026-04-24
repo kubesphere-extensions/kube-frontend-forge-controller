@@ -3,6 +3,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use k8s_openapi::{
+    api::batch::v1::{Job, JobStatus},
+    apimachinery::pkg::apis::meta::v1::OwnerReference,
+};
+use kube::{Api, Resource, api::PostParams};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -46,6 +51,32 @@ pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
 pub enum CommonError {
     #[snafu(display("manifest serialization failed: {source}"))]
     Serialize { source: serde_json::Error },
+}
+
+#[derive(Debug, Snafu)]
+pub enum JobError {
+    #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
+    Create {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+    #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
+    GetAfterConflict {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservedJobPhase {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
 }
 
 pub fn canonicalize_json(value: &Value) -> Value {
@@ -103,6 +134,91 @@ where
 {
     let (_, hash) = serializable_content_and_hash(source)?;
     Ok(hash)
+}
+
+#[must_use]
+pub fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
+    let Some(status) = status else {
+        return ObservedJobPhase::Pending;
+    };
+
+    if status.failed.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Failed;
+    }
+    if status.succeeded.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Succeeded;
+    }
+    if status.active.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Running;
+    }
+
+    if let Some(conditions) = &status.conditions {
+        for cond in conditions {
+            if cond.status != "True" {
+                continue;
+            }
+            if cond.type_ == "Failed" {
+                return ObservedJobPhase::Failed;
+            }
+            if cond.type_ == "Complete" {
+                return ObservedJobPhase::Succeeded;
+            }
+        }
+    }
+
+    ObservedJobPhase::Pending
+}
+
+#[must_use]
+pub fn extract_job_message(job: &Job) -> Option<String> {
+    let status = job.status.as_ref()?;
+    if let Some(conditions) = &status.conditions
+        && let Some(cond) = conditions
+            .iter()
+            .find(|c| c.status == "True" && c.type_ == "Failed")
+    {
+        return cond.message.clone().or_else(|| cond.reason.clone());
+    }
+    None
+}
+
+#[must_use]
+pub fn base_owner_ref<T>(obj: &T) -> Option<OwnerReference>
+where
+    T: Resource<DynamicType = ()>,
+{
+    obj.controller_owner_ref(&())
+}
+
+/// Create a Kubernetes Job, or return the existing Job when creation races.
+///
+/// # Errors
+///
+/// Returns an error when Job creation fails for reasons other than conflict, or
+/// when the follow-up read after a conflict fails.
+pub async fn create_or_get_job(
+    job_api: &Api<Job>,
+    namespace: &str,
+    job: Job,
+    name: &str,
+) -> Result<Job, JobError> {
+    match job_api.create(&PostParams::default(), &job).await {
+        Ok(created) => Ok(created),
+        Err(kube::Error::Api(ae)) if ae.code == 409 => {
+            job_api
+                .get(name)
+                .await
+                .with_context(|_| GetAfterConflictSnafu {
+                    namespace: namespace.to_string(),
+                    name: name.to_string(),
+                })
+        }
+        Err(err) => Err(JobError::Create {
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            source: Box::new(err),
+        }),
+    }
 }
 
 #[must_use]

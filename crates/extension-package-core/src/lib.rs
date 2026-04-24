@@ -81,7 +81,6 @@ pub struct PackageArtifactMetadata {
     pub source_hash: String,
     #[serde(rename = "generatedAt")]
     pub generated_at: DateTime<Utc>,
-    pub files: Vec<PackageFileMeta>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,13 +177,12 @@ pub fn build_extension_package(
         size_bytes: package_bytes.len(),
         source_hash: source_hash.clone(),
         generated_at,
-        files: file_meta,
     };
 
     let artifact_json = serde_json::to_string_pretty(&metadata).context(SerializeJsonSnafu {
         name: ARTIFACT_METADATA_KEY,
     })?;
-    let files_json = serde_json::to_string_pretty(&metadata.files).context(SerializeJsonSnafu {
+    let files_json = serde_json::to_string_pretty(&file_meta).context(SerializeJsonSnafu {
         name: FILES_METADATA_KEY,
     })?;
 
@@ -1082,6 +1080,12 @@ spec:
         assert_eq!(artifact.generated_at, generated_at);
         assert!(artifact.payload.data.contains_key(ARTIFACT_METADATA_KEY));
         assert!(artifact.payload.data.contains_key(FILES_METADATA_KEY));
+        let artifact_metadata: Value =
+            serde_json::from_str(&artifact.payload.data[ARTIFACT_METADATA_KEY]).unwrap();
+        assert!(artifact_metadata.get("files").is_none());
+        let file_metadata: Vec<PackageFileMeta> =
+            serde_json::from_str(&artifact.payload.data[FILES_METADATA_KEY]).unwrap();
+        assert!(!file_metadata.is_empty());
         assert_eq!(
             artifact.payload.binary_data[PACKAGE_KEY][..3],
             [0x1f, 0x8b, 0x08]
