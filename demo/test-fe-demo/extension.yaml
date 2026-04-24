@@ -1,0 +1,29 @@
+apiVersion: kubesphere.io/v1alpha1
+name: fe-demo
+version: 0.0.1
+displayName:
+  en: Frontend Demo
+  zh: 前端演示
+description:
+  en: A frontend demo extension
+  zh: 一个前端演示扩展
+category: other
+keywords:
+  - other
+home: https://kubesphere.io
+sources:
+  - https://github.com/kubesphere
+kubeVersion: ">=1.19.0-0"
+ksVersion: ">=4.2.0-0"
+provider:
+  zh:
+    name: "KubeSphere"
+    email: "kubesphere@yunify.com"
+    url: "https://kubesphere.com.cn/"
+  en:
+    name: "KubeSphere"
+    email: "kubesphere@yunify.com"
+    url: "https://kubesphere.com.cn/"
+icon: ./favicon.svg
+installationMode: Multicluster
+images: []
