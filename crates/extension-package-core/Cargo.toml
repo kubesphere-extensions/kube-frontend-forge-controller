@@ -10,6 +10,7 @@ frontend-forge-api = { path = "../api" }
 frontend-forge-common = { path = "../common" }
 frontend-forge-manifest = { path = "../manifest" }
 flate2.workspace = true
+include_dir.workspace = true
 kube.workspace = true
 serde.workspace = true
 serde_json.workspace = true

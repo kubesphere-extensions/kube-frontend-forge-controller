@@ -27,6 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
 futures = "0.3"
 hex = "0.4"
+include_dir = "0.7"
 k8s-openapi = { version = "0.27", features = ["latest"] }
 kube = { version = "3.0.1", features = ["admission", "client", "derive", "runtime", "rustls-tls"] }
 kube-runtime = "3.0.1"

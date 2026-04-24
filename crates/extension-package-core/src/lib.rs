@@ -14,16 +14,20 @@ use frontend_forge_common::{CommonError, serializable_hash, sha256_hex};
 use frontend_forge_manifest::{
     ManifestRenderError, ResolvedFrontendPage, resolve_frontend_extension_pages,
 };
+use include_dir::{Dir, include_dir};
 use kube::ResourceExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use snafu::{ResultExt, Snafu};
+use snafu::{OptionExt, ResultExt, Snafu};
 use tar::{Builder as TarBuilder, Header};
 
 pub const PACKAGE_KEY: &str = "package.tgz";
 pub const PACKAGE_MEDIA_TYPE: &str = "application/gzip";
 pub const ARTIFACT_METADATA_KEY: &str = "artifact.json";
 pub const FILES_METADATA_KEY: &str = "files.json";
+
+static PACKAGE_TEMPLATE_DIR: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/../../template/test-fe-demo");
 
 #[derive(Debug, Snafu)]
 pub enum ExtensionPackageError {
@@ -43,6 +47,10 @@ pub enum ExtensionPackageError {
     },
     #[snafu(display("failed to build package archive: {source}"))]
     Archive { source: std::io::Error },
+    #[snafu(display("package template file {path} is missing"))]
+    TemplateMissing { path: &'static str },
+    #[snafu(display("package template file {path} is not valid UTF-8"))]
+    TemplateUtf8 { path: &'static str },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -209,33 +217,34 @@ fn package_files(
 
     Ok(vec![
         yaml_file("extension.yaml", &package_metadata)?,
-        text_file("permissions.yaml", PERMISSIONS_TEMPLATE),
+        template_text_file("permissions.yaml", "permissions.yaml")?,
         yaml_file("values.yaml", &root_values(fe, &helper_chart_name))?,
+        template_binary_file("static/favicon.svg", "static/favicon.svg")?,
         yaml_file(
             "charts/frontend/Chart.yaml",
             &frontend_chart(fe, &package_name),
         )?,
-        frontend_values_file(),
+        template_text_file("charts/frontend/values.yaml", "charts/frontend/values.yaml")?,
         frontend_script_file(index_js_content),
-        text_file(
+        template_text_file(
             "charts/frontend/templates/configmap.yaml",
-            FRONTEND_CONFIGMAP_TEMPLATE,
-        ),
-        text_file(
+            "charts/frontend/templates/configmap.yaml",
+        )?,
+        template_text_file(
             "charts/frontend/templates/extensions.yaml",
-            FRONTEND_EXTENSIONS_TEMPLATE,
-        ),
-        text_file(
+            "charts/frontend/templates/extensions.yaml",
+        )?,
+        template_text_file(
             "charts/frontend/templates/helps.tpl",
-            FRONTEND_HELPERS_TEMPLATE,
-        ),
+            "charts/frontend/templates/helps.tpl",
+        )?,
         yaml_file(
             &format!("charts/{helper_chart_name}/Chart.yaml"),
             &helper_chart(fe, &helper_chart_name),
         )?,
-        yaml_file(
-            &format!("charts/{helper_chart_name}/values.yaml"),
-            &helper_values(),
+        template_text_file(
+            "charts/fe-demo-helper/values.yaml",
+            format!("charts/{helper_chart_name}/values.yaml"),
         )?,
         text_file(
             &format!("charts/{helper_chart_name}/templates/roleTemplate.yaml"),
@@ -385,23 +394,6 @@ fn root_values(fe: &FrontendExtension, helper_chart_name: &str) -> BTreeMap<Stri
     values
 }
 
-#[derive(Serialize)]
-struct HelperValues {
-    #[serde(rename = "roleTemplate")]
-    role_template: RoleTemplateValues,
-}
-
-#[derive(Serialize)]
-struct RoleTemplateValues {
-    enabled: bool,
-}
-
-const fn helper_values() -> HelperValues {
-    HelperValues {
-        role_template: RoleTemplateValues { enabled: true },
-    }
-}
-
 fn helper_chart_name(package_name: &str) -> String {
     format!("{package_name}-helper")
 }
@@ -456,119 +448,6 @@ pub fn frontend_extension_source_hash(
     })
     .context(SourceHashSnafu)
 }
-
-const PERMISSIONS_TEMPLATE: &str = r"kind: ClusterRole
-rules:
-  - verbs:
-      - '*'
-    apiGroups:
-      - 'extensions.kubesphere.io'
-    resources:
-      - '*'
-  - verbs:
-      - '*'
-    apiGroups:
-      - 'iam.kubesphere.io'
-    resources:
-      - 'categories'
-      - 'roletemplates'
----
-kind: Role
-rules:
-  - verbs:
-      - '*'
-    apiGroups:
-      - ''
-      - 'apps'
-      - 'batch'
-      - 'app.k8s.io'
-      - 'autoscaling'
-    resources:
-      - '*'
-  - verbs:
-      - '*'
-    apiGroups:
-      - 'networking.k8s.io'
-    resources:
-      - 'ingresses'
-      - 'networkpolicies'
-";
-
-const FRONTEND_CONFIGMAP_TEMPLATE: &str = r#"apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "frontend.fullname" . }}
-  labels:
-    {{- include "frontend.labels" . | nindent 4 }}
-data:
-{{ (.Files.Glob "scripts/index.js").AsConfig | indent 2 }}
-"#;
-
-const FRONTEND_EXTENSIONS_TEMPLATE: &str = r#"apiVersion: extensions.kubesphere.io/v1alpha1
-kind: JSBundle
-metadata:
-  name: {{ include "frontend.fullname" . }}-js-bundle
-spec:
-  rawFrom:
-    configMapKeyRef:
-      namespace: {{ .Release.Namespace }}
-      name: {{ include "frontend.fullname" . }}
-      key: index.js
-status:
-  state: Available
-  link: /dist/{{ include "frontend.fullname" . }}/index.js
-"#;
-
-const FRONTEND_HELPERS_TEMPLATE: &str = r#"{{/*
-Expand the name of the chart.
-*/}}
-{{- define "frontend.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Create a default fully qualified app name.
-*/}}
-{{- define "frontend.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
-
-{{/*
-Create chart name and version as used by the chart label.
-*/}}
-{{- define "frontend.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Common labels
-*/}}
-{{- define "frontend.labels" -}}
-helm.sh/chart: {{ include "frontend.chart" . }}
-{{ include "frontend.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
-
-{{/*
-Selector labels
-*/}}
-{{- define "frontend.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "frontend.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
-"#;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum RoleScope {
@@ -965,18 +844,46 @@ const fn role_action_name(action: RoleAction) -> &'static str {
     }
 }
 
-fn frontend_values_file() -> PackageFile {
-    PackageFile {
-        path: "charts/frontend/values.yaml".to_string(),
-        content: b"# This is a YAML-formatted file.\n# Declare variables to be passed into your templates.\n".to_vec(),
-    }
-}
-
 fn frontend_script_file(index_js_content: &str) -> PackageFile {
     PackageFile {
         path: "charts/frontend/scripts/index.js".to_string(),
         content: index_js_content.as_bytes().to_vec(),
     }
+}
+
+fn template_text_file(
+    source_path: &'static str,
+    output_path: impl Into<String>,
+) -> Result<PackageFile, ExtensionPackageError> {
+    Ok(PackageFile {
+        path: output_path.into(),
+        content: template_text(source_path)?.as_bytes().to_vec(),
+    })
+}
+
+fn template_binary_file(
+    source_path: &'static str,
+    output_path: impl Into<String>,
+) -> Result<PackageFile, ExtensionPackageError> {
+    Ok(PackageFile {
+        path: output_path.into(),
+        content: template_bytes(source_path)?.to_vec(),
+    })
+}
+
+fn template_text(path: &'static str) -> Result<&'static str, ExtensionPackageError> {
+    PACKAGE_TEMPLATE_DIR
+        .get_file(path)
+        .context(TemplateMissingSnafu { path })?
+        .contents_utf8()
+        .context(TemplateUtf8Snafu { path })
+}
+
+fn template_bytes(path: &'static str) -> Result<&'static [u8], ExtensionPackageError> {
+    Ok(PACKAGE_TEMPLATE_DIR
+        .get_file(path)
+        .context(TemplateMissingSnafu { path })?
+        .contents())
 }
 
 fn text_file(path: &str, content: &str) -> PackageFile {
