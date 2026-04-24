@@ -125,6 +125,7 @@ struct NormalizedPackageIdentity<'a> {
     home: &'a Option<String>,
     provider: &'a BTreeMap<String, ExtensionProviderSpec>,
     icon: &'a Option<String>,
+    dependencies: &'a Vec<ExtensionDependencySpec>,
     #[serde(rename = "installationMode")]
     installation_mode: &'a Option<String>,
     images: &'a Vec<String>,
@@ -278,7 +279,6 @@ struct KsbuilderExtensionYaml {
     provider: BTreeMap<String, ExtensionProviderSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     dependencies: Vec<ExtensionDependencySpec>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "installationMode")]
     installation_mode: Option<String>,
@@ -304,23 +304,10 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
         home: package.home.clone(),
         provider: package.provider.clone(),
         icon: package.icon.clone(),
-        dependencies: package_dependencies(&package_name),
+        dependencies: package.dependencies.clone(),
         installation_mode: package.installation_mode.clone(),
         images: package.images.clone(),
     }
-}
-
-fn package_dependencies(package_name: &str) -> Vec<ExtensionDependencySpec> {
-    vec![
-        ExtensionDependencySpec {
-            name: helper_chart_name(package_name),
-            tags: vec!["agent".to_string()],
-        },
-        ExtensionDependencySpec {
-            name: "frontend".to_string(),
-            tags: vec!["extension".to_string()],
-        },
-    ]
 }
 
 #[derive(Serialize)]
@@ -432,6 +419,7 @@ pub fn frontend_extension_source_hash(
             home: &package.home,
             provider: &package.provider,
             icon: &package.icon,
+            dependencies: &package.dependencies,
             installation_mode: &package.installation_mode,
             images: &package.images,
             charts: &package.charts,
@@ -1116,11 +1104,11 @@ spec:
         assert!(content.contains("apiVersion: kubesphere.io/v1alpha1"));
         assert!(content.contains("name: inspecttask"));
         assert!(content.contains("displayName:"));
-        assert!(content.contains("name: inspecttask-helper"));
-        assert!(content.contains("- agent"));
-        assert!(content.contains("name: frontend"));
+        assert!(!content.contains("name: inspecttask-helper"));
+        assert!(!content.contains("- agent"));
+        assert!(content.contains("name: frontend\n"));
         assert!(content.contains("- extension"));
-        assert!(!content.contains("name: frontend-forge\n"));
+        assert!(content.contains("name: frontend-forge\n"));
         assert!(content.contains("installationMode: HostOnly"));
         assert!(content.contains("kubesphere/frontend-forge-controller:v1.0.0"));
 
@@ -1232,7 +1220,7 @@ spec:
     }
 
     #[test]
-    fn source_hash_ignores_package_dependencies() {
+    fn source_hash_changes_with_package_dependencies() {
         let a = sample_fe();
         let mut b = sample_fe();
         b.spec.package.dependencies = vec![ExtensionDependencySpec {
@@ -1240,10 +1228,29 @@ spec:
             tags: vec!["extension".to_string()],
         }];
 
-        assert_eq!(
+        assert_ne!(
             frontend_extension_source_hash(&a).unwrap(),
             frontend_extension_source_hash(&b).unwrap()
         );
+    }
+
+    #[test]
+    fn extension_yaml_defaults_missing_dependencies_to_empty_list() {
+        let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+        let mut fe = sample_fe();
+        fe.spec.package.dependencies.clear();
+
+        let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+        let extension_yaml = artifact
+            .files
+            .iter()
+            .find(|file| file.path == "extension.yaml")
+            .unwrap();
+        let content = std::str::from_utf8(&extension_yaml.content).unwrap();
+
+        assert!(content.contains("dependencies: []"));
+        assert!(!content.contains("name: inspecttask-helper"));
+        assert!(!content.contains("name: frontend\n"));
     }
 
     #[test]

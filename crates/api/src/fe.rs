@@ -467,6 +467,33 @@ spec:
     }
 
     #[test]
+    fn defaults_missing_package_dependencies_to_empty_list() {
+        let fe: FrontendExtension = serde_yaml::from_str(
+            r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: no-dependencies
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: No Dependencies
+    description:
+      en: No Dependencies
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend: {}
+"#,
+        )
+        .unwrap();
+
+        assert!(fe.spec.package.dependencies.is_empty());
+    }
+
+    #[test]
     fn generated_frontend_extension_crd_uses_publish_shape() {
         let crd = frontend_extension_crd();
         let schema = serde_json::to_value(&crd).unwrap();
@@ -490,6 +517,13 @@ spec:
             Value::String("object".to_string())
         );
         assert!(package["properties"].get("kubeVersion").is_some());
+        assert!(package["properties"].get("dependencies").is_some());
+        assert!(
+            !package["required"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String("dependencies".to_string()))
+        );
         assert!(package["properties"].get("installationMode").is_some());
         assert!(extension_resources.get("jsBundle").is_some());
         assert!(extension_resources.get("roleTemplates").is_none());
