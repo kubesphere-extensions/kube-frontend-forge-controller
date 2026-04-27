@@ -3,12 +3,10 @@ use std::{
     env,
     ffi::OsString,
     fs,
-    io::Cursor,
     path::{Component, Path, PathBuf},
     process::Command,
 };
 
-use flate2::read::GzDecoder;
 use frontend_forge_common::sha256_hex;
 use k8s_openapi::{
     ByteString,
@@ -16,7 +14,6 @@ use k8s_openapi::{
 };
 use kube::{Api, Client};
 use snafu::{ResultExt, Snafu};
-use tar::Archive;
 use tracing::info;
 
 #[derive(Debug, Snafu)]
@@ -51,8 +48,8 @@ enum Error {
         path: String,
         source: std::io::Error,
     },
-    #[snafu(display("failed to unpack package into {path}: {source}"))]
-    UnpackPackage {
+    #[snafu(display("failed to write artifact package {path}: {source}"))]
+    WriteArtifactPackage {
         path: String,
         source: std::io::Error,
     },
@@ -99,6 +96,7 @@ struct PublisherConfig {
     artifact_configmap_namespace: String,
     artifact_configmap_name: String,
     artifact_configmap_key: String,
+    artifact_filename: String,
     target_kind: Option<String>,
     target_namespace: Option<String>,
     target_name: Option<String>,
@@ -129,6 +127,10 @@ impl PublisherConfig {
             artifact_configmap_name: required_env("ARTIFACT_CONFIGMAP_NAME")?,
             artifact_configmap_key: env::var("ARTIFACT_CONFIGMAP_KEY")
                 .unwrap_or_else(|_| "package.tgz".to_string()),
+            artifact_filename: env::var("ARTIFACT_FILENAME")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "package.tgz".to_string()),
             target_kind: env::var("PUBLISH_TARGET_KIND")
                 .ok()
                 .filter(|v| !v.is_empty()),
@@ -167,7 +169,7 @@ async fn main() -> Result<(), Error> {
     let package = load_artifact_package(&client, &cfg).await?;
     verify_artifact_digest(&package, &cfg.artifact_digest)?;
     prepare_workdir(&cfg.workdir)?;
-    unpack_package(&package, &cfg.workdir)?;
+    write_artifact_package(&package, &cfg.workdir, &cfg.artifact_filename)?;
     let target_data = load_publish_target(&client, &cfg).await?;
     let target_env = write_publish_target_data(&cfg.workdir, target_data.as_ref())?;
     run_ksbuilder_publish(&cfg, target_data.as_ref(), target_env)?;
@@ -227,23 +229,21 @@ fn prepare_workdir(workdir: &Path) -> Result<(), Error> {
     })
 }
 
-fn unpack_package(package: &[u8], workdir: &Path) -> Result<(), Error> {
-    let decoder = GzDecoder::new(Cursor::new(package));
-    let mut archive = Archive::new(decoder);
-    let entries = archive.entries().with_context(|_| UnpackPackageSnafu {
-        path: workdir.display().to_string(),
-    })?;
-    for entry in entries {
-        let mut entry = entry.with_context(|_| UnpackPackageSnafu {
-            path: workdir.display().to_string(),
+fn write_artifact_package(
+    package: &[u8],
+    workdir: &Path,
+    filename: &str,
+) -> Result<PathBuf, Error> {
+    let path = safe_child_path(workdir, filename)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|_| WriteArtifactPackageSnafu {
+            path: parent.display().to_string(),
         })?;
-        entry
-            .unpack_in(workdir)
-            .with_context(|_| UnpackPackageSnafu {
-                path: workdir.display().to_string(),
-            })?;
     }
-    Ok(())
+    fs::write(&path, package).with_context(|_| WriteArtifactPackageSnafu {
+        path: path.display().to_string(),
+    })?;
+    Ok(path)
 }
 
 #[derive(Clone, Debug)]
@@ -355,6 +355,12 @@ fn write_publish_target_data(
 }
 
 fn safe_child_path(root: &Path, raw: &str) -> Result<PathBuf, Error> {
+    if raw.is_empty() {
+        return Err(Error::UnsafeTargetDataPath {
+            path: raw.to_string(),
+        });
+    }
+
     let path = Path::new(raw);
     if path.is_absolute() {
         return Err(Error::UnsafeTargetDataPath {
@@ -382,16 +388,9 @@ fn run_ksbuilder_publish(
     target: Option<&TargetData>,
     target_env: BTreeMap<String, OsString>,
 ) -> Result<(), Error> {
-    let mut args = cfg.publish_args.clone();
-    if let Some(target) = target
-        && let Some(target_args) = target.values.get("args")
-        && let Ok(raw) = std::str::from_utf8(target_args)
-    {
-        args.extend(split_args(raw));
-    }
+    let args = ksbuilder_publish_args(cfg, target);
 
     let output = Command::new(&cfg.ksbuilder_bin)
-        .arg("publish")
         .args(args)
         .current_dir(&cfg.workdir)
         .envs(target_env)
@@ -412,6 +411,18 @@ fn run_ksbuilder_publish(
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
     }
+}
+
+fn ksbuilder_publish_args(cfg: &PublisherConfig, target: Option<&TargetData>) -> Vec<String> {
+    let mut args = vec!["publish".to_string(), cfg.artifact_filename.clone()];
+    args.extend(cfg.publish_args.clone());
+    if let Some(target) = target
+        && let Some(target_args) = target.values.get("args")
+        && let Ok(raw) = std::str::from_utf8(target_args)
+    {
+        args.extend(split_args(raw));
+    }
+    args
 }
 
 fn split_args(raw: &str) -> Vec<String> {
@@ -437,8 +448,75 @@ mod tests {
     fn rejects_unsafe_target_data_paths() {
         let root = Path::new("/tmp/frontend-forge-publish-test");
 
+        assert!(safe_child_path(root, "").is_err());
         assert!(safe_child_path(root, "../secret").is_err());
         assert!(safe_child_path(root, "/secret").is_err());
         assert!(safe_child_path(root, "config.yaml").is_ok());
+    }
+
+    #[test]
+    fn writes_artifact_package_to_safe_filename() {
+        let root = env::temp_dir().join(format!(
+            "frontend-forge-publisher-test-{}",
+            sha256_hex(b"writes_artifact_package_to_safe_filename")
+        ));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+
+        let path = write_artifact_package(b"package", &root, "inspecttask-0.1.0.tgz").unwrap();
+
+        assert_eq!(path, root.join("inspecttask-0.1.0.tgz"));
+        assert_eq!(fs::read(path).unwrap(), b"package");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_unsafe_artifact_filenames() {
+        let root = Path::new("/tmp/frontend-forge-publish-test");
+
+        assert!(write_artifact_package(b"package", root, "").is_err());
+        assert!(write_artifact_package(b"package", root, "../package.tgz").is_err());
+        assert!(write_artifact_package(b"package", root, "/package.tgz").is_err());
+    }
+
+    #[test]
+    fn builds_ksbuilder_publish_args_with_artifact_first() {
+        let cfg = PublisherConfig {
+            fe_name: "inspecttask".to_string(),
+            request_id: "request-1".to_string(),
+            artifact_digest: "sha256:artifact".to_string(),
+            artifact_configmap_namespace: "extension-frontend-forge".to_string(),
+            artifact_configmap_name: "fe-inspecttask-a1b2c3d4".to_string(),
+            artifact_configmap_key: "package.tgz".to_string(),
+            artifact_filename: "inspecttask-0.1.0.tgz".to_string(),
+            target_kind: None,
+            target_namespace: None,
+            target_name: None,
+            workdir: PathBuf::from("/tmp/frontend-forge-publish-test"),
+            ksbuilder_bin: "ksbuilder".to_string(),
+            publish_args: vec!["--kubeconfig".to_string(), "kubeconfig".to_string()],
+        };
+        let target = TargetData {
+            values: BTreeMap::from([(
+                "args".to_string(),
+                b"--token token-value --endpoint https://example.test".to_vec(),
+            )]),
+        };
+
+        assert_eq!(
+            ksbuilder_publish_args(&cfg, Some(&target)),
+            vec![
+                "publish",
+                "inspecttask-0.1.0.tgz",
+                "--kubeconfig",
+                "kubeconfig",
+                "--token",
+                "token-value",
+                "--endpoint",
+                "https://example.test",
+            ]
+        );
     }
 }

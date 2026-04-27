@@ -1370,4 +1370,152 @@ mod tests {
             serde_json::Value::Null
         );
     }
+
+    #[test]
+    fn publish_job_env_includes_artifact_filename_and_target_ref() {
+        let fe: FrontendExtension = serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+                "generation": 7,
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": {
+                        "en": "Inspect Task",
+                    },
+                    "description": {
+                        "en": "InspectTask extension package",
+                    },
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {},
+                    },
+                },
+            },
+        }))
+        .unwrap();
+        let config = ControllerConfig {
+            work_namespace: "extension-frontend-forge".to_string(),
+            packager_image: "packager:latest".to_string(),
+            packager_service_account: None,
+            publisher_image: "publisher:latest".to_string(),
+            publisher_service_account: Some("publisher-sa".to_string()),
+            artifact_configmap_namespace: "extension-frontend-forge".to_string(),
+            build_service_base_url: "http://frontend-forge.test".to_string(),
+            build_service_timeout_seconds: 240,
+            jsbundle_config_key: "index.js".to_string(),
+            reconcile_requeue_seconds: 5,
+            job_active_deadline_seconds: 300,
+            job_ttl_seconds_after_finished: Some(3600),
+        };
+        let request = PublishRequest {
+            request_id: "request-1".to_string(),
+            artifact_digest: "sha256:artifact".to_string(),
+            target_ref: NamespacedResourceRef {
+                namespace: "extension-frontend-forge".to_string(),
+                name: "ksbuilder-publish-config".to_string(),
+                uid: None,
+            },
+            target_kind: "Secret".to_string(),
+        };
+        let artifact = PackageArtifactMetadata {
+            name: "inspecttask".to_string(),
+            version: "0.1.0".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            media_type: "application/gzip".to_string(),
+            digest: "sha256:artifact".to_string(),
+            size_bytes: 1,
+            source_hash: "sha256:source".to_string(),
+            generated_at: Utc::now(),
+        };
+        let artifact_cm = ConfigMap {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-a1b2c3d4".to_string()),
+                namespace: Some("extension-frontend-forge".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let job = make_publish_job(
+            &fe,
+            &config,
+            "fe-inspecttask-publish-request",
+            &request,
+            &artifact,
+            &artifact_cm,
+        );
+        let env = job.spec.unwrap().template.spec.unwrap().containers[0]
+            .env
+            .clone()
+            .unwrap()
+            .into_iter()
+            .map(|env| (env.name, env.value.unwrap_or_default()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(env["FE_NAME"], "inspecttask");
+        assert_eq!(env["PUBLISH_REQUEST_ID"], "request-1");
+        assert_eq!(env["ARTIFACT_DIGEST"], "sha256:artifact");
+        assert_eq!(
+            env["ARTIFACT_CONFIGMAP_NAMESPACE"],
+            "extension-frontend-forge"
+        );
+        assert_eq!(env["ARTIFACT_CONFIGMAP_NAME"], "fe-inspecttask-a1b2c3d4");
+        assert_eq!(env["ARTIFACT_CONFIGMAP_KEY"], PACKAGE_KEY);
+        assert_eq!(env["ARTIFACT_FILENAME"], "inspecttask-0.1.0.tgz");
+        assert_eq!(env["PUBLISH_TARGET_KIND"], "Secret");
+        assert_eq!(env["PUBLISH_TARGET_NAMESPACE"], "extension-frontend-forge");
+        assert_eq!(env["PUBLISH_TARGET_NAME"], "ksbuilder-publish-config");
+    }
+
+    #[test]
+    fn publish_status_maps_failed_job_message() {
+        let request = PublishRequest {
+            request_id: "request-1".to_string(),
+            artifact_digest: "sha256:artifact".to_string(),
+            target_ref: NamespacedResourceRef {
+                namespace: "extension-frontend-forge".to_string(),
+                name: "ksbuilder-publish-config".to_string(),
+                uid: None,
+            },
+            target_kind: "ConfigMap".to_string(),
+        };
+        let job = Job {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-publish-request".to_string()),
+                namespace: Some("extension-frontend-forge".to_string()),
+                uid: Some("job-uid".to_string()),
+                ..Default::default()
+            },
+            status: Some(JobStatus {
+                failed: Some(1),
+                conditions: Some(vec![k8s_openapi::api::batch::v1::JobCondition {
+                    type_: "Failed".to_string(),
+                    status: "True".to_string(),
+                    message: Some("ksbuilder publish failed".to_string()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let status = publish_status_from_job(&request, &job);
+
+        assert_eq!(status.phase, PublishPhase::Failed);
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("ksbuilder publish failed")
+        );
+        assert_eq!(
+            status.job_ref.unwrap().name,
+            "fe-inspecttask-publish-request"
+        );
+    }
 }

@@ -665,12 +665,10 @@ dependencies = [
 name = "frontend-forge-extension-publisher"
 version = "0.1.0"
 dependencies = [
- "flate2",
  "frontend-forge-common",
  "k8s-openapi",
  "kube",
  "snafu",
- "tar",
  "tokio",
  "tracing",
  "tracing-subscriber",

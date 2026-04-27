@@ -286,6 +286,9 @@ async fn trigger_publish(
 ) -> Result<(StatusCode, Json<PublishStatus>), ApiError> {
     let extension = get_fe(&state, &name).await?;
     let artifact = ready_artifact(&extension)?;
+    if request.request_id.is_empty() {
+        return Err(ApiError::conflict("publish requestId is required"));
+    }
     if request.artifact_digest != artifact.digest {
         return Err(ApiError::conflict(
             "publish artifactDigest does not match current ready artifact",
@@ -313,9 +316,6 @@ async fn trigger_publish(
                 .and_then(|policy| policy.default_target_ref.clone())
         })
         .ok_or_else(|| ApiError::conflict("publish targetRef is required"))?;
-    if request.request_id.is_empty() {
-        return Err(ApiError::conflict("publish requestId is required"));
-    }
     if target_ref.namespace.is_empty() || target_ref.name.is_empty() {
         return Err(ApiError::conflict(
             "publish targetRef namespace and name are required",
@@ -541,5 +541,67 @@ spec:
         });
 
         assert!(ready_artifact(&fe).is_err());
+    }
+
+    #[test]
+    fn ready_artifact_requires_ready_phase() {
+        let mut fe = ready_fe();
+        fe.status = Some(FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Packaging,
+            ..Default::default()
+        });
+
+        let err = ready_artifact(&fe).unwrap_err();
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(err.message, "FrontendExtension artifact is not ready");
+    }
+
+    #[test]
+    fn ready_artifact_requires_download_ready() {
+        let mut fe = ready_fe();
+        fe.status = Some(FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Ready,
+            observed_source_hash: Some("sha256:source".to_string()),
+            artifact: Some(ExtensionArtifactStatus {
+                storage: ArtifactStorageStatus {
+                    kind: ArtifactStorageKind::ConfigMap,
+                    ref_: NamespacedResourceRef {
+                        namespace: "extension-frontend-forge".to_string(),
+                        name: "fe-inspecttask-a1b2c3d4".to_string(),
+                        uid: None,
+                    },
+                    key: "package.tgz".to_string(),
+                },
+                digest: "sha256:artifact".to_string(),
+                size_bytes: 1,
+                media_type: "application/gzip".to_string(),
+                filename: "inspecttask-0.1.0.tgz".to_string(),
+                generated_at: chrono::Utc::now(),
+                source_hash: "sha256:source".to_string(),
+            }),
+            download: Some(ExtensionDownloadStatus {
+                ready: false,
+                filename: "inspecttask-0.1.0.tgz".to_string(),
+                media_type: "application/gzip".to_string(),
+            }),
+            ..Default::default()
+        });
+
+        let err = ready_artifact(&fe).unwrap_err();
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(
+            err.message,
+            "FrontendExtension artifact is not downloadable"
+        );
+    }
+
+    #[test]
+    fn verify_artifact_digest_rejects_mismatch() {
+        let err = verify_artifact_digest(b"package", "sha256:mismatch").unwrap_err();
+
+        assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(err.message, "artifact digest mismatch");
     }
 }
