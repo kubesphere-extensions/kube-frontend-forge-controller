@@ -37,6 +37,55 @@ export REMOTE="root@172.31.19.2"
 export BUILDER="mybuilder"
 ```
 
+## 脚本化执行
+
+仓库内提供了脚本封装本文档的构建、远端 kind load 和 Helm 安装流程：
+
+```bash
+scripts/manual-build-kind-helm-install.sh
+```
+
+默认 `INSTALL_PROFILE=extension`，会构建并推送：
+
+- `frontend-extension-controller`
+- `frontend-forge-extension-packager`
+- `frontend-forge-extension-publisher`
+
+然后把镜像加载到远端 kind，并通过 Helm 更新 `frontend-forge-extension-controller` 使用的 controller、packager、publisher 镜像。
+
+完整安装 runtime controller、runner、extension API 时：
+
+```bash
+INSTALL_PROFILE=full scripts/manual-build-kind-helm-install.sh
+```
+
+常用跳过开关：
+
+```bash
+BUILD_IMAGES=false KIND_LOAD_IMAGES=false scripts/manual-build-kind-helm-install.sh
+HELM_INSTALL=false scripts/manual-build-kind-helm-install.sh
+```
+
+只构建本地镜像、不推送 DockerHub：
+
+```bash
+PUSH_IMAGES=false scripts/manual-build-kind-helm-install.sh
+```
+
+此模式使用 `docker buildx build --load`。如果 `REMOTE` 非空，脚本会通过 `docker save | ssh docker load` 把本地镜像传到远端 Docker，再执行远端 `kind load docker-image`；如果 `REMOTE=""`，则直接加载到本地 kind。
+
+如果 Helm upgrade 因为之前手工执行过 `kubectl set image`、`kubectl set env` 或 `kubectl scale` 出现 server-side apply field manager 冲突，脚本默认会用 `--force-conflicts` 自动重试一次。需要关闭时：
+
+```bash
+HELM_FORCE_CONFLICTS_ON_RETRY=false scripts/manual-build-kind-helm-install.sh
+```
+
+本地 kind 而不是远端 kind 时：
+
+```bash
+REMOTE="" KIND_CLUSTER=fe scripts/manual-build-kind-helm-install.sh
+```
+
 如果要测试 publish，还需要一个 publish target。`FrontendExtension.spec.publishPolicy.defaultTargetRef` 默认指向：
 
 ```bash
