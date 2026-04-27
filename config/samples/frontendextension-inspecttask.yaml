@@ -33,7 +33,6 @@ spec:
         email: kubesphere@yunify.com
         url: https://kubesphere.co/
     icon: /static/favicon.svg
-    dependencies: []
     installationMode: Multicluster
     images:
       - kubesphere/frontend-forge-console:v1.0.0
