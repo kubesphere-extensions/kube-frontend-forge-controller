@@ -114,6 +114,9 @@ spec:
                     items:
                       type: string
                     type: array
+                  staticFileDirectory:
+                    default: static
+                    type: string
                   version:
                     type: string
                 required:

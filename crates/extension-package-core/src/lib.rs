@@ -125,6 +125,8 @@ struct NormalizedPackageIdentity<'a> {
     home: &'a Option<String>,
     provider: &'a BTreeMap<String, ExtensionProviderSpec>,
     icon: &'a Option<String>,
+    #[serde(rename = "staticFileDirectory")]
+    static_file_directory: &'a str,
     dependencies: &'a Vec<ExtensionDependencySpec>,
     #[serde(rename = "installationMode")]
     installation_mode: &'a Option<String>,
@@ -281,6 +283,8 @@ struct KsbuilderExtensionYaml {
     provider: BTreeMap<String, ExtensionProviderSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
+    #[serde(rename = "staticFileDirectory")]
+    static_file_directory: String,
     dependencies: Vec<ExtensionDependencySpec>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "installationMode")]
     installation_mode: Option<String>,
@@ -307,6 +311,7 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
         home: package.home.clone(),
         provider: package.provider.clone(),
         icon: package.icon.clone(),
+        static_file_directory: package.static_file_directory.clone(),
         dependencies,
         installation_mode: package.installation_mode.clone(),
         images: package.images.clone(),
@@ -445,6 +450,7 @@ pub fn frontend_extension_source_hash(
             home: &package.home,
             provider: &package.provider,
             icon: &package.icon,
+            static_file_directory: &package.static_file_directory,
             dependencies: &dependencies,
             installation_mode: &package.installation_mode,
             images: &package.images,
@@ -1152,6 +1158,7 @@ spec:
         assert!(content.contains("apiVersion: kubesphere.io/v1alpha1"));
         assert!(content.contains("name: inspecttask"));
         assert!(content.contains("displayName:"));
+        assert!(content.contains("staticFileDirectory: static"));
         assert!(!content.contains("name: inspecttask-helper"));
         assert!(!content.contains("- agent"));
         assert!(content.contains("name: frontend\n"));
@@ -1297,6 +1304,18 @@ spec:
             name: "legacy-chart".to_string(),
             tags: vec!["extension".to_string()],
         }]);
+
+        assert_ne!(
+            frontend_extension_source_hash(&a).unwrap(),
+            frontend_extension_source_hash(&b).unwrap()
+        );
+    }
+
+    #[test]
+    fn source_hash_changes_with_static_file_directory() {
+        let a = sample_fe();
+        let mut b = sample_fe();
+        b.spec.package.static_file_directory = "public".to_string();
 
         assert_ne!(
             frontend_extension_source_hash(&a).unwrap(),

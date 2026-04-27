@@ -235,6 +235,7 @@ spec:
 | `spec.package.home` | extension 主页。 |
 | `spec.package.provider` | provider 多语言信息。 |
 | `spec.package.icon` | extension icon 路径。 |
+| `spec.package.staticFileDirectory` | extension 静态文件目录，默认 `static`。 |
 | `spec.package.dependencies` | ksbuilder extension dependencies。 |
 | `spec.package.installationMode` | 安装模式，例如 `HostOnly`。 |
 | `spec.package.images` | extension 相关镜像列表。 |

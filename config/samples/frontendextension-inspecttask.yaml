@@ -32,7 +32,8 @@ spec:
         name: QingCloud Technologies
         email: kubesphere@yunify.com
         url: https://kubesphere.co/
-    icon: /static/favicon.svg
+    icon: ./static/favicon.svg
+    staticFileDirectory: static
     installationMode: Multicluster
     images:
       - kubesphere/frontend-forge-console:v1.0.0

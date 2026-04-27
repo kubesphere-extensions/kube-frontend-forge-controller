@@ -58,6 +58,12 @@ pub struct FrontendExtensionPackageSpec {
     pub provider: BTreeMap<String, ExtensionProviderSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    #[serde(
+        default = "default_static_file_directory",
+        rename = "staticFileDirectory"
+    )]
+    #[schemars(default = "default_static_file_directory")]
+    pub static_file_directory: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<Vec<ExtensionDependencySpec>>,
     #[serde(
@@ -70,6 +76,10 @@ pub struct FrontendExtensionPackageSpec {
     pub images: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charts: Option<ExtensionChartsSpec>,
+}
+
+fn default_static_file_directory() -> String {
+    "static".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -454,6 +464,7 @@ spec:
             fe.spec.package.provider["en"].name,
             "QingCloud Technologies"
         );
+        assert_eq!(fe.spec.package.static_file_directory, "static");
         assert_eq!(
             fe.spec.package.dependencies.as_ref().unwrap()[0].tags,
             vec!["extension".to_string()]
@@ -491,6 +502,7 @@ spec:
         .unwrap();
 
         assert!(fe.spec.package.dependencies.is_none());
+        assert_eq!(fe.spec.package.static_file_directory, "static");
     }
 
     #[test]
@@ -517,6 +529,10 @@ spec:
             Value::String("object".to_string())
         );
         assert!(package["properties"].get("kubeVersion").is_some());
+        assert_eq!(
+            package["properties"]["staticFileDirectory"]["default"],
+            Value::String("static".to_string())
+        );
         assert!(package["properties"].get("dependencies").is_some());
         assert!(
             !package["required"]
