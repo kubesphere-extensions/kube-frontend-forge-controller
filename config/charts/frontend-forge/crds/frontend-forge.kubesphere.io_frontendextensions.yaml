@@ -115,7 +115,7 @@ spec:
                       type: string
                     type: array
                   staticFileDirectory:
-                    default: static
+                    nullable: true
                     type: string
                   version:
                     type: string

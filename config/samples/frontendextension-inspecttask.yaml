@@ -5,9 +5,9 @@ metadata:
 spec:
   package:
     name: inspecttask
-    version: 0.2.3
+    version: 0.1.0
     displayName:
-      zh: 巡检任务xxx
+      zh: 巡检任务
       en: Inspect Task
     description:
       zh: InspectTask extension package。
@@ -33,7 +33,6 @@ spec:
         email: kubesphere@yunify.com
         url: https://kubesphere.co/
     icon: ./static/favicon.svg
-    staticFileDirectory: static
     installationMode: Multicluster
     images:
       - kubesphere/frontend-forge-console:v1.0.0
@@ -48,7 +47,7 @@ spec:
       frontend:
         locales:
           zh:
-            title: 巡检任务
+            title: 巡检任务xxxxx
           en:
             title: Inspect Tasks
         menus:

@@ -126,7 +126,7 @@ struct NormalizedPackageIdentity<'a> {
     provider: &'a BTreeMap<String, ExtensionProviderSpec>,
     icon: &'a Option<String>,
     #[serde(rename = "staticFileDirectory")]
-    static_file_directory: &'a str,
+    static_file_directory: &'a Option<String>,
     dependencies: &'a Vec<ExtensionDependencySpec>,
     #[serde(rename = "installationMode")]
     installation_mode: &'a Option<String>,
@@ -283,8 +283,11 @@ struct KsbuilderExtensionYaml {
     provider: BTreeMap<String, ExtensionProviderSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
-    #[serde(rename = "staticFileDirectory")]
-    static_file_directory: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "staticFileDirectory"
+    )]
+    static_file_directory: Option<String>,
     dependencies: Vec<ExtensionDependencySpec>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "installationMode")]
     installation_mode: Option<String>,
@@ -298,7 +301,7 @@ fn package_metadata(fe: &FrontendExtension) -> KsbuilderExtensionYaml {
     let dependencies = package_dependencies(&package_name, package.dependencies.as_ref());
     KsbuilderExtensionYaml {
         api_version: "kubesphere.io/v1alpha1".to_string(),
-        name: package_name.clone(),
+        name: package_name,
         version: package.version.clone(),
         display_name: package.display_name.clone(),
         description: package.description.clone(),
@@ -1158,7 +1161,7 @@ spec:
         assert!(content.contains("apiVersion: kubesphere.io/v1alpha1"));
         assert!(content.contains("name: inspecttask"));
         assert!(content.contains("displayName:"));
-        assert!(content.contains("staticFileDirectory: static"));
+        assert!(!content.contains("staticFileDirectory:"));
         assert!(!content.contains("name: inspecttask-helper"));
         assert!(!content.contains("- agent"));
         assert!(content.contains("name: frontend\n"));
@@ -1315,7 +1318,7 @@ spec:
     fn source_hash_changes_with_static_file_directory() {
         let a = sample_fe();
         let mut b = sample_fe();
-        b.spec.package.static_file_directory = "public".to_string();
+        b.spec.package.static_file_directory = Some("public".to_string());
 
         assert_ne!(
             frontend_extension_source_hash(&a).unwrap(),

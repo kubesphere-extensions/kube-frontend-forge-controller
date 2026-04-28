@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 REGISTRY="${REGISTRY:-docker.io/spike2044}"
-TAG="${TAG:-dev-$(date +%m%d%H%M)}"
+TAG="${TAG:-dev-$(date +%Y%m%d%H%M%S)}"
 BUILDER="${BUILDER:-mybuilder}"
 PLATFORM="${PLATFORM:-linux/amd64}"
 KIND_CLUSTER="${KIND_CLUSTER:-fe}"
