@@ -76,6 +76,11 @@ enum Error {
         path: String,
         source: std::io::Error,
     },
+    #[snafu(display("failed to write in-cluster kubeconfig {path}: {source}"))]
+    WriteKubeconfig {
+        path: String,
+        source: std::io::Error,
+    },
     #[snafu(display("failed to run ksbuilder publish command {bin}: {source}"))]
     RunKsbuilder { bin: String, source: std::io::Error },
     #[snafu(display(
@@ -172,6 +177,7 @@ async fn main() -> Result<(), Error> {
     write_artifact_package(&package, &cfg.workdir, &cfg.artifact_filename)?;
     let target_data = load_publish_target(&client, &cfg).await?;
     let target_env = write_publish_target_data(&cfg.workdir, target_data.as_ref())?;
+    ensure_in_cluster_kubeconfig()?;
     run_ksbuilder_publish(&cfg, target_data.as_ref(), target_env)?;
 
     info!(
@@ -354,6 +360,60 @@ fn write_publish_target_data(
     Ok(envs)
 }
 
+fn ensure_in_cluster_kubeconfig() -> Result<(), Error> {
+    let path = env::var("KSBUILDER_KUBECONFIG_PATH")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            env::var("KUBECONFIG")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| "/root/.kube/config".to_string());
+    let path = PathBuf::from(path);
+    if path.exists() {
+        return Ok(());
+    }
+
+    let service_host = env::var("KUBERNETES_SERVICE_HOST")
+        .unwrap_or_else(|_| "kubernetes.default.svc".to_string());
+    let service_port = env::var("KUBERNETES_SERVICE_PORT").unwrap_or_else(|_| "443".to_string());
+    let config = in_cluster_kubeconfig(&service_host, &service_port);
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|_| WriteKubeconfigSnafu {
+            path: parent.display().to_string(),
+        })?;
+    }
+    fs::write(&path, config).with_context(|_| WriteKubeconfigSnafu {
+        path: path.display().to_string(),
+    })?;
+    Ok(())
+}
+
+fn in_cluster_kubeconfig(service_host: &str, service_port: &str) -> String {
+    format!(
+        r#"apiVersion: v1
+kind: Config
+clusters:
+- name: in-cluster
+  cluster:
+    certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    server: https://{service_host}:{service_port}
+contexts:
+- name: in-cluster
+  context:
+    cluster: in-cluster
+    user: sa
+current-context: in-cluster
+users:
+- name: sa
+  user:
+    tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+"#
+    )
+}
+
 fn safe_child_path(root: &Path, raw: &str) -> Result<PathBuf, Error> {
     if raw.is_empty() {
         return Err(Error::UnsafeTargetDataPath {
@@ -518,5 +578,16 @@ mod tests {
                 "https://example.test",
             ]
         );
+    }
+
+    #[test]
+    fn builds_in_cluster_kubeconfig() {
+        let config = in_cluster_kubeconfig("10.96.0.1", "443");
+
+        assert!(config.contains("server: https://10.96.0.1:443"));
+        assert!(config.contains(
+            "certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        ));
+        assert!(config.contains("tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token"));
     }
 }

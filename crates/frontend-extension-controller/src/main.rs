@@ -1201,6 +1201,15 @@ fn frontend_extension_status_patch(
     }
     if status.publish.is_none() {
         status_object.insert("publish".to_string(), serde_json::Value::Null);
+    } else if status
+        .publish
+        .as_ref()
+        .is_some_and(|publish| publish.last_error.is_none())
+        && let Some(publish) = status_object
+            .get_mut("publish")
+            .and_then(serde_json::Value::as_object_mut)
+    {
+        publish.insert("lastError".to_string(), serde_json::Value::Null);
     }
 
     Ok(json!({
@@ -1367,6 +1376,35 @@ mod tests {
 
         assert_eq!(
             patch["status"]["packageJob"]["message"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn status_patch_clears_stale_publish_last_error() {
+        let status = FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Ready,
+            observed_generation: Some(1),
+            observed_source_hash: Some("sha256:source".to_string()),
+            artifact: None,
+            download: None,
+            package_job: None,
+            publish: Some(PublishStatus {
+                phase: PublishPhase::Succeeded,
+                request_id: Some("request-1".to_string()),
+                artifact_digest: Some("sha256:artifact".to_string()),
+                job_ref: None,
+                started_at: None,
+                finished_at: None,
+                last_error: None,
+            }),
+            conditions: vec![],
+        };
+
+        let patch = frontend_extension_status_patch(&status, "inspecttask").unwrap();
+
+        assert_eq!(
+            patch["status"]["publish"]["lastError"],
             serde_json::Value::Null
         );
     }

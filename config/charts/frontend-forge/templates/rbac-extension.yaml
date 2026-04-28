@@ -101,10 +101,19 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
+  - apiGroups: ["kubesphere.io"]
+    resources: ["categories", "extensions", "extensionversions", "repositories"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["iam.kubesphere.io"]
+    resources: ["categories", "roletemplates"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["apiservices", "extensionentries", "jsbundles", "reverseproxies"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

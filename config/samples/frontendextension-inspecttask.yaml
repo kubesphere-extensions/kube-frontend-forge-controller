@@ -5,20 +5,20 @@ metadata:
 spec:
   package:
     name: inspecttask
-    version: 0.2.0
+    version: 0.2.2
     displayName:
       zh: 巡检任务
       en: Inspect Task
     description:
-      zh: InspectTask extension package
-      en: InspectTask extension package
+      zh: InspectTask extension package。
+      en: InspectTask extension package.
     category: dev-tools
     keywords:
       - Frontend
     sources:
       - https://github.com/kubesphere-extensions/frontend-forge
     kubeVersion: ">=1.23.0-0"
-    ksVersion: ">=4.2.1-0"
+    ksVersion: ">=4.2.0-0"
     maintainers:
       - name: KubeSphere
         email: kubesphere@yunify.com
