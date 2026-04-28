@@ -419,7 +419,7 @@ publishPolicy:
 publisher Job 支持 `ConfigMap` 或 `Secret` target。target 数据处理规则：
 
 - `env.<NAME>`：注入为 `ksbuilder publish` 进程环境变量 `<NAME>`。
-- `args`：按空白字符切分后追加到 `ksbuilder publish <artifact>` 参数后面。
+- `args`：按空白字符切分后追加到 `ksbuilder publish <package-dir>` 参数后面。
 - 其他 key：写入工作目录下的 `.frontend-forge-publish-target/<key>` 文件。
 
 用于 smoke test 时，可以先创建一个 ConfigMap。下面只是占位示例，真实 key 需要按当前 `ksbuilder publish` 使用的 registry 配置调整：
@@ -501,6 +501,12 @@ publisher Job 的关键环境变量由 controller 注入：
 - `PUBLISH_TARGET_NAME`
 
 publisher binary 支持 `KSBUILDER_PUBLISH_ARGS` 环境变量，但当前 controller 没有把它注入 publisher Job。如需传额外参数，优先在 publish target 里使用 `args` key；如果要从 controller 统一注入，则需要扩展 controller 的 publisher Job env。
+
+publisher 会先把 artifact tgz 写入工作目录并解压到 `package/` 子目录，然后执行：
+
+```bash
+ksbuilder publish <workdir>/package
+```
 
 ## 常用排查命令
 

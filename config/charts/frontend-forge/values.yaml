@@ -99,6 +99,7 @@ extensionController:
   reconcileRequeueSeconds: 5
   jobActiveDeadlineSeconds: 300
   jobTtlSecondsAfterFinished: 3600
+  artifactRetainOldCount: 1
   podAnnotations: {}
   podLabels: {}
   podSecurityContext: {}

@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, env, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+    sync::Arc,
+    time::Duration,
+};
 
 use chrono::Utc;
 use frontend_forge_api::{
@@ -30,7 +35,7 @@ use k8s_openapi::{
 };
 use kube::{
     Api, Client, Resource, ResourceExt,
-    api::{ListParams, Patch, PatchParams},
+    api::{DeleteParams, ListParams, Patch, PatchParams},
 };
 use kube_runtime::{
     controller::{Action, Controller},
@@ -80,6 +85,19 @@ enum Error {
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
     },
+    #[snafu(display("failed to list artifact ConfigMaps in {namespace} for GC: {source}"))]
+    ListArtifactConfigMapsForGc {
+        namespace: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+    #[snafu(display("failed to delete artifact ConfigMap {namespace}/{name}: {source}"))]
+    DeleteArtifactConfigMap {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(transparent)]
     Job {
         source: frontend_forge_common::JobError,
@@ -107,6 +125,7 @@ struct ControllerConfig {
     reconcile_requeue_seconds: u64,
     job_active_deadline_seconds: i64,
     job_ttl_seconds_after_finished: Option<i32>,
+    artifact_retain_old_count: usize,
 }
 
 impl ControllerConfig {
@@ -146,6 +165,10 @@ impl ControllerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .or(Some(DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED)),
+            artifact_retain_old_count: env::var("ARTIFACT_RETAIN_OLD_COUNT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_ARTIFACT_RETAIN_OLD_COUNT),
         }
     }
 }
@@ -157,6 +180,7 @@ struct ContextData {
 }
 
 const DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED: i32 = 60 * 60;
+const DEFAULT_ARTIFACT_RETAIN_OLD_COUNT: usize = 1;
 
 fn install_rustls_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -257,6 +281,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
         && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
     {
+        let gc_keep_names = artifact_gc_keep_names(&fe, &cm);
         let publish = sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
         let mut status = ready_fe_status(
             &fe,
@@ -267,6 +292,14 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         );
         apply_publish_sync(&mut status, &publish);
         patch_fe_status(&fe_api, &fe, status).await?;
+        gc_artifact_configmaps(
+            &artifact_api,
+            &artifact_ns,
+            &fe,
+            &gc_keep_names,
+            ctx.config.artifact_retain_old_count,
+        )
+        .await?;
         return Ok(requeue_if_publish_running(
             &publish,
             ctx.config.reconcile_requeue_seconds,
@@ -302,6 +335,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                     get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
                     && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
                 {
+                    let gc_keep_names = artifact_gc_keep_names(&fe, &cm);
                     let publish =
                         sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
                     let mut status = ready_fe_status(
@@ -313,6 +347,14 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                     );
                     apply_publish_sync(&mut status, &publish);
                     patch_fe_status(&fe_api, &fe, status).await?;
+                    gc_artifact_configmaps(
+                        &artifact_api,
+                        &artifact_ns,
+                        &fe,
+                        &gc_keep_names,
+                        ctx.config.artifact_retain_old_count,
+                    )
+                    .await?;
                     return Ok(requeue_if_publish_running(
                         &publish,
                         ctx.config.reconcile_requeue_seconds,
@@ -389,6 +431,105 @@ async fn get_artifact_configmap_opt(
             namespace: namespace.to_string(),
             name: name.to_string(),
         })
+}
+
+async fn gc_artifact_configmaps(
+    cm_api: &Api<ConfigMap>,
+    namespace: &str,
+    fe: &FrontendExtension,
+    keep_names: &BTreeSet<String>,
+    retain_old_count: usize,
+) -> Result<(), Error> {
+    let selector = format!(
+        "{}={},{}={}",
+        LABEL_FE_NAME,
+        fe.name_any(),
+        LABEL_PACKAGE_KIND,
+        PACKAGE_KIND_VALUE
+    );
+    let configmaps = cm_api
+        .list(&ListParams::default().labels(&selector))
+        .await
+        .with_context(|_| ListArtifactConfigMapsForGcSnafu {
+            namespace: namespace.to_string(),
+        })?;
+
+    let delete_names =
+        artifact_configmap_gc_candidates(configmaps.items, fe, keep_names, retain_old_count);
+    for name in delete_names {
+        match cm_api.delete(&name, &DeleteParams::default()).await {
+            Ok(_) => {
+                info!(
+                    fe = %fe.name_any(),
+                    namespace,
+                    configmap = %name,
+                    "deleted stale FrontendExtension artifact ConfigMap"
+                );
+            }
+            Err(kube::Error::Api(ae)) if ae.code == 404 => {}
+            Err(source) => {
+                return Err(Error::DeleteArtifactConfigMap {
+                    namespace: namespace.to_string(),
+                    name,
+                    source: Box::new(source),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn artifact_gc_keep_names(fe: &FrontendExtension, current_cm: &ConfigMap) -> BTreeSet<String> {
+    let mut keep_names = BTreeSet::from([current_cm.name_any()]);
+    if let Some(name) = status_artifact_configmap_name(fe) {
+        keep_names.insert(name.to_string());
+    }
+    keep_names
+}
+
+fn status_artifact_configmap_name(fe: &FrontendExtension) -> Option<&str> {
+    let artifact = fe.status.as_ref()?.artifact.as_ref()?;
+    if artifact.storage.kind != ArtifactStorageKind::ConfigMap {
+        return None;
+    }
+    Some(artifact.storage.ref_.name.as_str())
+}
+
+fn artifact_configmap_gc_candidates(
+    configmaps: Vec<ConfigMap>,
+    fe: &FrontendExtension,
+    keep_names: &BTreeSet<String>,
+    retain_old_count: usize,
+) -> Vec<String> {
+    let mut candidates = configmaps
+        .into_iter()
+        .filter(|cm| artifact_configmap_is_owned_by(cm, fe))
+        .filter(|cm| !keep_names.contains(&cm.name_any()))
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|a, b| {
+        b.metadata
+            .creation_timestamp
+            .cmp(&a.metadata.creation_timestamp)
+            .then_with(|| b.name_any().cmp(&a.name_any()))
+    });
+
+    candidates
+        .into_iter()
+        .skip(retain_old_count)
+        .map(|cm| cm.name_any())
+        .collect()
+}
+
+fn artifact_configmap_is_owned_by(cm: &ConfigMap, fe: &FrontendExtension) -> bool {
+    let Some(fe_uid) = fe.meta().uid.as_deref() else {
+        return false;
+    };
+    cm.metadata
+        .owner_references
+        .as_ref()
+        .is_some_and(|owners| owners.iter().any(|owner| owner.uid == fe_uid))
 }
 
 fn artifact_metadata_from_configmap(
@@ -1219,9 +1360,34 @@ fn frontend_extension_status_patch(
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::batch::v1::JobStatus;
+    use k8s_openapi::{
+        api::batch::v1::JobStatus, apimachinery::pkg::apis::meta::v1::OwnerReference,
+    };
 
     use super::*;
+
+    fn test_time(value: &str) -> Time {
+        serde_json::from_value(json!(value)).unwrap()
+    }
+
+    fn artifact_cm(name: &str, fe_uid: &str, created_at: &str) -> ConfigMap {
+        ConfigMap {
+            metadata: ObjectMeta {
+                name: Some(name.to_string()),
+                creation_timestamp: Some(test_time(created_at)),
+                owner_references: Some(vec![OwnerReference {
+                    api_version: "frontend-forge.kubesphere.io/v1alpha1".to_string(),
+                    kind: "FrontendExtension".to_string(),
+                    name: "inspecttask".to_string(),
+                    uid: fe_uid.to_string(),
+                    controller: Some(true),
+                    block_owner_deletion: None,
+                }]),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn current_job_status_overrides_existing_package_job() {
@@ -1410,6 +1576,112 @@ mod tests {
     }
 
     #[test]
+    fn artifact_gc_keeps_current_status_ref_and_recent_old_artifacts() {
+        let fe: FrontendExtension = serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+                "uid": "fe-uid",
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": { "en": "Inspect Task" },
+                    "description": { "en": "InspectTask extension package" }
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {}
+                    }
+                }
+            },
+            "status": {
+                "phase": "Ready",
+                "artifact": {
+                    "storage": {
+                        "kind": "ConfigMap",
+                        "ref": {
+                            "namespace": "extension-frontend-forge",
+                            "name": "fe-inspecttask-previous",
+                        },
+                        "key": "package.tgz"
+                    },
+                    "digest": "sha256:previous",
+                    "sizeBytes": 1,
+                    "mediaType": "application/gzip",
+                    "filename": "inspecttask-0.1.0.tgz",
+                    "generatedAt": "2026-04-20T10:00:00Z",
+                    "sourceHash": "sha256:previous"
+                }
+            }
+        }))
+        .unwrap();
+        let current = artifact_cm("fe-inspecttask-current", "fe-uid", "2026-04-20T10:04:00Z");
+        let keep_names = artifact_gc_keep_names(&fe, &current);
+        let configmaps = vec![
+            current,
+            artifact_cm("fe-inspecttask-previous", "fe-uid", "2026-04-20T10:03:00Z"),
+            artifact_cm("fe-inspecttask-retained", "fe-uid", "2026-04-20T10:02:00Z"),
+            artifact_cm("fe-inspecttask-delete-1", "fe-uid", "2026-04-20T10:01:00Z"),
+            artifact_cm("fe-inspecttask-delete-2", "fe-uid", "2026-04-20T10:00:00Z"),
+            artifact_cm(
+                "fe-inspecttask-other-owner",
+                "other-uid",
+                "2026-04-20T09:59:00Z",
+            ),
+        ];
+
+        let delete_names = artifact_configmap_gc_candidates(configmaps, &fe, &keep_names, 1);
+
+        assert_eq!(
+            delete_names,
+            vec![
+                "fe-inspecttask-delete-1".to_string(),
+                "fe-inspecttask-delete-2".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn artifact_gc_retain_zero_deletes_all_unreferenced_owned_artifacts() {
+        let fe: FrontendExtension = serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+                "uid": "fe-uid",
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": { "en": "Inspect Task" },
+                    "description": { "en": "InspectTask extension package" }
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {}
+                    }
+                }
+            }
+        }))
+        .unwrap();
+        let keep_names = BTreeSet::from(["fe-inspecttask-current".to_string()]);
+        let configmaps = vec![
+            artifact_cm("fe-inspecttask-current", "fe-uid", "2026-04-20T10:02:00Z"),
+            artifact_cm("fe-inspecttask-delete", "fe-uid", "2026-04-20T10:01:00Z"),
+        ];
+
+        let delete_names = artifact_configmap_gc_candidates(configmaps, &fe, &keep_names, 0);
+
+        assert_eq!(delete_names, vec!["fe-inspecttask-delete".to_string()]);
+    }
+
+    #[test]
     fn publish_job_env_includes_artifact_filename_and_target_ref() {
         let fe: FrontendExtension = serde_json::from_value(json!({
             "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
@@ -1451,6 +1723,7 @@ mod tests {
             reconcile_requeue_seconds: 5,
             job_active_deadline_seconds: 300,
             job_ttl_seconds_after_finished: Some(3600),
+            artifact_retain_old_count: 1,
         };
         let request = PublishRequest {
             request_id: "request-1".to_string(),

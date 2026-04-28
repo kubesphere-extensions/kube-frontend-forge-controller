@@ -5,9 +5,9 @@ metadata:
 spec:
   package:
     name: inspecttask
-    version: 0.2.2
+    version: 0.2.3
     displayName:
-      zh: 巡检任务
+      zh: 巡检任务xxx
       en: Inspect Task
     description:
       zh: InspectTask extension package。

@@ -489,6 +489,15 @@ data:
 - `data["artifact.json"]`：artifact 元信息，包括 digest、size、filename、sourceHash。
 - 可选 `data["files.json"]`：调试用途的文件清单。不要让 UI 依赖它作为稳定 API。
 
+artifact ConfigMap GC 策略：
+
+- 当前 `FrontendExtension.status.artifact.storage.ref` 指向的 ConfigMap 必须保留。
+- 当前 reconcile 已确认 Ready 的 artifact ConfigMap 必须保留。
+- 可通过 controller 配置额外保留最近 N 个旧 source hash 的 artifact ConfigMap。
+- 只删除同一个 `FrontendExtension` ownerRef 下、且不在保留集合里的旧 artifact ConfigMap。
+- 不删除缺少匹配 ownerRef 的 ConfigMap，避免误删手工创建或其它控制器管理的对象。
+- 默认建议 `artifactRetainOldCount=1`，即除当前/状态引用外，再保留最近 1 个旧 artifact 便于回退和排障。
+
 package 内部建议包含：
 
 - extension charts config。
