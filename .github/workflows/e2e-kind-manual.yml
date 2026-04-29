@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
