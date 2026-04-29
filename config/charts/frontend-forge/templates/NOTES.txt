@@ -6,7 +6,10 @@ Installed entry points:
 - FrontendExtension controller: deployment/{{ include "frontend-forge.fullname" . }}-extension-controller
 {{- end }}
 {{- if .Values.extensionApi.enabled }}
-- FrontendExtension API: service/{{ include "frontend-forge.fullname" . }}-extension-api
+- FrontendExtension API: service/{{ include "frontend-forge.extensionApiServiceName" . }}
+{{- if .Values.extensionApi.apiService.enabled }}
+- FrontendExtension APIService: {{ include "frontend-forge.extensionApiAPIServiceName" . }}
+{{- end }}
 {{- end }}
 
 CRDs installed from crds/:

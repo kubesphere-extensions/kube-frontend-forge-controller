@@ -150,6 +150,15 @@ extensionApi:
   service:
     type: ClusterIP
     port: 80
+  apiService:
+    enabled: true
+    onlyIfApiResourceExists: true
+    name: ""
+    group: frontend-forge.kubesphere.io
+    version: v1alpha1
+    url: ""
+    caBundle: ""
+    insecureSkipTLSVerify: null
   podAnnotations: {}
   podLabels: {}
   podSecurityContext: {}

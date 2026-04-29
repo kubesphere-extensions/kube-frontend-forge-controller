@@ -35,7 +35,11 @@ use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
-const API_PREFIX: &str = "/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions";
+const API_GROUP: &str = "frontend-forge.kubesphere.io";
+const API_VERSION: &str = "v1alpha1";
+const API_RESOURCE: &str = "frontendextensions";
+const KUBERNETES_API_PREFIX: &str = "/apis";
+const KUBESPHERE_API_PREFIX: &str = "/kapis";
 
 #[derive(Debug, Snafu)]
 enum Error {
@@ -169,17 +173,8 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
     let state = Arc::new(AppState { client });
-    let app = Router::new()
-        .route(API_PREFIX, get(list_extensions).post(create_extension))
-        .route(&format!("{API_PREFIX}/{{name}}"), get(get_extension))
-        .route(
-            &format!("{API_PREFIX}/{{name}}/download"),
-            get(download_extension),
-        )
-        .route(
-            &format!("{API_PREFIX}/{{name}}/publish"),
-            get(get_publish_status).post(trigger_publish),
-        )
+    let app = api_routes(KUBERNETES_API_PREFIX)
+        .merge(api_routes(KUBESPHERE_API_PREFIX))
         .with_state(state);
 
     let bind_addr_raw =
@@ -198,6 +193,21 @@ async fn main() -> Result<(), Error> {
         .context(ServerSnafu { bind_addr })?;
 
     Ok(())
+}
+
+fn api_routes(prefix: &str) -> Router<Arc<AppState>> {
+    let resource_prefix = format!("{prefix}/{API_GROUP}/{API_VERSION}/{API_RESOURCE}");
+    Router::new()
+        .route(&resource_prefix, get(list_extensions).post(create_extension))
+        .route(&format!("{resource_prefix}/{{name}}"), get(get_extension))
+        .route(
+            &format!("{resource_prefix}/{{name}}/download"),
+            get(download_extension),
+        )
+        .route(
+            &format!("{resource_prefix}/{{name}}/publish"),
+            get(get_publish_status).post(trigger_publish),
+        )
 }
 
 async fn list_extensions(

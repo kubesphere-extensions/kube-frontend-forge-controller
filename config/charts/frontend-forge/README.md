@@ -25,3 +25,17 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
   --create-namespace \
   --set crds.installJsBundle=true
 ```
+
+When the KubeSphere `extensions.kubesphere.io/v1alpha1/APIService` resource is
+available, the chart registers the FrontendExtension API through APIService:
+
+```yaml
+extensionApi:
+  apiService:
+    enabled: true
+    group: frontend-forge.kubesphere.io
+    version: v1alpha1
+```
+
+This exposes the publish endpoint through ks-apiserver while the backend remains
+the chart service `frontend-forge-extension-api`.

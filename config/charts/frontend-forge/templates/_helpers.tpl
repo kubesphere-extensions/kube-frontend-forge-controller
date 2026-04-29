@@ -125,6 +125,18 @@ Create the name of the runner service account to use.
 {{- end }}
 {{- end }}
 
+{{- define "frontend-forge.extensionApiServiceName" -}}
+{{- printf "%s-extension-api" (include "frontend-forge.fullname" .) -}}
+{{- end }}
+
+{{- define "frontend-forge.extensionApiAPIServiceName" -}}
+{{- default (printf "%s.%s" .Values.extensionApi.apiService.version .Values.extensionApi.apiService.group) .Values.extensionApi.apiService.name -}}
+{{- end }}
+
+{{- define "frontend-forge.extensionApiAPIServiceURL" -}}
+{{- default (printf "http://%s.%s.svc:%v" (include "frontend-forge.extensionApiServiceName" .) .Release.Namespace (.Values.extensionApi.service.port | int)) .Values.extensionApi.apiService.url -}}
+{{- end }}
+
 {{- define "frontend-forge.webhookCertgenServiceAccountName" -}}
 {{- if .Values.webhook.certgen.serviceAccount.create }}
 {{- default (printf "%s-webhook-certgen" (include "frontend-forge.fullname" .)) .Values.webhook.certgen.serviceAccount.name }}

@@ -2,7 +2,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "frontend-forge.fullname" . }}-extension-api
+  name: {{ include "frontend-forge.extensionApiServiceName" . }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
 spec:
@@ -68,7 +68,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "frontend-forge.fullname" . }}-extension-api
+  name: {{ include "frontend-forge.extensionApiServiceName" . }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
 spec:
