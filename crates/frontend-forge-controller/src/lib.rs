@@ -131,7 +131,7 @@ impl ControllerConfig {
         Self {
             work_namespace,
             runner_image: env::var("RUNNER_IMAGE")
-                .unwrap_or_else(|_| "spike2044/frontend-forge-runner:latest".to_string()),
+                .unwrap_or_else(|_| "kubesphere/frontend-forge-runner:latest".to_string()),
             runner_service_account: env::var("RUNNER_SERVICE_ACCOUNT").ok(),
             build_service_base_url: env::var("BUILD_SERVICE_BASE_URL").unwrap_or_else(|_| {
                 "http://frontend-forge.extension-frontend-forge.svc".to_string()

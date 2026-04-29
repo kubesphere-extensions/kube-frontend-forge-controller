@@ -28,7 +28,7 @@ ssh -N -L 33631:127.0.0.1:33631 root@172.31.19.2
 常用变量：
 
 ```bash
-export REGISTRY="docker.io/spike2044"
+export REGISTRY="docker.io/kubesphere"
 export TAG="dev-$(date +%m%d%H%M)"
 export KIND_CLUSTER="fe"
 export NAMESPACE="extension-frontend-forge"
@@ -427,7 +427,7 @@ publisher Job 支持 `ConfigMap` 或 `Secret` target。target 数据处理规则
 ```bash
 kubectl -n "$NAMESPACE" create configmap "$PUBLISH_TARGET_NAME" \
   --from-literal=env.REGISTRY=docker.io \
-  --from-literal=env.REPOSITORY=spike2044/inspecttask \
+  --from-literal=env.REPOSITORY=kubesphere/inspecttask \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
