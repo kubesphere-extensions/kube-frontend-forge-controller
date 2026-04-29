@@ -1,0 +1,126 @@
+{{- $workNamespace := default .Release.Namespace .Values.controller.workNamespace }}
+{{- $configNamespace := default $workNamespace .Values.controller.jsbundleConfigmapNamespace }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-controller
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "frontend-forge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: runtime-controller
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "frontend-forge.labels" . | nindent 8 }}
+        app.kubernetes.io/component: runtime-controller
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "frontend-forge.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+          env:
+            - name: WORK_NAMESPACE
+              value: {{ $workNamespace | quote }}
+            - name: RUNNER_IMAGE
+              value: {{ include "frontend-forge.image" (dict "root" . "image" .Values.runner.image) | quote }}
+            - name: RUNNER_SERVICE_ACCOUNT
+              value: {{ default (include "frontend-forge.runnerServiceAccountName" .) .Values.controller.runnerServiceAccountName | quote }}
+            - name: BUILD_SERVICE_BASE_URL
+              value: {{ default (printf "http://%s.%s.svc" (include "frontend-forge.buildServiceName" .) .Release.Namespace) .Values.controller.buildServiceBaseUrl | quote }}
+            - name: JSBUNDLE_CONFIGMAP_NAMESPACE
+              value: {{ $configNamespace | quote }}
+            - name: JSBUNDLE_CONFIG_KEY
+              value: {{ .Values.controller.jsbundleConfigKey | quote }}
+            - name: BUILD_SERVICE_TIMEOUT_SECONDS
+              value: {{ .Values.controller.buildServiceTimeoutSeconds | quote }}
+            - name: STALE_CHECK_GRACE_SECONDS
+              value: {{ .Values.controller.staleCheckGraceSeconds | quote }}
+            - name: RECONCILE_REQUEUE_SECONDS
+              value: {{ .Values.controller.reconcileRequeueSeconds | quote }}
+            - name: JOB_ACTIVE_DEADLINE_SECONDS
+              value: {{ .Values.controller.jobActiveDeadlineSeconds | quote }}
+            - name: JOB_TTL_SECONDS_AFTER_FINISHED
+              value: {{ .Values.controller.jobTtlSecondsAfterFinished | quote }}
+            - name: WEBHOOK_ENABLED
+              value: {{ .Values.webhook.enabled | quote }}
+            - name: WEBHOOK_BIND_ADDR
+              value: {{ .Values.webhook.bindAddr | quote }}
+            - name: WEBHOOK_CERT_PATH
+              value: {{ .Values.webhook.certPath | quote }}
+            - name: WEBHOOK_KEY_PATH
+              value: {{ .Values.webhook.keyPath | quote }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: webhook-tls
+              mountPath: /tls
+              readOnly: true
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: webhook-tls
+          secret:
+            secretName: {{ include "frontend-forge.webhookSecretName" . }}
+            optional: true
+            items:
+              - key: cert
+                path: tls.crt
+              - key: key
+                path: tls.key
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

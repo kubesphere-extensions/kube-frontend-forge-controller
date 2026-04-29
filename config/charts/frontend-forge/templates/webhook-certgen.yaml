@@ -1,0 +1,132 @@
+{{- if .Values.webhook.enabled }}
+{{- if .Values.webhook.certgen.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+  {{- with .Values.webhook.certgen.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: {{ .Values.webhook.certgen.serviceAccount.automount }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+rules:
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen-create
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+spec:
+  ttlSecondsAfterFinished: {{ .Values.webhook.certgen.ttlSecondsAfterFinished }}
+  template:
+    spec:
+      serviceAccountName: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
+      restartPolicy: OnFailure
+      containers:
+        - name: create
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.webhook.certgen.image) | quote }}
+          imagePullPolicy: {{ .Values.webhook.certgen.image.pullPolicy }}
+          args:
+            - create
+            - --host={{ include "frontend-forge.webhookServiceName" . }},{{ include "frontend-forge.webhookServiceName" . }}.$(POD_NAMESPACE).svc
+            - --namespace=$(POD_NAMESPACE)
+            - --secret-name={{ include "frontend-forge.webhookSecretName" . }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-webhook-certgen-patch
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook-certgen") | nindent 4 }}
+spec:
+  ttlSecondsAfterFinished: {{ .Values.webhook.certgen.ttlSecondsAfterFinished }}
+  template:
+    spec:
+      serviceAccountName: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
+      restartPolicy: OnFailure
+      containers:
+        - name: patch
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.webhook.certgen.image) | quote }}
+          imagePullPolicy: {{ .Values.webhook.certgen.image.pullPolicy }}
+          args:
+            - patch
+            - --namespace=$(POD_NAMESPACE)
+            - --secret-name={{ include "frontend-forge.webhookSecretName" . }}
+            - --webhook-name={{ include "frontend-forge.validatingWebhookName" . }}
+            - --patch-validating=true
+            - --patch-mutating=false
+            - --patch-failure-policy=Fail
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+{{- end }}

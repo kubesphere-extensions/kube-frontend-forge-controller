@@ -1,17 +1,30 @@
+use std::{
+    collections::BTreeMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use k8s_openapi::{
+    api::batch::v1::{Job, JobStatus},
+    apimachinery::pkg::apis::meta::v1::OwnerReference,
+};
+use kube::{Api, Resource, api::PostParams};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use snafu::{ResultExt, Snafu};
-use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MANAGED_BY_VALUE: &str = "frontend-forge-builder-controller";
 pub const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
 pub const LABEL_FI_NAME: &str = "frontend-forge.io/fi-name";
+pub const LABEL_FE_NAME: &str = "frontend-forge.io/fe-name";
 pub const LABEL_ENABLED: &str = "frontend-forge.io/enabled";
 pub const LABEL_SPEC_HASH: &str = "frontend-forge.io/spec-hash";
+pub const LABEL_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
 pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
+pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
+pub const LABEL_PUBLISH_KIND: &str = "frontend-forge.io/publish-kind";
+pub const LABEL_PUBLISH_REQUEST_HASH: &str = "frontend-forge.io/publish-request-hash";
 pub const ANNO_BUILD_JOB: &str = "frontend-forge.io/build-job";
 pub const ANNO_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const ANNO_MANIFEST_CONTENT: &str = "frontend-forge.io/manifest-content";
@@ -19,7 +32,17 @@ pub const ANNO_OBSERVED_GENERATION: &str = "frontend-forge.io/observed-generatio
 pub const ANNO_SOURCE_SPEC: &str = "frontend-forge.io/source-spec";
 pub const ANNO_SOURCE_SPEC_HASH: &str = "frontend-forge.io/source-spec-hash";
 pub const ANNO_SOURCE_GENERATION: &str = "frontend-forge.io/source-generation";
+pub const ANNO_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
+pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.io/artifact-digest";
+pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.io/artifact-filename";
+pub const ANNO_PUBLISH_REQUEST_ID: &str = "frontend-forge.io/publish-request-id";
+pub const ANNO_PUBLISH_ARTIFACT_DIGEST: &str = "frontend-forge.io/publish-artifact-digest";
+pub const ANNO_PUBLISH_TARGET_KIND: &str = "frontend-forge.io/publish-target-kind";
+pub const ANNO_PUBLISH_TARGET_NAMESPACE: &str = "frontend-forge.io/publish-target-namespace";
+pub const ANNO_PUBLISH_TARGET_NAME: &str = "frontend-forge.io/publish-target-name";
 pub const BUILD_KIND_VALUE: &str = "frontend-forge";
+pub const PACKAGE_KIND_VALUE: &str = "frontend-extension-package";
+pub const PUBLISH_KIND_VALUE: &str = "frontend-extension-publish";
 pub const DEFAULT_MANIFEST_FILENAME: &str = "manifest.json";
 pub const DEFAULT_MANIFEST_MOUNT_PATH: &str = "/work/manifest/manifest.json";
 pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
@@ -28,6 +51,32 @@ pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
 pub enum CommonError {
     #[snafu(display("manifest serialization failed: {source}"))]
     Serialize { source: serde_json::Error },
+}
+
+#[derive(Debug, Snafu)]
+pub enum JobError {
+    #[snafu(display("failed to create Job {namespace}/{name}: {source}"))]
+    Create {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+    #[snafu(display("failed to get existing Job after conflict {namespace}/{name}: {source}"))]
+    GetAfterConflict {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservedJobPhase {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
 }
 
 pub fn canonicalize_json(value: &Value) -> Value {
@@ -52,14 +101,17 @@ pub fn canonical_json_string(value: &Value) -> Result<String, CommonError> {
     serde_json::to_string(&canonicalize_json(value)).context(SerializeSnafu)
 }
 
+#[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hex::encode(hasher.finalize())
 }
 
+#[must_use]
 pub fn manifest_hash_from_content(content: &str) -> String {
-    format!("sha256:{}", sha256_hex(content.as_bytes()))
+    let hash = sha256_hex(content.as_bytes());
+    format!("sha256:{hash}")
 }
 
 pub fn manifest_content_and_hash(source: &Value) -> Result<(String, String), CommonError> {
@@ -84,11 +136,98 @@ where
     Ok(hash)
 }
 
+#[must_use]
+pub fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
+    let Some(status) = status else {
+        return ObservedJobPhase::Pending;
+    };
+
+    if status.failed.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Failed;
+    }
+    if status.succeeded.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Succeeded;
+    }
+    if status.active.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Running;
+    }
+
+    if let Some(conditions) = &status.conditions {
+        for cond in conditions {
+            if cond.status != "True" {
+                continue;
+            }
+            if cond.type_ == "Failed" {
+                return ObservedJobPhase::Failed;
+            }
+            if cond.type_ == "Complete" {
+                return ObservedJobPhase::Succeeded;
+            }
+        }
+    }
+
+    ObservedJobPhase::Pending
+}
+
+#[must_use]
+pub fn extract_job_message(job: &Job) -> Option<String> {
+    let status = job.status.as_ref()?;
+    if let Some(conditions) = &status.conditions
+        && let Some(cond) = conditions
+            .iter()
+            .find(|c| c.status == "True" && c.type_ == "Failed")
+    {
+        return cond.message.clone().or_else(|| cond.reason.clone());
+    }
+    None
+}
+
+#[must_use]
+pub fn base_owner_ref<T>(obj: &T) -> Option<OwnerReference>
+where
+    T: Resource<DynamicType = ()>,
+{
+    obj.controller_owner_ref(&())
+}
+
+/// Create a Kubernetes Job, or return the existing Job when creation races.
+///
+/// # Errors
+///
+/// Returns an error when Job creation fails for reasons other than conflict, or
+/// when the follow-up read after a conflict fails.
+pub async fn create_or_get_job(
+    job_api: &Api<Job>,
+    namespace: &str,
+    job: Job,
+    name: &str,
+) -> Result<Job, JobError> {
+    match job_api.create(&PostParams::default(), &job).await {
+        Ok(created) => Ok(created),
+        Err(kube::Error::Api(ae)) if ae.code == 409 => {
+            job_api
+                .get(name)
+                .await
+                .with_context(|_| GetAfterConflictSnafu {
+                    namespace: namespace.to_string(),
+                    name: name.to_string(),
+                })
+        }
+        Err(err) => Err(JobError::Create {
+            namespace: namespace.to_string(),
+            name: name.to_string(),
+            source: Box::new(err),
+        }),
+    }
+}
+
+#[must_use]
 pub fn hash_short(hash: &str) -> String {
     let trimmed = hash.strip_prefix("sha256:").unwrap_or(hash);
     trimmed.chars().take(8).collect()
 }
 
+#[must_use]
 pub fn hash_label_value(hash: &str) -> String {
     let trimmed = hash.strip_prefix("sha256:").unwrap_or(hash);
     if trimmed.is_empty() {
@@ -97,28 +236,58 @@ pub fn hash_label_value(hash: &str) -> String {
     trimmed.chars().take(63).collect()
 }
 
+#[must_use]
 pub fn default_bundle_name(fi_name: &str) -> String {
-    bounded_name(&format!("fi-{}", fi_name), 63)
+    bounded_name(&format!("fi-{fi_name}"), 63)
 }
 
+#[must_use]
 pub fn default_cluster_bundle_name(fi_namespace: &str, fi_name: &str) -> String {
-    bounded_name(&format!("fi-{}-{}", fi_namespace, fi_name), 63)
+    bounded_name(&format!("fi-{fi_namespace}-{fi_name}"), 63)
 }
 
+#[must_use]
 pub fn job_name(fi_name: &str, manifest_hash: &str) -> String {
     bounded_name(
-        &format!("fi-{}-build-{}", fi_name, hash_short(manifest_hash)),
+        &format!("fi-{fi_name}-build-{}", hash_short(manifest_hash)),
         63,
     )
 }
 
+#[must_use]
+pub fn package_job_name(fe_name: &str, source_hash: &str) -> String {
+    bounded_name(
+        &format!("fe-{fe_name}-package-{}", hash_short(source_hash)),
+        63,
+    )
+}
+
+#[must_use]
+pub fn publish_job_name(fe_name: &str, request_id: &str) -> String {
+    let request_hash = format!("sha256:{}", sha256_hex(request_id.as_bytes()));
+    bounded_name(
+        &format!("fe-{fe_name}-publish-{}", hash_short(&request_hash)),
+        63,
+    )
+}
+
+#[must_use]
+pub fn artifact_configmap_name(package_name: &str, source_hash: &str) -> String {
+    bounded_name(
+        &format!("fe-{package_name}-{}", hash_short(source_hash)),
+        63,
+    )
+}
+
+#[must_use]
 pub fn secret_name(fi_name: &str, manifest_hash: &str, nonce: &str) -> String {
     bounded_name(
-        &format!("fi-{}-mf-{}-{}", fi_name, hash_short(manifest_hash), nonce),
+        &format!("fi-{fi_name}-mf-{}-{nonce}", hash_short(manifest_hash)),
         63,
     )
 }
 
+#[must_use]
 pub fn bounded_name(raw: &str, max_len: usize) -> String {
     let sanitized = raw
         .chars()
@@ -158,12 +327,13 @@ pub fn bounded_name(raw: &str, max_len: usize) -> String {
     truncated
 }
 
+#[must_use]
 pub fn time_nonce() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let val = (nanos % (36u128.pow(4))) as u32;
+    let val = u32::try_from(nanos % (36u128.pow(4))).unwrap_or(0);
     base36_pad4(val)
 }
 
@@ -182,8 +352,9 @@ fn base36_pad4(mut n: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn canonical_hash_is_stable_for_object_key_order() {
@@ -222,6 +393,33 @@ mod tests {
         let hash = "sha256:0123456789abcdef";
 
         assert_eq!(job_name(fi_name, hash), job_name(fi_name, hash));
+    }
+
+    #[test]
+    fn package_resource_names_are_deterministic_and_bounded() {
+        let hash = "sha256:0123456789abcdef";
+        let job = package_job_name("Very.Long_FrontendExtension.Name", hash);
+        let cm = artifact_configmap_name("Very.Long_Package.Name", hash);
+        let publish_job = publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000");
+
+        assert_eq!(
+            job,
+            package_job_name("Very.Long_FrontendExtension.Name", hash)
+        );
+        assert_eq!(cm, artifact_configmap_name("Very.Long_Package.Name", hash));
+        assert_eq!(
+            publish_job,
+            publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000")
+        );
+        for name in [job, cm, publish_job] {
+            assert!(name.len() <= 63);
+            assert!(!name.starts_with('-'));
+            assert!(!name.ends_with('-'));
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            );
+        }
     }
 
     #[test]

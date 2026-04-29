@@ -1,0 +1,81 @@
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: ccc
+spec:
+  package:
+    name: ccc
+    version: 0.1.1
+    displayName:
+      zh: 巡检任务。
+      en: Inspect Task.
+    description:
+      zh: InspectTask extension package。
+      en: InspectTask extension package.
+    category: dev-tools
+    keywords:
+      - Frontend
+    sources:
+      - https://github.com/kubesphere-extensions/frontend-forge
+    kubeVersion: ">=1.23.0-0"
+    ksVersion: ">=4.2.0-0"
+    maintainers:
+      - name: KubeSphere
+        email: kubesphere@yunify.com
+    home: https://kubesphere.com.cn/
+    provider:
+      zh:
+        name: 北京青云科技股份有限公司
+        email: kubesphere@yunify.com
+        url: https://kubesphere.com.cn/
+      en:
+        name: QingCloud Technologies
+        email: kubesphere@yunify.com
+        url: https://kubesphere.co/
+    icon: ./static/favicon.svg
+    installationMode: Multicluster
+    images:
+      - kubesphere/frontend-forge-console:v1.0.0
+      - kubesphere/frontend-forge-controller:v1.0.0
+      - kubesphere/frontend-forge-runner:v1.0.0
+    charts:
+      values: {}
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        locales:
+          zh:
+            title: 巡检任务xxxxx
+          en:
+            title: Inspect Tasks
+        menus:
+          - displayName: Inspect Tasks
+            key: inspecttasks
+            placement: cluster
+            type: page
+        pages:
+          - key: inspecttasks
+            type: crdTable
+            crdTable:
+              group: kubeeye.kubesphere.io
+              version: v1alpha2
+              scope: Cluster
+              names:
+                kind: InspectTask
+                plural: inspecttasks
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+      extensionResources:
+        jsBundle:
+          name: inspecttask
+  publishPolicy:
+    mode: Manual
+    defaultTargetRef:
+      namespace: extension-frontend-forge
+      name: ksbuilder-publish-config

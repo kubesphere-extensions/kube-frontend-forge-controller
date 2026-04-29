@@ -1,0 +1,47 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frontend-forge.webhookServiceName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook") | nindent 4 }}
+spec:
+  selector:
+    {{- include "frontend-forge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime-controller
+  ports:
+    - name: https-webhook
+      port: {{ .Values.webhook.service.port }}
+      targetPort: 9443
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "frontend-forge.validatingWebhookName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "webhook") | nindent 4 }}
+webhooks:
+  - name: frontendintegrations.frontend-forge.kubesphere.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: {{ include "frontend-forge.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate/frontendintegrations
+        port: {{ .Values.webhook.service.port }}
+      caBundle: ""
+    rules:
+      - apiGroups:
+          - frontend-forge.kubesphere.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - frontendintegrations
+        scope: Cluster
+{{- end }}

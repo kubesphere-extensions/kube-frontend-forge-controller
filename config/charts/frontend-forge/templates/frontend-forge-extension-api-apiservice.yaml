@@ -1,0 +1,19 @@
+{{- $apiServiceAvailable := .Capabilities.APIVersions.Has "extensions.kubesphere.io/v1alpha1/APIService" -}}
+{{- if and .Values.extensionApi.enabled .Values.extensionApi.apiService.enabled (or (not .Values.extensionApi.apiService.onlyIfApiResourceExists) $apiServiceAvailable) }}
+apiVersion: extensions.kubesphere.io/v1alpha1
+kind: APIService
+metadata:
+  name: {{ include "frontend-forge.extensionApiAPIServiceName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
+spec:
+  group: {{ .Values.extensionApi.apiService.group | quote }}
+  version: {{ .Values.extensionApi.apiService.version | quote }}
+  url: {{ include "frontend-forge.extensionApiAPIServiceURL" . | quote }}
+  {{- with .Values.extensionApi.apiService.caBundle }}
+  caBundle: {{ . | quote }}
+  {{- end }}
+  {{- if ne .Values.extensionApi.apiService.insecureSkipTLSVerify nil }}
+  insecureSkipTLSVerify: {{ .Values.extensionApi.apiService.insecureSkipTLSVerify }}
+  {{- end }}
+{{- end }}

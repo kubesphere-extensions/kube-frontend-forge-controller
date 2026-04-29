@@ -1,0 +1,43 @@
+{{- if .Values.buildService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "frontend-forge.buildServiceName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 4 }}
+spec:
+  replicas: {{ .Values.buildService.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "frontend-forge.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: build-service
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 8 }}
+    spec:
+      containers:
+        - name: frontend-forge-build-service
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.buildService.image) | quote }}
+          imagePullPolicy: {{ .Values.buildService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.buildService.service.targetPort }}
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frontend-forge.buildServiceName" . }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 4 }}
+spec:
+  type: {{ .Values.buildService.service.type }}
+  selector:
+    {{- include "frontend-forge.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: build-service
+  ports:
+    - name: http
+      port: {{ .Values.buildService.service.port }}
+      protocol: TCP
+      targetPort: {{ .Values.buildService.service.targetPort }}
+{{- end }}

@@ -1,0 +1,22 @@
+Frontend Forge has been rendered for namespace {{ .Release.Namespace }}.
+
+Installed entry points:
+- Runtime controller: deployment/{{ include "frontend-forge.fullname" . }}-controller
+{{- if .Values.extensionController.enabled }}
+- FrontendExtension controller: deployment/{{ include "frontend-forge.fullname" . }}-extension-controller
+{{- end }}
+{{- if .Values.extensionApi.enabled }}
+- FrontendExtension API: service/{{ include "frontend-forge.extensionApiServiceName" . }}
+{{- if .Values.extensionApi.apiService.enabled }}
+- FrontendExtension APIService: {{ include "frontend-forge.extensionApiAPIServiceName" . }}
+{{- end }}
+{{- end }}
+
+CRDs installed from crds/:
+- frontendintegrations.frontend-forge.kubesphere.io
+- frontendextensions.frontend-forge.kubesphere.io
+
+{{- if not .Values.crds.installJsBundle }}
+The JSBundle CRD is expected to be provided by KubeSphere extensions. For local
+or e2e clusters, set crds.installJsBundle=true.
+{{- end }}

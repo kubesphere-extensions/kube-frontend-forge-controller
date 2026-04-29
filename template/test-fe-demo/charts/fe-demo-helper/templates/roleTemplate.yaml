@@ -1,0 +1,149 @@
+{{- if .Values.roleTemplate.enabled }}
+---
+{{- $existing := lookup "iam.kubesphere.io/v1beta1" "Category" "" "cluster-fe-management" -}}
+
+{{- if not $existing }}
+apiVersion: iam.kubesphere.io/v1beta1
+kind: Category
+metadata:
+  name: cluster-fe-management
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    iam.kubesphere.io/scope: cluster
+    kubesphere.io/managed: "true"
+spec:
+  displayName:
+    en: Quick Integration
+    zh: 快速集成
+{{- end }}
+---
+apiVersion: iam.kubesphere.io/v1beta1
+kind: RoleTemplate
+metadata:
+  annotations:
+    iam.kubesphere.io/role-template-rules: '{"actionKeyFoo": "view"}'
+  labels:
+    iam.kubesphere.io/aggregate-to-cluster-viewer: ""
+    iam.kubesphere.io/category: cluster-fe-management
+    iam.kubesphere.io/scope: cluster
+    kubesphere.io/managed: "true"
+  name: cluster-view-fe-demo
+spec:
+  description:
+    en: View fe-demo list.
+    zh: 查看 fe-demo 列表。
+  displayName:
+    en: View fe-demo List
+    zh: 查看 fe-demo 列表
+  rules:
+  - apiGroups:
+    - 'a.b.io'
+    resources:
+    - '*'
+    verbs:
+    - get
+    - list
+    - watch
+---
+apiVersion: iam.kubesphere.io/v1beta1
+kind: RoleTemplate
+metadata:
+  annotations:
+    iam.kubesphere.io/dependencies: '["cluster-view-fe-demo"]'
+    iam.kubesphere.io/role-template-rules: '{"actionKeyFoo": "manage"}'
+  labels:
+    iam.kubesphere.io/category: cluster-fe-management
+    iam.kubesphere.io/scope: cluster
+    kubesphere.io/managed: "true"
+  name: cluster-manage-fe-demo
+spec:
+  description:
+    en: Manage fe-demo.
+    zh: 管理 fe-demo。
+  displayName:
+    en: Manage fe-demo
+    zh: 管理 fe-demo
+  rules:
+  - apiGroups:
+    - 'a.b.io'
+    resources:
+    - '*'
+    verbs:
+    - '*'
+
+---
+{{- $existing := lookup "iam.kubesphere.io/v1beta1" "Category" "" "namespace-fe-management" -}}
+
+{{- if not $existing }}
+apiVersion: iam.kubesphere.io/v1beta1
+kind: Category
+metadata:
+  name: namespace-fe-management
+  labels:
+    iam.kubesphere.io/scope: namespace
+    kubesphere.io/managed: 'true'
+  annotations:
+    "helm.sh/resource-policy": keep
+spec:
+  displayName:
+    en: Quick Integration
+    zh: 快速集成
+{{- end }}
+---
+apiVersion: iam.kubesphere.io/v1beta1
+kind: RoleTemplate
+metadata:
+  annotations:
+    iam.kubesphere.io/role-template-rules: '{"actionKeyFoo": "view"}'
+  labels:
+    iam.kubesphere.io/aggregate-to-viewer: ""
+    iam.kubesphere.io/aggregate-to-operator: ""
+    iam.kubesphere.io/category: namespace-fe-management
+    iam.kubesphere.io/scope: namespace
+    kubesphere.io/managed: "true"
+  name: namespace-view-fe-demo
+spec:
+  description:
+    en: View fe-demo list.
+    zh: 查看 fe-demo 列表。
+  displayName:
+    en: View fe-demo List
+    zh: 查看 fe-demo 列表
+  rules:
+  - apiGroups:
+    - 'a.b.io'
+    resources:
+    - '*'
+    verbs:
+    - get
+    - list
+    - watch
+---
+apiVersion: iam.kubesphere.io/v1beta1
+kind: RoleTemplate
+metadata:
+  annotations:
+    iam.kubesphere.io/dependencies: '["namespace-view-fe-demo"]'
+    iam.kubesphere.io/role-template-rules: '{"actionKeyFoo": "manage"}'
+  labels:
+    iam.kubesphere.io/aggregate-to-operator: ""
+    iam.kubesphere.io/category: namespace-fe-management
+    iam.kubesphere.io/scope: namespace
+    kubesphere.io/managed: "true"
+  name: namespace-manage-fe-demo
+spec:
+  description:
+    en: Namespace fe-demo management.
+    zh: 项目 fe-demo 管理。
+  displayName:
+    en: Manage fe-demo
+    zh: 管理 fe-demo
+  rules:
+  - apiGroups:
+    - 'a.b.io'
+    resources:
+    - '*'
+    verbs:
+    - '*'
+{{- end }}

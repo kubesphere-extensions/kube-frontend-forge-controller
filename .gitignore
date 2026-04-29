@@ -23,3 +23,6 @@ target
 .codex-debug/
 .artifacts
 artifacts/
+.agents/
+skills-lock.json
+.DS_Store
