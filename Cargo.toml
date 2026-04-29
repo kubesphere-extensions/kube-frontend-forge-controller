@@ -1,16 +1,16 @@
 [workspace]
 members = [
-  "crates/common",
-  "crates/build-service-client",
   "crates/api",
-  "crates/manifest",
+  "crates/build-service-client",
+  "crates/common",
   "crates/extension-package-core",
-  "crates/frontend-extension-controller",
   "crates/extension-packager",
   "crates/extension-publisher",
-  "crates/frontend-forge-extension-api",
+  "crates/frontend-extension-controller",
   "crates/frontend-forge-controller",
+  "crates/frontend-forge-extension-api",
   "crates/frontend-forge-runner",
+  "crates/manifest",
   "xtask",
 ]
 resolver = "2"
