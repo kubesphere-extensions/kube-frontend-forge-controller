@@ -1,10 +1,10 @@
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendExtension
 metadata:
-  name: ccc
+  name: inspecttask
 spec:
   package:
-    name: ccc
+    name: inspecttask
     version: 0.1.1
     displayName:
       zh: 巡检任务。
