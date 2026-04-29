@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-REGISTRY="${REGISTRY:-docker.io/spike2044}"
+REGISTRY="${REGISTRY:-docker.io/kubesphere}"
 TAG="${TAG:-dev-$(date +%Y%m%d%H%M%S)}"
 BUILDER="${BUILDER:-mybuilder}"
 PLATFORM="${PLATFORM:-linux/amd64}"
@@ -48,7 +48,7 @@ Profiles:
   INSTALL_PROFILE=full       Also build/load/install runtime controller, runner, and extension API.
 
 Environment:
-  REGISTRY                   Default: docker.io/spike2044
+  REGISTRY                   Default: docker.io/kubesphere
   TAG                        Default: dev-<MMDDHHMM>
   BUILDER                    Default: mybuilder
   PLATFORM                   Default: linux/amd64

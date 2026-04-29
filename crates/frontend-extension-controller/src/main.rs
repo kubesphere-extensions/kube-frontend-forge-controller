@@ -135,11 +135,11 @@ impl ControllerConfig {
         Self {
             work_namespace: work_namespace.clone(),
             packager_image: env::var("PACKAGER_IMAGE").unwrap_or_else(|_| {
-                "spike2044/frontend-forge-extension-packager:latest".to_string()
+                "kubesphere/frontend-forge-extension-packager:latest".to_string()
             }),
             packager_service_account: env::var("PACKAGER_SERVICE_ACCOUNT").ok(),
             publisher_image: env::var("PUBLISHER_IMAGE").unwrap_or_else(|_| {
-                "spike2044/frontend-forge-extension-publisher:latest".to_string()
+                "kubesphere/frontend-forge-extension-publisher:latest".to_string()
             }),
             publisher_service_account: env::var("PUBLISHER_SERVICE_ACCOUNT").ok(),
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
