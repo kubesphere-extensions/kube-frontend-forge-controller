@@ -34,25 +34,65 @@ jobs:
           - runner: ubuntu-latest
             platform: linux/amd64
             arch: amd64
+            image_name: frontend-extension-controller
+            dockerfile: crates/frontend-extension-controller/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-packager
+            dockerfile: crates/extension-packager/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-publisher
+            dockerfile: crates/extension-publisher/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
             image_name: frontend-forge-controller
-            dockerfile: crates/controller/Dockerfile
+            dockerfile: crates/frontend-forge-controller/Dockerfile
           - runner: ubuntu-latest
             platform: linux/amd64
             arch: amd64
             image_name: frontend-forge-runner
-            dockerfile: crates/runner/Dockerfile
+            dockerfile: crates/frontend-forge-runner/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-api
+            dockerfile: crates/frontend-forge-extension-api/Dockerfile
 
           # arm64（原生 ARM runner，无需 QEMU）
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
+            image_name: frontend-extension-controller
+            dockerfile: crates/frontend-extension-controller/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-packager
+            dockerfile: crates/extension-packager/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-publisher
+            dockerfile: crates/extension-publisher/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
             image_name: frontend-forge-controller
-            dockerfile: crates/controller/Dockerfile
+            dockerfile: crates/frontend-forge-controller/Dockerfile
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
             image_name: frontend-forge-runner
-            dockerfile: crates/runner/Dockerfile
+            dockerfile: crates/frontend-forge-runner/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-api
+            dockerfile: crates/frontend-forge-extension-api/Dockerfile
 
     steps:
       - name: Check Out Repository
@@ -132,7 +172,13 @@ jobs:
             echo "| --- | --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for image_name in frontend-forge-controller frontend-forge-runner; do
+          for image_name in \
+            frontend-extension-controller \
+            frontend-forge-extension-packager \
+            frontend-forge-extension-publisher \
+            frontend-forge-controller \
+            frontend-forge-runner \
+            frontend-forge-extension-api; do
             repo="docker.io/${DOCKERHUB_NAMESPACE}/${image_name}"
 
             amd_digest="$(cat "digests/${image_name}-amd64.txt")"
