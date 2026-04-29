@@ -263,10 +263,39 @@ download_and_verify_artifact() {
 
 make_update_manifest() {
   local update_file="$ARTIFACT_DIR/frontendextension-update.yaml"
-  perl -0pe 's/(en: InspectTask extension package)(\n)/$1 updated by regression$2/' "$SAMPLE_FILE" > "$update_file"
+
+  perl -ne '
+    if (/^spec:\s*$/) {
+      $in_spec = 1;
+      $in_package = 0;
+    } elsif ($in_spec && /^[A-Za-z0-9_-]+:/) {
+      $in_spec = $in_package = 0;
+    }
+
+    if ($in_spec && /^  package:\s*$/) {
+      $in_package = 1;
+    } elsif ($in_package && /^  [A-Za-z0-9_-]+:/) {
+      $in_package = 0;
+    }
+
+    if ($in_package && /^(\s*version:\s*)(["'\'']?)([0-9]+(?:\.[0-9]+)*)(["'\'']?)\s*$/) {
+      my ($prefix, $open_quote, $version, $close_quote) = ($1, $2, $3, $4);
+      my @parts = split(/\./, $version);
+      $parts[-1]++;
+      print $prefix . $open_quote . join(".", @parts) . $close_quote . "\n";
+      $changed = 1;
+      next;
+    }
+
+    print;
+    END {
+      exit($changed ? 0 : 2);
+    }
+  ' "$SAMPLE_FILE" > "$update_file" || die "failed to generate modified FrontendExtension manifest from $SAMPLE_FILE"
   if cmp -s "$SAMPLE_FILE" "$update_file"; then
     die "failed to generate modified FrontendExtension manifest from $SAMPLE_FILE"
   fi
+  log "generated update manifest at $update_file"
   printf '%s\n' "$update_file"
 }
 
