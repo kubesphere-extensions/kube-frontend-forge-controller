@@ -53,6 +53,10 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+sample_frontend_extension_name() {
+  perl -0ne 'print "$1\n" if /^kind:\s*FrontendExtension\s*$.*?^metadata:\s*$.*?^\s{2}name:\s*([A-Za-z0-9_.-]+)\s*$/ms' "$SAMPLE_FILE"
+}
+
 jsonpath() {
   local resource="$1"
   local expression="$2"
@@ -66,6 +70,11 @@ assert_prereqs() {
   require_cmd shasum
   [[ -f "$KUBECONFIG_PATH" ]] || die "kubeconfig not found: $KUBECONFIG_PATH"
   [[ -f "$SAMPLE_FILE" ]] || die "sample file not found: $SAMPLE_FILE"
+
+  local sample_name
+  sample_name="$(sample_frontend_extension_name)"
+  [[ -n "$sample_name" ]] || die "failed to read FrontendExtension metadata.name from $SAMPLE_FILE"
+  [[ "$sample_name" == "$FE_NAME" ]] || die "FE_NAME=$FE_NAME does not match $SAMPLE_FILE metadata.name=$sample_name"
 }
 
 prepare_artifact_dir() {
