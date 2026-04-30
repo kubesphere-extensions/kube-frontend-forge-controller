@@ -35,8 +35,9 @@ use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
-const API_GROUP: &str = "frontend-forge.kubesphere.io";
-const API_VERSION: &str = "v1alpha1";
+const CRD_API_GROUP: &str = "frontend-forge.kubesphere.io";
+const DEFAULT_EXTENSION_API_GROUP: &str = "frontend-forge-api.kubesphere.io";
+const DEFAULT_API_VERSION: &str = "v1alpha1";
 const API_RESOURCE: &str = "frontendextensions";
 const KUBERNETES_API_PREFIX: &str = "/apis";
 const KUBESPHERE_API_PREFIX: &str = "/kapis";
@@ -173,8 +174,16 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
     let state = Arc::new(AppState { client });
-    let app = api_routes(KUBERNETES_API_PREFIX)
-        .merge(api_routes(KUBESPHERE_API_PREFIX))
+    let extension_api_group =
+        env::var("EXTENSION_API_GROUP").unwrap_or_else(|_| DEFAULT_EXTENSION_API_GROUP.to_string());
+    let extension_api_version =
+        env::var("EXTENSION_API_VERSION").unwrap_or_else(|_| DEFAULT_API_VERSION.to_string());
+    let app = api_routes(KUBERNETES_API_PREFIX, CRD_API_GROUP, DEFAULT_API_VERSION)
+        .merge(api_routes(
+            KUBESPHERE_API_PREFIX,
+            &extension_api_group,
+            &extension_api_version,
+        ))
         .with_state(state);
 
     let bind_addr_raw =
@@ -195,8 +204,8 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn api_routes(prefix: &str) -> Router<Arc<AppState>> {
-    let resource_prefix = format!("{prefix}/{API_GROUP}/{API_VERSION}/{API_RESOURCE}");
+fn api_routes(prefix: &str, group: &str, version: &str) -> Router<Arc<AppState>> {
+    let resource_prefix = format!("{prefix}/{group}/{version}/{API_RESOURCE}");
     Router::new()
         .route(&resource_prefix, get(list_extensions).post(create_extension))
         .route(&format!("{resource_prefix}/{{name}}"), get(get_extension))

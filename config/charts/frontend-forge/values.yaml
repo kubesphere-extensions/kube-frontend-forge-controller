@@ -154,7 +154,7 @@ extensionApi:
     enabled: true
     onlyIfApiResourceExists: true
     name: ""
-    group: frontend-forge.kubesphere.io
+    group: frontend-forge-api.kubesphere.io
     version: v1alpha1
     url: ""
     caBundle: ""
