@@ -67,6 +67,8 @@ spec:
               value: {{ .Values.extensionController.jobTtlSecondsAfterFinished | quote }}
             - name: ARTIFACT_RETAIN_OLD_COUNT
               value: {{ .Values.extensionController.artifactRetainOldCount | quote }}
+            - name: PACKAGE_MAX_ATTEMPTS
+              value: {{ .Values.extensionController.packageMaxAttempts | quote }}
           {{- with .Values.extensionController.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

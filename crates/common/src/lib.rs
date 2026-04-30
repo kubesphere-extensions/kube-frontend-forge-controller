@@ -17,9 +17,12 @@ pub const MANAGED_BY_VALUE: &str = "frontend-forge-builder-controller";
 pub const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
 pub const LABEL_FI_NAME: &str = "frontend-forge.io/fi-name";
 pub const LABEL_FE_NAME: &str = "frontend-forge.io/fe-name";
+pub const LABEL_FE_UID: &str = "frontend-forge.kubesphere.io/fe-uid";
 pub const LABEL_ENABLED: &str = "frontend-forge.io/enabled";
 pub const LABEL_SPEC_HASH: &str = "frontend-forge.io/spec-hash";
 pub const LABEL_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
+pub const LABEL_SOURCE_HASH_SHORT: &str = "frontend-forge.kubesphere.io/source-hash-short";
+pub const LABEL_ARTIFACT_KEY_SHORT: &str = "frontend-forge.kubesphere.io/artifact-key-short";
 pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
 pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
@@ -32,7 +35,9 @@ pub const ANNO_OBSERVED_GENERATION: &str = "frontend-forge.io/observed-generatio
 pub const ANNO_SOURCE_SPEC: &str = "frontend-forge.io/source-spec";
 pub const ANNO_SOURCE_SPEC_HASH: &str = "frontend-forge.io/source-spec-hash";
 pub const ANNO_SOURCE_GENERATION: &str = "frontend-forge.io/source-generation";
-pub const ANNO_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
+pub const ANNO_REBUILD_TOKEN: &str = "frontend-forge.kubesphere.io/rebuild-token";
+pub const ANNO_SOURCE_HASH: &str = "frontend-forge.kubesphere.io/source-hash";
+pub const ANNO_ARTIFACT_KEY: &str = "frontend-forge.kubesphere.io/artifact-key";
 pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.io/artifact-digest";
 pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.io/artifact-filename";
 pub const ANNO_PUBLISH_REQUEST_ID: &str = "frontend-forge.io/publish-request-id";
@@ -136,6 +141,24 @@ where
     Ok(hash)
 }
 
+#[derive(Serialize)]
+struct ArtifactKeyInput<'a> {
+    #[serde(rename = "keyVersion")]
+    key_version: &'static str,
+    #[serde(rename = "sourceHash")]
+    source_hash: &'a str,
+    #[serde(rename = "rebuildToken")]
+    rebuild_token: &'a str,
+}
+
+pub fn artifact_key(source_hash: &str, rebuild_token: &str) -> Result<String, CommonError> {
+    serializable_hash(&ArtifactKeyInput {
+        key_version: "v1",
+        source_hash,
+        rebuild_token,
+    })
+}
+
 #[must_use]
 pub fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
     let Some(status) = status else {
@@ -237,6 +260,15 @@ pub fn hash_label_value(hash: &str) -> String {
 }
 
 #[must_use]
+pub fn hash_name_suffix(hash: &str) -> String {
+    let trimmed = hash.strip_prefix("sha256:").unwrap_or(hash);
+    if trimmed.is_empty() {
+        return "0".to_string();
+    }
+    trimmed.chars().take(12).collect()
+}
+
+#[must_use]
 pub fn default_bundle_name(fi_name: &str) -> String {
     bounded_name(&format!("fi-{fi_name}"), 63)
 }
@@ -255,11 +287,9 @@ pub fn job_name(fi_name: &str, manifest_hash: &str) -> String {
 }
 
 #[must_use]
-pub fn package_job_name(fe_name: &str, source_hash: &str) -> String {
-    bounded_name(
-        &format!("fe-{fe_name}-package-{}", hash_short(source_hash)),
-        63,
-    )
+pub fn package_job_name(fe_name: &str, artifact_key: &str, attempt: u32) -> String {
+    let suffix = format!("-{}-a{attempt}", hash_name_suffix(artifact_key));
+    bounded_name_preserving_suffix(&format!("fe-{fe_name}-package"), &suffix, 63)
 }
 
 #[must_use]
@@ -272,11 +302,9 @@ pub fn publish_job_name(fe_name: &str, request_id: &str) -> String {
 }
 
 #[must_use]
-pub fn artifact_configmap_name(package_name: &str, source_hash: &str) -> String {
-    bounded_name(
-        &format!("fe-{package_name}-{}", hash_short(source_hash)),
-        63,
-    )
+pub fn artifact_configmap_name(package_name: &str, artifact_key: &str) -> String {
+    let suffix = format!("-{}", hash_name_suffix(artifact_key));
+    bounded_name_preserving_suffix(&format!("fe-{package_name}"), &suffix, 63)
 }
 
 #[must_use]
@@ -325,6 +353,17 @@ pub fn bounded_name(raw: &str, max_len: usize) -> String {
         truncated = compact.chars().take(max_len).collect();
     }
     truncated
+}
+
+#[must_use]
+pub fn bounded_name_preserving_suffix(raw_prefix: &str, suffix: &str, max_len: usize) -> String {
+    let suffix_len = suffix.len();
+    if suffix_len >= max_len {
+        return bounded_name(suffix, max_len);
+    }
+    let prefix_max_len = max_len - suffix_len;
+    let prefix = bounded_name(raw_prefix, prefix_max_len);
+    format!("{prefix}{suffix}")
 }
 
 #[must_use]
@@ -397,16 +436,22 @@ mod tests {
 
     #[test]
     fn package_resource_names_are_deterministic_and_bounded() {
-        let hash = "sha256:0123456789abcdef";
-        let job = package_job_name("Very.Long_FrontendExtension.Name", hash);
-        let cm = artifact_configmap_name("Very.Long_Package.Name", hash);
+        let artifact_key = "sha256:0123456789abcdef";
+        let suffix = hash_name_suffix(artifact_key);
+        let job = package_job_name("Very.Long_FrontendExtension.Name", artifact_key, 1);
+        let cm = artifact_configmap_name("Very.Long_Package.Name", artifact_key);
         let publish_job = publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000");
 
         assert_eq!(
             job,
-            package_job_name("Very.Long_FrontendExtension.Name", hash)
+            package_job_name("Very.Long_FrontendExtension.Name", artifact_key, 1)
         );
-        assert_eq!(cm, artifact_configmap_name("Very.Long_Package.Name", hash));
+        assert_eq!(
+            cm,
+            artifact_configmap_name("Very.Long_Package.Name", artifact_key)
+        );
+        assert!(job.ends_with(&format!("-{suffix}-a1")));
+        assert!(cm.ends_with(&format!("-{suffix}")));
         assert_eq!(
             publish_job,
             publish_job_name("Very.Long_FrontendExtension.Name", "20260420-100000")
@@ -428,5 +473,64 @@ mod tests {
         let v = hash_label_value(hash);
         assert_eq!(v.len(), 63);
         assert!(v.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn artifact_key_uses_trimmed_rebuild_token_identity() {
+        let source_hash = "sha256:source";
+        let missing = artifact_key(source_hash, "").unwrap();
+        let whitespace = artifact_key(source_hash, "   ".trim()).unwrap();
+        let token = artifact_key(source_hash, "token-1").unwrap();
+        let token_with_trim = artifact_key(source_hash, " token-1 ".trim()).unwrap();
+
+        assert_eq!(missing, whitespace);
+        assert_eq!(token, token_with_trim);
+        assert_ne!(missing, token);
+    }
+
+    #[test]
+    fn artifact_key_changes_independently_from_source_hash() {
+        let source_hash = "sha256:source";
+
+        assert_ne!(
+            artifact_key(source_hash, "").unwrap(),
+            artifact_key(source_hash, "token-1").unwrap()
+        );
+        assert_ne!(
+            artifact_key(source_hash, "token-1").unwrap(),
+            artifact_key("sha256:other", "token-1").unwrap()
+        );
+    }
+
+    #[test]
+    fn artifact_key_canonical_json_includes_key_version_v1() {
+        let expected = manifest_hash_from_content(
+            r#"{"keyVersion":"v1","rebuildToken":"token-1","sourceHash":"sha256:source"}"#,
+        );
+
+        assert_eq!(artifact_key("sha256:source", "token-1").unwrap(), expected);
+    }
+
+    #[test]
+    fn hash_name_suffix_is_twelve_characters() {
+        let hash = "sha256:0123456789abcdef";
+
+        assert_eq!(hash_name_suffix(hash), "0123456789ab");
+        assert_eq!(hash_name_suffix(""), "0");
+    }
+
+    #[test]
+    fn package_resource_names_preserve_suffix_for_long_names() {
+        let artifact_key = "sha256:d46b92fa1234abcdef";
+        let suffix = hash_name_suffix(artifact_key);
+        let long_name = "very-long-frontend-extension-name-that-would-otherwise-drop-the-suffix";
+
+        let job = package_job_name(long_name, artifact_key, 27);
+        let cm = artifact_configmap_name(long_name, artifact_key);
+
+        assert_eq!(job.len(), 63);
+        assert_eq!(cm.len(), 63);
+        assert!(job.ends_with(&format!("-{suffix}-a27")));
+        assert!(cm.ends_with(&format!("-{suffix}")));
     }
 }

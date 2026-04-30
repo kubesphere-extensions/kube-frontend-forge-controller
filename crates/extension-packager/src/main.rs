@@ -6,9 +6,10 @@ use frontend_forge_build_service_client::{
     BuildServiceClient, BuildServiceError, select_bundle_artifact,
 };
 use frontend_forge_common::{
-    ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_FILENAME, ANNO_SOURCE_HASH, LABEL_FE_NAME,
-    LABEL_MANAGED_BY, LABEL_PACKAGE_KIND, LABEL_SOURCE_HASH, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE,
-    hash_label_value, manifest_content_and_hash,
+    ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_FILENAME, ANNO_ARTIFACT_KEY, ANNO_SOURCE_HASH,
+    LABEL_ARTIFACT_KEY_SHORT, LABEL_FE_NAME, LABEL_FE_UID, LABEL_MANAGED_BY, LABEL_PACKAGE_KIND,
+    LABEL_SOURCE_HASH_SHORT, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE, hash_label_value,
+    manifest_content_and_hash,
 };
 use frontend_forge_extension_package_core::{
     ExtensionPackageArtifact, ExtensionPackageError, build_extension_package,
@@ -95,7 +96,10 @@ enum Error {
 #[derive(Clone, Debug)]
 struct PackagerConfig {
     fe_name: String,
+    fe_uid: String,
     source_hash: String,
+    artifact_key: String,
+    rebuild_token: String,
     artifact_configmap_namespace: String,
     artifact_configmap_name: String,
     build_service_base_url: String,
@@ -107,7 +111,12 @@ impl PackagerConfig {
     fn from_env() -> Result<Self, Error> {
         Ok(Self {
             fe_name: required_env("FE_NAME")?,
+            fe_uid: required_env("FE_UID")?,
             source_hash: required_env("SOURCE_HASH")?,
+            artifact_key: required_env("ARTIFACT_KEY")?,
+            rebuild_token: env::var("REBUILD_TOKEN")
+                .map(|token| token.trim().to_string())
+                .unwrap_or_default(),
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
                 .unwrap_or_else(|_| "extension-frontend-forge".to_string()),
             artifact_configmap_name: required_env("ARTIFACT_CONFIGMAP_NAME")?,
@@ -197,6 +206,8 @@ async fn main() -> Result<(), Error> {
     info!(
         fe = %cfg.fe_name,
         configmap = %cfg.artifact_configmap_name,
+        artifact_key = %cfg.artifact_key,
+        rebuild_token_set = !cfg.rebuild_token.is_empty(),
         digest = %artifact.digest,
         filename = %artifact.filename,
         "extension package artifact written"
@@ -217,9 +228,14 @@ fn artifact_configmap(
             labels: Some(BTreeMap::from([
                 (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
                 (LABEL_FE_NAME.to_string(), cfg.fe_name.clone()),
+                (LABEL_FE_UID.to_string(), cfg.fe_uid.clone()),
                 (
-                    LABEL_SOURCE_HASH.to_string(),
+                    LABEL_SOURCE_HASH_SHORT.to_string(),
                     hash_label_value(&artifact.source_hash),
+                ),
+                (
+                    LABEL_ARTIFACT_KEY_SHORT.to_string(),
+                    hash_label_value(&cfg.artifact_key),
                 ),
                 (
                     LABEL_PACKAGE_KIND.to_string(),
@@ -228,6 +244,7 @@ fn artifact_configmap(
             ])),
             annotations: Some(BTreeMap::from([
                 (ANNO_SOURCE_HASH.to_string(), artifact.source_hash.clone()),
+                (ANNO_ARTIFACT_KEY.to_string(), cfg.artifact_key.clone()),
                 (ANNO_ARTIFACT_DIGEST.to_string(), artifact.digest.clone()),
                 (
                     ANNO_ARTIFACT_FILENAME.to_string(),
@@ -293,7 +310,10 @@ mod tests {
     fn artifact_configmap_uses_binary_package_key() {
         let cfg = PackagerConfig {
             fe_name: "inspecttask".to_string(),
+            fe_uid: "fe-uid".to_string(),
             source_hash: "sha256:source".to_string(),
+            artifact_key: "sha256:artifactkey".to_string(),
+            rebuild_token: "token-1".to_string(),
             artifact_configmap_namespace: "extension-frontend-forge".to_string(),
             artifact_configmap_name: "fe-inspecttask-a1b2c3d4".to_string(),
             build_service_base_url: "http://builder".to_string(),
@@ -358,9 +378,8 @@ spec:
             cm.metadata.labels.unwrap()[LABEL_PACKAGE_KIND],
             PACKAGE_KIND_VALUE
         );
-        assert_eq!(
-            cm.metadata.annotations.unwrap()[ANNO_ARTIFACT_DIGEST],
-            "sha256:artifact"
-        );
+        let annotations = cm.metadata.annotations.unwrap();
+        assert_eq!(annotations[ANNO_ARTIFACT_DIGEST], "sha256:artifact");
+        assert_eq!(annotations[ANNO_ARTIFACT_KEY], "sha256:artifactkey");
     }
 }

@@ -17,6 +17,8 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-300}"
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-2}"
 CLEANUP_ON_SUCCESS="${CLEANUP_ON_SUCCESS:-false}"
 RUN_UPDATE_TEST="${RUN_UPDATE_TEST:-true}"
+RUN_REBUILD_TEST="${RUN_REBUILD_TEST:-true}"
+REBUILD_TOKEN_ANNOTATION="frontend-forge.kubesphere.io/rebuild-token"
 
 KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_PATH")
 
@@ -37,6 +39,7 @@ Environment:
   POLL_INTERVAL_SECONDS     Default: 2
   CLEANUP_ON_SUCCESS        Default: false
   RUN_UPDATE_TEST           Default: true. Apply a modified FrontendExtension after create succeeds.
+  RUN_REBUILD_TEST          Default: true. Patch rebuild-token and verify package rebuild behavior.
 EOF
 }
 
@@ -211,19 +214,21 @@ capture_snapshots() {
 
 assert_ready_status() {
   log "validating FrontendExtension Ready status"
-  local phase package_phase download_ready artifact_cm digest size_bytes
+  local phase package_phase download_ready artifact_cm digest size_bytes artifact_key
   phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.phase}')"
   package_phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.phase}')"
   download_ready="$(jsonpath "frontendextension/$FE_NAME" '{.status.download.ready}')"
   artifact_cm="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.storage.ref.name}')"
   digest="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.digest}')"
   size_bytes="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.sizeBytes}')"
+  artifact_key="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.artifactKey}')"
 
   [[ "$phase" == "Ready" ]] || die "expected FE phase Ready, got $phase"
   [[ "$package_phase" == "Succeeded" ]] || die "expected packageJob.phase Succeeded, got $package_phase"
   [[ "$download_ready" == "true" ]] || die "expected download.ready true, got $download_ready"
   [[ -n "$artifact_cm" ]] || die "artifact ConfigMap ref is empty"
   [[ "$digest" == sha256:* ]] || die "artifact digest is invalid: $digest"
+  [[ "$artifact_key" == sha256:* ]] || die "artifactKey is invalid: $artifact_key"
   [[ "$size_bytes" =~ ^[0-9]+$ ]] || die "artifact sizeBytes is invalid: $size_bytes"
   (( size_bytes > 0 )) || die "artifact sizeBytes must be positive"
 }
@@ -330,6 +335,149 @@ assert_update_changed_package() {
   } > "$ARTIFACT_DIR/update-summary.txt"
 }
 
+hash_label_value() {
+  local hash="${1#sha256:}"
+  [[ -n "$hash" ]] || hash="0"
+  printf '%.63s' "$hash"
+}
+
+package_job_count_for_artifact_key() {
+  local artifact_key="$1"
+  local artifact_key_short
+  artifact_key_short="$(hash_label_value "$artifact_key")"
+  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job \
+    -l "frontend-forge.io/fe-name=$FE_NAME,frontend-forge.kubesphere.io/artifact-key-short=$artifact_key_short" \
+    -o name 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' '
+}
+
+patch_rebuild_token() {
+  local token="$1"
+  log "patching rebuild-token annotation to $token"
+  "${KUBECTL[@]}" annotate frontendextension "$FE_NAME" "$REBUILD_TOKEN_ANNOTATION=$token" --overwrite \
+    | tee "$ARTIFACT_DIR/rebuild-token-$token.annotate.log"
+}
+
+wait_for_rebuild_token_ready() {
+  local token="$1"
+  local old_artifact_key="$2"
+  local old_job="$3"
+  local expected_source_hash="$4"
+  log "waiting for rebuild-token=$token to create a new artifactKey"
+  local deadline=$((SECONDS + TIMEOUT_SECONDS))
+
+  while (( SECONDS < deadline )); do
+    local phase package_phase observed_token source_hash artifact_key package_job artifact_cm
+    phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.phase}' 2>/dev/null || true)"
+    package_phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.phase}' 2>/dev/null || true)"
+    observed_token="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedRebuildToken}' 2>/dev/null || true)"
+    source_hash="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedSourceHash}' 2>/dev/null || true)"
+    artifact_key="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.artifactKey}' 2>/dev/null || true)"
+    package_job="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.name}' 2>/dev/null || true)"
+    artifact_cm="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.storage.ref.name}' 2>/dev/null || true)"
+    log "rebuild observedToken=${observed_token:-<none>} phase=${phase:-<none>} packageJob=${package_job:-<none>} artifactKey=${artifact_key:-<none>} artifactCM=${artifact_cm:-<none>}"
+
+    if [[ "$phase" == "Failed" ]]; then
+      capture_snapshots "rebuild-failed"
+      die "FrontendExtension failed during rebuild-token test"
+    fi
+    if [[ "$phase" == "Ready" && "$package_phase" == "Succeeded" \
+      && "$observed_token" == "$token" \
+      && "$source_hash" == "$expected_source_hash" \
+      && "$artifact_key" != "$old_artifact_key" \
+      && "$package_job" != "$old_job" ]]; then
+      return 0
+    fi
+    sleep "$POLL_INTERVAL_SECONDS"
+  done
+
+  die "timed out waiting for rebuild-token=$token to create a new package artifact"
+}
+
+wait_for_same_artifact_key_next_attempt() {
+  local token="$1"
+  local artifact_key="$2"
+  local old_job="$3"
+  local expected_source_hash="$4"
+  log "waiting for deleted artifact ConfigMap to trigger next attempt for the same artifactKey"
+  local deadline=$((SECONDS + TIMEOUT_SECONDS))
+
+  while (( SECONDS < deadline )); do
+    local phase package_phase observed_token source_hash current_key package_job
+    phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.phase}' 2>/dev/null || true)"
+    package_phase="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.phase}' 2>/dev/null || true)"
+    observed_token="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedRebuildToken}' 2>/dev/null || true)"
+    source_hash="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedSourceHash}' 2>/dev/null || true)"
+    current_key="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.artifactKey}' 2>/dev/null || true)"
+    package_job="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.name}' 2>/dev/null || true)"
+    log "same-key attempt observedToken=${observed_token:-<none>} phase=${phase:-<none>} packageJob=${package_job:-<none>} artifactKey=${current_key:-<none>}"
+
+    if [[ "$phase" == "Failed" ]]; then
+      capture_snapshots "rebuild-delete-cm-failed"
+      die "FrontendExtension failed after deleting artifact ConfigMap"
+    fi
+    if [[ "$phase" == "Ready" && "$package_phase" == "Succeeded" \
+      && "$observed_token" == "$token" \
+      && "$source_hash" == "$expected_source_hash" \
+      && "$current_key" == "$artifact_key" \
+      && "$package_job" != "$old_job" ]]; then
+      return 0
+    fi
+    sleep "$POLL_INTERVAL_SECONDS"
+  done
+
+  die "timed out waiting for next package attempt after artifact ConfigMap deletion"
+}
+
+run_rebuild_token_test() {
+  local old_source_hash old_job old_artifact_cm old_artifact_key token
+  old_source_hash="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedSourceHash}')"
+  old_job="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.name}')"
+  old_artifact_cm="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.storage.ref.name}')"
+  old_artifact_key="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.artifactKey}')"
+  token="token-1"
+
+  patch_rebuild_token "$token"
+  wait_for_rebuild_token_ready "$token" "$old_artifact_key" "$old_job" "$old_source_hash"
+  capture_snapshots "rebuild"
+  assert_ready_status
+  assert_package_job "rebuild"
+  download_and_verify_artifact "rebuild"
+
+  local rebuild_source_hash rebuild_job rebuild_artifact_cm rebuild_artifact_key before_count after_count
+  rebuild_source_hash="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedSourceHash}')"
+  rebuild_job="$(jsonpath "frontendextension/$FE_NAME" '{.status.packageJob.name}')"
+  rebuild_artifact_cm="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.storage.ref.name}')"
+  rebuild_artifact_key="$(jsonpath "frontendextension/$FE_NAME" '{.status.artifact.artifactKey}')"
+
+  [[ "$rebuild_source_hash" == "$old_source_hash" ]] || die "rebuild-token changed sourceHash: old=$old_source_hash new=$rebuild_source_hash"
+  [[ "$rebuild_artifact_key" != "$old_artifact_key" ]] || die "rebuild-token did not change artifactKey"
+  [[ "$rebuild_job" != "$old_job" ]] || die "rebuild-token reused package Job $rebuild_job"
+  [[ "$rebuild_artifact_cm" != "$old_artifact_cm" ]] || die "rebuild-token reused artifact ConfigMap $rebuild_artifact_cm"
+
+  before_count="$(package_job_count_for_artifact_key "$rebuild_artifact_key")"
+  patch_rebuild_token "$token"
+  sleep "$((POLL_INTERVAL_SECONDS * 2))"
+  after_count="$(package_job_count_for_artifact_key "$rebuild_artifact_key")"
+  [[ "$after_count" == "$before_count" ]] || die "same rebuild-token created duplicate jobs: before=$before_count after=$after_count"
+
+  log "deleting current artifact ConfigMap $rebuild_artifact_cm to verify next package attempt"
+  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" delete "configmap/$rebuild_artifact_cm" --wait=true \
+    | tee "$ARTIFACT_DIR/rebuild-delete-artifact-configmap.log"
+  wait_for_same_artifact_key_next_attempt "$token" "$rebuild_artifact_key" "$rebuild_job" "$old_source_hash"
+  capture_snapshots "rebuild-next-attempt"
+  assert_ready_status
+  assert_package_job "rebuild-next-attempt"
+  download_and_verify_artifact "rebuild-next-attempt"
+
+  {
+    printf 'oldSourceHash=%s\nrebuildSourceHash=%s\n' "$old_source_hash" "$rebuild_source_hash"
+    printf 'oldArtifactKey=%s\nrebuildArtifactKey=%s\n' "$old_artifact_key" "$rebuild_artifact_key"
+    printf 'oldPackageJob=%s\nrebuildPackageJob=%s\n' "$old_job" "$rebuild_job"
+    printf 'oldArtifactConfigMap=%s\nrebuildArtifactConfigMap=%s\n' "$old_artifact_cm" "$rebuild_artifact_cm"
+    printf 'sameTokenJobCountBefore=%s\nsameTokenJobCountAfter=%s\n' "$before_count" "$after_count"
+  } > "$ARTIFACT_DIR/rebuild-summary.txt"
+}
+
 cleanup_success_resources() {
   if [[ "$CLEANUP_ON_SUCCESS" == "true" ]]; then
     cleanup_previous_run
@@ -353,6 +501,10 @@ main() {
   assert_ready_status
   assert_package_job "create"
   download_and_verify_artifact "create"
+
+  if [[ "$RUN_REBUILD_TEST" == "true" ]]; then
+    run_rebuild_token_test
+  fi
 
   if [[ "$RUN_UPDATE_TEST" == "true" ]]; then
     create_source_hash="$(jsonpath "frontendextension/$FE_NAME" '{.status.observedSourceHash}')"

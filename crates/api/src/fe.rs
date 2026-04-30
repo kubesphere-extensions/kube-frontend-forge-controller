@@ -231,6 +231,12 @@ pub struct FrontendExtensionStatus {
         rename = "observedSourceHash"
     )]
     pub observed_source_hash: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "observedRebuildToken"
+    )]
+    pub observed_rebuild_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<ExtensionArtifactStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -260,6 +266,16 @@ pub struct ExtensionArtifactStatus {
     pub generated_at: DateTime<Utc>,
     #[serde(rename = "sourceHash")]
     pub source_hash: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "artifactKey"
+    )]
+    #[schemars(
+        description = "artifactKey is the build cache identity used to locate package jobs and \
+                       artifact ConfigMaps. It is not the content digest of the generated package."
+    )]
+    pub artifact_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -543,6 +559,12 @@ spec:
         assert!(extension_resources.get("roleTemplates").is_none());
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
+        assert!(status_properties.get("observedRebuildToken").is_some());
+        assert!(
+            status_properties["artifact"]["properties"]
+                .get("artifactKey")
+                .is_some()
+        );
         assert!(status_properties.get("packageJob").is_some());
     }
 

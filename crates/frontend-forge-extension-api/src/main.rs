@@ -207,7 +207,10 @@ async fn main() -> Result<(), Error> {
 fn api_routes(prefix: &str, group: &str, version: &str) -> Router<Arc<AppState>> {
     let resource_prefix = format!("{prefix}/{group}/{version}/{API_RESOURCE}");
     Router::new()
-        .route(&resource_prefix, get(list_extensions).post(create_extension))
+        .route(
+            &resource_prefix,
+            get(list_extensions).post(create_extension),
+        )
         .route(&format!("{resource_prefix}/{{name}}"), get(get_extension))
         .route(
             &format!("{resource_prefix}/{{name}}/download"),
@@ -550,6 +553,7 @@ spec:
                 filename: "inspecttask-0.1.0.tgz".to_string(),
                 generated_at: chrono::Utc::now(),
                 source_hash: "sha256:old".to_string(),
+                artifact_key: Some("sha256:artifact-key".to_string()),
             }),
             download: Some(ExtensionDownloadStatus {
                 ready: true,
@@ -598,6 +602,7 @@ spec:
                 filename: "inspecttask-0.1.0.tgz".to_string(),
                 generated_at: chrono::Utc::now(),
                 source_hash: "sha256:source".to_string(),
+                artifact_key: Some("sha256:artifact-key".to_string()),
             }),
             download: Some(ExtensionDownloadStatus {
                 ready: false,
