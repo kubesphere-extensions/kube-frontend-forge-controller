@@ -127,6 +127,13 @@ spec:
               publishPolicy:
                 nullable: true
                 properties:
+                  defaultTargetKind:
+                    enum:
+                    - ConfigMap
+                    - Secret
+                    - null
+                    nullable: true
+                    type: string
                   defaultTargetRef:
                     nullable: true
                     properties:
@@ -344,6 +351,10 @@ spec:
               artifact:
                 nullable: true
                 properties:
+                  artifactKey:
+                    description: artifactKey is the build cache identity used to locate package jobs and artifact ConfigMaps. It is not the content digest of the generated package.
+                    nullable: true
+                    type: string
                   digest:
                     type: string
                   filename:
@@ -437,6 +448,9 @@ spec:
                 format: int64
                 nullable: true
                 type: integer
+              observedRebuildToken:
+                nullable: true
+                type: string
               observedSourceHash:
                 nullable: true
                 type: string

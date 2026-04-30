@@ -10,14 +10,16 @@ use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
     ExtensionDownloadStatus, FrontendExtension, FrontendExtensionPhase, FrontendExtensionStatus,
     NamespacedResourceRef, PackageJobPhase, PackageJobStatus, PublishPhase, PublishStatus,
+    PublishTargetKind,
 };
 use frontend_forge_common::{
-    ANNO_ARTIFACT_DIGEST, ANNO_OBSERVED_GENERATION, ANNO_PUBLISH_ARTIFACT_DIGEST,
-    ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME,
-    ANNO_PUBLISH_TARGET_NAMESPACE, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_MANAGED_BY,
-    LABEL_PACKAGE_KIND, LABEL_PUBLISH_KIND, LABEL_PUBLISH_REQUEST_HASH, LABEL_SOURCE_HASH,
+    ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_KEY, ANNO_OBSERVED_GENERATION,
+    ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND,
+    ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE, ANNO_REBUILD_TOKEN, ANNO_SOURCE_HASH,
+    LABEL_ARTIFACT_KEY_SHORT, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_FE_UID, LABEL_MANAGED_BY,
+    LABEL_PACKAGE_KIND, LABEL_PUBLISH_KIND, LABEL_PUBLISH_REQUEST_HASH, LABEL_SOURCE_HASH_SHORT,
     MANAGED_BY_VALUE, ObservedJobPhase, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE,
-    artifact_configmap_name, base_owner_ref, create_or_get_job, extract_job_message,
+    artifact_configmap_name, artifact_key, base_owner_ref, create_or_get_job, extract_job_message,
     hash_label_value, observed_job_phase, package_job_name, publish_job_name, sha256_hex,
 };
 use frontend_forge_extension_package_core::{
@@ -49,6 +51,10 @@ use tracing::{error, info, warn};
 enum Error {
     #[snafu(display("failed to hash FrontendExtension package source: {source}"))]
     FrontendExtensionSourceHash { source: ExtensionPackageError },
+    #[snafu(display("failed to compute FrontendExtension artifact key: {source}"))]
+    FrontendExtensionArtifactKey {
+        source: frontend_forge_common::CommonError,
+    },
     #[snafu(display("failed to initialize Kubernetes client: {source}"))]
     KubeClientInit {
         #[snafu(source(from(kube::Error, Box::new)))]
@@ -69,12 +75,12 @@ enum Error {
     InvalidFrontendExtensionStatusPatchShape { name: String },
     #[snafu(display(
         "failed to list package Jobs in {namespace} for FrontendExtension {fe_name} and \
-         sourceHash {source_hash}: {source}"
+         artifactKey {artifact_key}: {source}"
     ))]
-    ListPackageJobsForHash {
+    ListPackageJobsForArtifactKey {
         namespace: String,
         fe_name: String,
-        source_hash: String,
+        artifact_key: String,
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
     },
@@ -126,6 +132,7 @@ struct ControllerConfig {
     job_active_deadline_seconds: i64,
     job_ttl_seconds_after_finished: Option<i32>,
     artifact_retain_old_count: usize,
+    package_max_attempts: u32,
 }
 
 impl ControllerConfig {
@@ -169,6 +176,11 @@ impl ControllerConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_ARTIFACT_RETAIN_OLD_COUNT),
+            package_max_attempts: env::var("PACKAGE_MAX_ATTEMPTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|attempts| *attempts > 0)
+                .unwrap_or(DEFAULT_PACKAGE_MAX_ATTEMPTS),
         }
     }
 }
@@ -181,6 +193,7 @@ struct ContextData {
 
 const DEFAULT_JOB_TTL_SECONDS_AFTER_FINISHED: i32 = 60 * 60;
 const DEFAULT_ARTIFACT_RETAIN_OLD_COUNT: usize = 1;
+const DEFAULT_PACKAGE_MAX_ATTEMPTS: u32 = 3;
 
 fn install_rustls_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -256,13 +269,20 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
 
     let source_hash =
         frontend_extension_source_hash(&fe).context(FrontendExtensionSourceHashSnafu)?;
+    let rebuild_token = frontend_extension_rebuild_token(&fe);
+    let artifact_key =
+        artifact_key(&source_hash, &rebuild_token).context(FrontendExtensionArtifactKeySnafu)?;
     let package_name = frontend_extension_package_name(&fe);
-    let artifact_name = artifact_configmap_name(&package_name, &source_hash);
-    let current_job = find_package_job_for_hash(&job_api, &work_ns, &fe_name, &source_hash).await?;
+    let artifact_name = artifact_configmap_name(&package_name, &artifact_key);
+    let package_attempts =
+        list_package_jobs_for_artifact_key(&job_api, &work_ns, &fe, &artifact_key).await?;
+    let latest_attempt = latest_package_attempt(package_attempts);
 
     info!(
         fe = %fe_name,
-        source_hash,
+        source_hash = %source_hash,
+        artifact_key = %artifact_key,
+        rebuild_token = %rebuild_token,
         phase = ?fe.status.as_ref().map(|s| &s.phase),
         "frontend extension reconcile started"
     );
@@ -271,7 +291,15 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         patch_fe_status(
             &fe_api,
             &fe,
-            failed_fe_status(&fe, &source_hash, None, "InvalidSource", &err.to_string()),
+            failed_fe_status(
+                &fe,
+                &source_hash,
+                &rebuild_token,
+                &artifact_key,
+                None,
+                "InvalidSource",
+                &err.to_string(),
+            ),
         )
         .await?;
         return Ok(Action::await_change());
@@ -279,16 +307,27 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
 
     if let Some(cm) =
         get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
-        && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
+        && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash, &artifact_key)
     {
         let gc_keep_names = artifact_gc_keep_names(&fe, &cm);
-        let publish = sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
+        let publish = sync_publish(
+            &fe,
+            &job_api,
+            &work_ns,
+            &ctx.config,
+            &artifact_key,
+            &metadata,
+            &cm,
+        )
+        .await?;
         let mut status = ready_fe_status(
             &fe,
             &source_hash,
+            &rebuild_token,
+            &artifact_key,
             &cm,
             metadata,
-            current_or_existing_package_job(current_job.as_ref(), &fe),
+            current_or_existing_package_job(latest_attempt.as_ref().map(|a| &a.job), &fe),
         );
         apply_publish_sync(&mut status, &publish);
         patch_fe_status(&fe_api, &fe, status).await?;
@@ -306,13 +345,21 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
         ));
     }
 
-    if let Some(job) = current_job {
+    if let Some(attempt) = latest_attempt.as_ref() {
+        let job = &attempt.job;
         match observed_job_phase(job.status.as_ref()) {
             ObservedJobPhase::Pending | ObservedJobPhase::Running => {
                 patch_fe_status(
                     &fe_api,
                     &fe,
-                    packaging_fe_status(&fe, &source_hash, &job, "Package job in progress"),
+                    packaging_fe_status(
+                        &fe,
+                        &source_hash,
+                        &rebuild_token,
+                        &artifact_key,
+                        job,
+                        "Package job in progress",
+                    ),
                 )
                 .await?;
                 return Ok(Action::requeue(Duration::from_secs(
@@ -320,30 +367,66 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                 )));
             }
             ObservedJobPhase::Failed => {
+                if attempt.attempt >= ctx.config.package_max_attempts {
+                    let latest_message = extract_job_message(job)
+                        .unwrap_or_else(|| "Package job failed".to_string());
+                    let message = package_attempts_exceeded_message(
+                        &artifact_key,
+                        attempt.attempt,
+                        ctx.config.package_max_attempts,
+                        &latest_message,
+                    );
+                    patch_fe_status(
+                        &fe_api,
+                        &fe,
+                        failed_fe_status(
+                            &fe,
+                            &source_hash,
+                            &rebuild_token,
+                            &artifact_key,
+                            Some(job),
+                            "PackageAttemptsExceeded",
+                            &message,
+                        ),
+                    )
+                    .await?;
+                    return Ok(Action::await_change());
+                }
                 let message =
-                    extract_job_message(&job).unwrap_or_else(|| "Package job failed".to_string());
-                patch_fe_status(
-                    &fe_api,
-                    &fe,
-                    failed_fe_status(&fe, &source_hash, Some(&job), "PackageFailed", &message),
-                )
-                .await?;
-                return Ok(Action::await_change());
+                    extract_job_message(job).unwrap_or_else(|| "Package job failed".to_string());
+                info!(
+                    fe = %fe_name,
+                    attempt = attempt.attempt,
+                    max_attempts = ctx.config.package_max_attempts,
+                    message,
+                    "package job failed; creating next attempt"
+                );
             }
             ObservedJobPhase::Succeeded => {
                 if let Some(cm) =
                     get_artifact_configmap_opt(&artifact_api, &artifact_ns, &artifact_name).await?
-                    && let Some(metadata) = artifact_metadata_from_configmap(&cm, &source_hash)
+                    && let Some(metadata) =
+                        artifact_metadata_from_configmap(&cm, &source_hash, &artifact_key)
                 {
                     let gc_keep_names = artifact_gc_keep_names(&fe, &cm);
-                    let publish =
-                        sync_publish(&fe, &job_api, &work_ns, &ctx.config, &metadata, &cm).await?;
+                    let publish = sync_publish(
+                        &fe,
+                        &job_api,
+                        &work_ns,
+                        &ctx.config,
+                        &artifact_key,
+                        &metadata,
+                        &cm,
+                    )
+                    .await?;
                     let mut status = ready_fe_status(
                         &fe,
                         &source_hash,
+                        &rebuild_token,
+                        &artifact_key,
                         &cm,
                         metadata,
-                        Some(package_job_status(&job)),
+                        Some(package_job_status(job)),
                     );
                     apply_publish_sync(&mut status, &publish);
                     patch_fe_status(&fe_api, &fe, status).await?;
@@ -361,31 +444,94 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                     ));
                 }
 
-                patch_fe_status(
-                    &fe_api,
-                    &fe,
-                    packaging_fe_status(
+                if attempt.attempt >= ctx.config.package_max_attempts {
+                    let latest_message =
+                        "Package job succeeded but artifact ConfigMap is missing or mismatched";
+                    let message = package_attempts_exceeded_message(
+                        &artifact_key,
+                        attempt.attempt,
+                        ctx.config.package_max_attempts,
+                        latest_message,
+                    );
+                    patch_fe_status(
+                        &fe_api,
                         &fe,
-                        &source_hash,
-                        &job,
-                        "Package job succeeded; waiting for artifact ConfigMap",
-                    ),
-                )
-                .await?;
-                return Ok(Action::requeue(Duration::from_secs(
-                    ctx.config.reconcile_requeue_seconds,
-                )));
+                        failed_fe_status(
+                            &fe,
+                            &source_hash,
+                            &rebuild_token,
+                            &artifact_key,
+                            Some(job),
+                            "PackageAttemptsExceeded",
+                            &message,
+                        ),
+                    )
+                    .await?;
+                    return Ok(Action::await_change());
+                }
+                info!(
+                    fe = %fe_name,
+                    attempt = attempt.attempt,
+                    max_attempts = ctx.config.package_max_attempts,
+                    "package job succeeded without matching artifact; creating next attempt"
+                );
             }
         }
     }
 
-    let job_name = package_job_name(&fe_name, &source_hash);
-    let desired_job = make_package_job(&fe, &ctx.config, &job_name, &source_hash, &artifact_name);
+    let next_attempt = latest_attempt
+        .as_ref()
+        .map_or(1, |attempt| attempt.attempt.saturating_add(1));
+    if next_attempt > ctx.config.package_max_attempts {
+        let latest_message = latest_attempt
+            .as_ref()
+            .and_then(|attempt| extract_job_message(&attempt.job))
+            .unwrap_or_else(|| "No package attempts can be created".to_string());
+        let message = package_attempts_exceeded_message(
+            &artifact_key,
+            next_attempt.saturating_sub(1),
+            ctx.config.package_max_attempts,
+            &latest_message,
+        );
+        patch_fe_status(
+            &fe_api,
+            &fe,
+            failed_fe_status(
+                &fe,
+                &source_hash,
+                &rebuild_token,
+                &artifact_key,
+                latest_attempt.as_ref().map(|attempt| &attempt.job),
+                "PackageAttemptsExceeded",
+                &message,
+            ),
+        )
+        .await?;
+        return Ok(Action::await_change());
+    }
+
+    let job_name = package_job_name(&fe_name, &artifact_key, next_attempt);
+    let desired_job = make_package_job(
+        &fe,
+        &ctx.config,
+        &job_name,
+        &source_hash,
+        &artifact_key,
+        &rebuild_token,
+        &artifact_name,
+    );
     let job = create_or_get_job(&job_api, &work_ns, desired_job, &job_name).await?;
     patch_fe_status(
         &fe_api,
         &fe,
-        packaging_fe_status(&fe, &source_hash, &job, "Package job created"),
+        packaging_fe_status(
+            &fe,
+            &source_hash,
+            &rebuild_token,
+            &artifact_key,
+            &job,
+            "Package job created",
+        ),
     )
     .await?;
     Ok(Action::requeue(Duration::from_secs(
@@ -393,30 +539,100 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
     )))
 }
 
-async fn find_package_job_for_hash(
+#[derive(Clone, Debug)]
+struct PackageAttempt {
+    attempt: u32,
+    job: Job,
+}
+
+async fn list_package_jobs_for_artifact_key(
     job_api: &Api<Job>,
     namespace: &str,
-    fe_name: &str,
-    source_hash: &str,
-) -> Result<Option<Job>, Error> {
-    let selector = format!(
-        "{}={},{}={}",
-        LABEL_FE_NAME,
-        fe_name,
-        LABEL_SOURCE_HASH,
-        hash_label_value(source_hash)
-    );
+    fe: &FrontendExtension,
+    artifact_key: &str,
+) -> Result<Vec<PackageAttempt>, Error> {
+    let fe_name = fe.name_any();
+    let selector = package_job_selector(fe, artifact_key);
     let jobs = job_api
         .list(&ListParams::default().labels(&selector))
         .await
-        .with_context(|_| ListPackageJobsForHashSnafu {
+        .with_context(|_| ListPackageJobsForArtifactKeySnafu {
             namespace: namespace.to_string(),
-            fe_name: fe_name.to_string(),
-            source_hash: source_hash.to_string(),
+            fe_name: fe_name.clone(),
+            artifact_key: artifact_key.to_string(),
         })?;
-    let mut items = jobs.items;
-    items.sort_by_key(|j| j.metadata.creation_timestamp.clone());
-    Ok(items.pop())
+    Ok(jobs
+        .items
+        .into_iter()
+        .filter_map(|job| {
+            package_attempt_from_job(&job).map(|attempt| PackageAttempt { attempt, job })
+        })
+        .collect())
+}
+
+fn package_job_selector(fe: &FrontendExtension, artifact_key: &str) -> String {
+    format!(
+        "{}={},{}={},{}={},{}={}",
+        LABEL_FE_NAME,
+        fe.name_any(),
+        LABEL_FE_UID,
+        frontend_extension_uid_label(fe),
+        LABEL_ARTIFACT_KEY_SHORT,
+        hash_label_value(artifact_key),
+        LABEL_PACKAGE_KIND,
+        PACKAGE_KIND_VALUE
+    )
+}
+
+fn package_attempt_from_job(job: &Job) -> Option<u32> {
+    let name = job.name_any();
+    let (_, attempt) = name.rsplit_once("-a")?;
+    let attempt = attempt.parse::<u32>().ok()?;
+    (attempt > 0).then_some(attempt)
+}
+
+fn latest_package_attempt(attempts: Vec<PackageAttempt>) -> Option<PackageAttempt> {
+    attempts.into_iter().max_by(|a, b| {
+        a.attempt
+            .cmp(&b.attempt)
+            .then_with(|| {
+                a.job
+                    .metadata
+                    .creation_timestamp
+                    .cmp(&b.job.metadata.creation_timestamp)
+            })
+            .then_with(|| a.job.name_any().cmp(&b.job.name_any()))
+    })
+}
+
+fn frontend_extension_rebuild_token(fe: &FrontendExtension) -> String {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_REBUILD_TOKEN))
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+        .unwrap_or_default()
+}
+
+fn frontend_extension_uid_label(fe: &FrontendExtension) -> String {
+    fe.meta().uid.clone().unwrap_or_default()
+}
+
+fn package_attempts_exceeded_message(
+    artifact_key: &str,
+    latest_attempt: u32,
+    max_attempts: u32,
+    latest_message: &str,
+) -> String {
+    format!(
+        "Package attempts exceeded for artifactKey short {}: latest attempt {}, max attempts {}. \
+         Latest job failure: {}",
+        hash_label_value(artifact_key),
+        latest_attempt,
+        max_attempts,
+        latest_message
+    )
 }
 
 async fn get_artifact_configmap_opt(
@@ -535,7 +751,16 @@ fn artifact_configmap_is_owned_by(cm: &ConfigMap, fe: &FrontendExtension) -> boo
 fn artifact_metadata_from_configmap(
     cm: &ConfigMap,
     source_hash: &str,
+    artifact_key: &str,
 ) -> Option<PackageArtifactMetadata> {
+    let annotations = cm.metadata.annotations.as_ref()?;
+    if annotations.get(ANNO_SOURCE_HASH).map(String::as_str) != Some(source_hash) {
+        return None;
+    }
+    if annotations.get(ANNO_ARTIFACT_KEY).map(String::as_str) != Some(artifact_key) {
+        return None;
+    }
+
     let metadata_content = cm
         .data
         .as_ref()
@@ -549,7 +774,11 @@ fn artifact_metadata_from_configmap(
         .binary_data
         .as_ref()
         .and_then(|binary_data| binary_data.get(PACKAGE_KEY))?;
-    if format!("sha256:{}", sha256_hex(&bytes.0)) != metadata.digest {
+    let observed_digest = format!("sha256:{}", sha256_hex(&bytes.0));
+    if observed_digest != metadata.digest {
+        return None;
+    }
+    if annotations.get(ANNO_ARTIFACT_DIGEST).map(String::as_str) != Some(metadata.digest.as_str()) {
         return None;
     }
 
@@ -575,12 +804,17 @@ async fn sync_publish(
     job_api: &Api<Job>,
     namespace: &str,
     config: &ControllerConfig,
+    artifact_key: &str,
     artifact: &PackageArtifactMetadata,
     artifact_cm: &ConfigMap,
 ) -> Result<PublishSync, Error> {
     let Some(request_id) = publish_request_id(fe) else {
         return Ok(PublishSync {
-            status: Some(current_publish_for_artifact(fe, &artifact.digest)),
+            status: Some(current_publish_for_artifact(
+                fe,
+                &artifact.digest,
+                artifact_key,
+            )),
             should_requeue: false,
         });
     };
@@ -605,7 +839,7 @@ async fn sync_publish(
             })? {
         job
     } else {
-        if publish_already_finished(fe, &request) {
+        if publish_already_finished(fe, &request, artifact_key) {
             return Ok(PublishSync {
                 status: fe.status.as_ref().and_then(|status| status.publish.clone()),
                 should_requeue: false,
@@ -666,11 +900,14 @@ fn publish_request(
             "publish targetRef is required",
         ))
     })?;
-    let target_kind = annos
-        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
-        .filter(|kind| !kind.is_empty())
-        .cloned()
-        .unwrap_or_else(|| "ConfigMap".to_string());
+    let target_kind = publish_target_kind(fe);
+    if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
+        return Err(Box::new(failed_publish_status(
+            request_id,
+            Some(current_artifact_digest.to_string()),
+            "publish targetKind must be ConfigMap or Secret",
+        )));
+    }
 
     Ok(PublishRequest {
         request_id: request_id.to_string(),
@@ -703,6 +940,26 @@ fn publish_target_ref(fe: &FrontendExtension) -> Option<NamespacedResourceRef> {
         .and_then(|policy| policy.default_target_ref.clone())
 }
 
+fn publish_target_kind(fe: &FrontendExtension) -> String {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
+        .filter(|kind| !kind.is_empty())
+        .cloned()
+        .or_else(|| {
+            fe.spec
+                .publish_policy
+                .as_ref()
+                .and_then(|policy| policy.default_target_kind.as_ref())
+                .map(|kind| match kind {
+                    PublishTargetKind::ConfigMap => "ConfigMap".to_string(),
+                    PublishTargetKind::Secret => "Secret".to_string(),
+                })
+        })
+        .unwrap_or_else(|| "ConfigMap".to_string())
+}
+
 fn failed_publish_status(
     request_id: &str,
     artifact_digest: Option<String>,
@@ -717,26 +974,47 @@ fn failed_publish_status(
     }
 }
 
-fn current_publish_for_artifact(fe: &FrontendExtension, artifact_digest: &str) -> PublishStatus {
+fn current_publish_for_artifact(
+    fe: &FrontendExtension,
+    artifact_digest: &str,
+    artifact_key: &str,
+) -> PublishStatus {
     let publish = fe.status.as_ref().and_then(|status| status.publish.clone());
     match publish {
-        Some(status) if status.artifact_digest.as_deref() == Some(artifact_digest) => status,
+        Some(status)
+            if status.artifact_digest.as_deref() == Some(artifact_digest)
+                && current_status_artifact_key(fe) == Some(artifact_key) =>
+        {
+            status
+        }
         _ => PublishStatus::default(),
     }
 }
 
-fn publish_already_finished(fe: &FrontendExtension, request: &PublishRequest) -> bool {
+fn publish_already_finished(
+    fe: &FrontendExtension,
+    request: &PublishRequest,
+    artifact_key: &str,
+) -> bool {
     fe.status
         .as_ref()
         .and_then(|status| status.publish.as_ref())
         .is_some_and(|publish| {
             publish.request_id.as_deref() == Some(request.request_id.as_str())
                 && publish.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
+                && current_status_artifact_key(fe) == Some(artifact_key)
                 && matches!(
                     publish.phase,
                     PublishPhase::Succeeded | PublishPhase::Failed
                 )
         })
+}
+
+fn current_status_artifact_key(fe: &FrontendExtension) -> Option<&str> {
+    fe.status
+        .as_ref()
+        .and_then(|status| status.artifact.as_ref())
+        .and_then(|artifact| artifact.artifact_key.as_deref())
 }
 
 fn make_publish_job(
@@ -931,13 +1209,24 @@ fn make_package_job(
     config: &ControllerConfig,
     job_name: &str,
     source_hash: &str,
+    artifact_key: &str,
+    rebuild_token: &str,
     artifact_configmap_name: &str,
 ) -> Job {
     let fe_name = fe.name_any();
+    let fe_uid = frontend_extension_uid_label(fe);
     let mut labels = BTreeMap::from([
         (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
         (LABEL_FE_NAME.to_string(), fe_name.clone()),
-        (LABEL_SOURCE_HASH.to_string(), hash_label_value(source_hash)),
+        (LABEL_FE_UID.to_string(), fe_uid.clone()),
+        (
+            LABEL_SOURCE_HASH_SHORT.to_string(),
+            hash_label_value(source_hash),
+        ),
+        (
+            LABEL_ARTIFACT_KEY_SHORT.to_string(),
+            hash_label_value(artifact_key),
+        ),
         (
             LABEL_PACKAGE_KIND.to_string(),
             PACKAGE_KIND_VALUE.to_string(),
@@ -949,6 +1238,8 @@ fn make_package_job(
     );
 
     let mut annotations = BTreeMap::new();
+    annotations.insert(ANNO_SOURCE_HASH.to_string(), source_hash.to_string());
+    annotations.insert(ANNO_ARTIFACT_KEY.to_string(), artifact_key.to_string());
     if let Some(generation) = fe.metadata.generation {
         annotations.insert(ANNO_OBSERVED_GENERATION.to_string(), generation.to_string());
     }
@@ -960,8 +1251,23 @@ fn make_package_job(
             ..Default::default()
         },
         EnvVar {
+            name: "FE_UID".to_string(),
+            value: Some(fe_uid),
+            ..Default::default()
+        },
+        EnvVar {
             name: "SOURCE_HASH".to_string(),
             value: Some(source_hash.to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "ARTIFACT_KEY".to_string(),
+            value: Some(artifact_key.to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "REBUILD_TOKEN".to_string(),
+            value: Some(rebuild_token.to_string()),
             ..Default::default()
         },
         EnvVar {
@@ -1083,15 +1389,18 @@ fn current_or_existing_package_job(
 fn packaging_fe_status(
     fe: &FrontendExtension,
     source_hash: &str,
+    rebuild_token: &str,
+    artifact_key: &str,
     job: &Job,
     message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
-    let publish = retained_publish_for_source(fe, source_hash);
+    let publish = retained_publish_for_artifact_key(fe, artifact_key);
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Packaging,
         observed_generation: generation,
         observed_source_hash: Some(source_hash.to_string()),
+        observed_rebuild_token: Some(rebuild_token.to_string()),
         artifact: None,
         download: Some(ExtensionDownloadStatus {
             ready: false,
@@ -1118,6 +1427,8 @@ fn packaging_fe_status(
 fn ready_fe_status(
     fe: &FrontendExtension,
     source_hash: &str,
+    rebuild_token: &str,
+    artifact_key: &str,
     cm: &ConfigMap,
     metadata: PackageArtifactMetadata,
     package_job: Option<PackageJobStatus>,
@@ -1127,6 +1438,7 @@ fn ready_fe_status(
         phase: FrontendExtensionPhase::Ready,
         observed_generation: generation,
         observed_source_hash: Some(source_hash.to_string()),
+        observed_rebuild_token: Some(rebuild_token.to_string()),
         artifact: Some(ExtensionArtifactStatus {
             storage: ArtifactStorageStatus {
                 kind: ArtifactStorageKind::ConfigMap,
@@ -1139,6 +1451,7 @@ fn ready_fe_status(
             filename: metadata.filename.clone(),
             generated_at: metadata.generated_at,
             source_hash: metadata.source_hash,
+            artifact_key: Some(artifact_key.to_string()),
         }),
         download: Some(ExtensionDownloadStatus {
             ready: true,
@@ -1159,16 +1472,19 @@ fn ready_fe_status(
 fn failed_fe_status(
     fe: &FrontendExtension,
     source_hash: &str,
+    rebuild_token: &str,
+    artifact_key: &str,
     job: Option<&Job>,
     reason: &str,
     message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
-    let publish = retained_publish_for_source(fe, source_hash);
+    let publish = retained_publish_for_artifact_key(fe, artifact_key);
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Failed,
         observed_generation: generation,
         observed_source_hash: Some(source_hash.to_string()),
+        observed_rebuild_token: Some(rebuild_token.to_string()),
         artifact: None,
         download: Some(ExtensionDownloadStatus {
             ready: false,
@@ -1202,9 +1518,16 @@ fn failed_fe_status(
     }
 }
 
-fn retained_publish_for_source(fe: &FrontendExtension, source_hash: &str) -> Option<PublishStatus> {
+fn retained_publish_for_artifact_key(
+    fe: &FrontendExtension,
+    artifact_key: &str,
+) -> Option<PublishStatus> {
     let status = fe.status.as_ref()?;
-    if status.observed_source_hash.as_deref() == Some(source_hash) {
+    if status
+        .artifact
+        .as_ref()
+        .is_some_and(|artifact| artifact.artifact_key.as_deref() == Some(artifact_key))
+    {
         status.publish.clone()
     } else {
         Some(PublishStatus::default())
@@ -1361,7 +1684,7 @@ fn frontend_extension_status_patch(
 #[cfg(test)]
 mod tests {
     use k8s_openapi::{
-        api::batch::v1::JobStatus, apimachinery::pkg::apis::meta::v1::OwnerReference,
+        ByteString, api::batch::v1::JobStatus, apimachinery::pkg::apis::meta::v1::OwnerReference,
     };
 
     use super::*;
@@ -1387,6 +1710,297 @@ mod tests {
             },
             ..Default::default()
         }
+    }
+
+    fn sample_fe() -> FrontendExtension {
+        serde_json::from_value(json!({
+            "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",
+            "kind": "FrontendExtension",
+            "metadata": {
+                "name": "inspecttask",
+                "uid": "fe-uid",
+                "generation": 7,
+            },
+            "spec": {
+                "package": {
+                    "version": "0.1.0",
+                    "displayName": { "en": "Inspect Task" },
+                    "description": { "en": "InspectTask extension package" }
+                },
+                "source": {
+                    "type": "Inline",
+                    "inline": {
+                        "schemaVersion": "v1",
+                        "frontend": {}
+                    }
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    fn test_config() -> ControllerConfig {
+        ControllerConfig {
+            work_namespace: "extension-frontend-forge".to_string(),
+            packager_image: "packager:latest".to_string(),
+            packager_service_account: None,
+            publisher_image: "publisher:latest".to_string(),
+            publisher_service_account: Some("publisher-sa".to_string()),
+            artifact_configmap_namespace: "extension-frontend-forge".to_string(),
+            build_service_base_url: "http://frontend-forge.test".to_string(),
+            build_service_timeout_seconds: 240,
+            jsbundle_config_key: "index.js".to_string(),
+            reconcile_requeue_seconds: 5,
+            job_active_deadline_seconds: 300,
+            job_ttl_seconds_after_finished: Some(3600),
+            artifact_retain_old_count: 1,
+            package_max_attempts: 3,
+        }
+    }
+
+    #[test]
+    fn rebuild_token_is_trimmed_and_empty_tokens_are_equivalent() {
+        let mut fe = sample_fe();
+        fe.metadata.annotations = Some(BTreeMap::from([(
+            ANNO_REBUILD_TOKEN.to_string(),
+            " token-1 ".to_string(),
+        )]));
+
+        assert_eq!(frontend_extension_rebuild_token(&fe), "token-1");
+
+        fe.metadata.annotations = Some(BTreeMap::from([(
+            ANNO_REBUILD_TOKEN.to_string(),
+            "   ".to_string(),
+        )]));
+
+        assert_eq!(frontend_extension_rebuild_token(&fe), "");
+    }
+
+    #[test]
+    fn package_job_selector_contains_fe_uid_artifact_key_and_kind() {
+        let fe = sample_fe();
+        let artifact_key = "sha256:0123456789abcdef0123456789abcdef";
+        let selector = package_job_selector(&fe, artifact_key);
+
+        assert!(selector.contains(&format!("{LABEL_FE_NAME}=inspecttask")));
+        assert!(selector.contains(&format!("{LABEL_FE_UID}=fe-uid")));
+        assert!(selector.contains(&format!(
+            "{LABEL_ARTIFACT_KEY_SHORT}={}",
+            hash_label_value(artifact_key)
+        )));
+        assert!(selector.contains(&format!("{LABEL_PACKAGE_KIND}={PACKAGE_KIND_VALUE}")));
+    }
+
+    #[test]
+    fn package_attempt_parses_positive_suffix_only() {
+        let job = Job {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-package-d46b92fa1234-a12".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let invalid = Job {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-package-d46b92fa1234".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let zero = Job {
+            metadata: ObjectMeta {
+                name: Some("fe-inspecttask-package-d46b92fa1234-a0".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(package_attempt_from_job(&job), Some(12));
+        assert_eq!(package_attempt_from_job(&invalid), None);
+        assert_eq!(package_attempt_from_job(&zero), None);
+    }
+
+    #[test]
+    fn latest_package_attempt_uses_highest_parsed_attempt() {
+        let attempt_1 = PackageAttempt {
+            attempt: 1,
+            job: Job {
+                metadata: ObjectMeta {
+                    name: Some("fe-inspecttask-package-hash-a1".to_string()),
+                    creation_timestamp: Some(test_time("2026-04-20T10:01:00Z")),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+        let attempt_3 = PackageAttempt {
+            attempt: 3,
+            job: Job {
+                metadata: ObjectMeta {
+                    name: Some("fe-inspecttask-package-hash-a3".to_string()),
+                    creation_timestamp: Some(test_time("2026-04-20T10:00:00Z")),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        };
+
+        let latest = latest_package_attempt(vec![attempt_1, attempt_3]).unwrap();
+
+        assert_eq!(latest.attempt, 3);
+        assert_eq!(latest.job.name_any(), "fe-inspecttask-package-hash-a3");
+    }
+
+    #[test]
+    fn package_attempts_exceeded_message_includes_attempt_context() {
+        let message = package_attempts_exceeded_message("sha256:d46b92fa1234abcdef", 3, 3, "boom");
+
+        assert!(message.contains("d46b92fa1234abcdef"));
+        assert!(message.contains("latest attempt 3"));
+        assert!(message.contains("max attempts 3"));
+        assert!(message.contains("boom"));
+    }
+
+    #[test]
+    fn package_job_has_rebuild_identity_labels_annotations_and_env() {
+        let fe = sample_fe();
+        let config = test_config();
+        let job = make_package_job(
+            &fe,
+            &config,
+            "fe-inspecttask-package-d46b92fa1234-a1",
+            "sha256:source",
+            "sha256:artifactkey",
+            "token-1",
+            "fe-inspecttask-d46b92fa1234",
+        );
+        let labels = job.metadata.labels.as_ref().unwrap();
+        let annotations = job.metadata.annotations.as_ref().unwrap();
+        let env = job
+            .spec
+            .as_ref()
+            .unwrap()
+            .template
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers[0]
+            .env
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|env| (env.name.as_str(), env.value.as_deref().unwrap_or_default()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(labels[LABEL_FE_NAME], "inspecttask");
+        assert_eq!(labels[LABEL_FE_UID], "fe-uid");
+        assert_eq!(labels[LABEL_SOURCE_HASH_SHORT], "source");
+        assert_eq!(labels[LABEL_ARTIFACT_KEY_SHORT], "artifactkey");
+        assert_eq!(annotations[ANNO_SOURCE_HASH], "sha256:source");
+        assert_eq!(annotations[ANNO_ARTIFACT_KEY], "sha256:artifactkey");
+        assert_eq!(env["FE_UID"], "fe-uid");
+        assert_eq!(env["ARTIFACT_KEY"], "sha256:artifactkey");
+        assert_eq!(env["REBUILD_TOKEN"], "token-1");
+    }
+
+    #[test]
+    fn artifact_configmap_requires_matching_artifact_key_annotation() {
+        let bytes = vec![1, 2, 3];
+        let digest = format!("sha256:{}", sha256_hex(&bytes));
+        let metadata = PackageArtifactMetadata {
+            name: "inspecttask".to_string(),
+            version: "0.1.0".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            media_type: "application/gzip".to_string(),
+            digest: digest.clone(),
+            size_bytes: 3,
+            source_hash: "sha256:source".to_string(),
+            generated_at: Utc::now(),
+        };
+        let mut cm = ConfigMap {
+            metadata: ObjectMeta {
+                annotations: Some(BTreeMap::from([
+                    (ANNO_SOURCE_HASH.to_string(), "sha256:source".to_string()),
+                    (
+                        ANNO_ARTIFACT_KEY.to_string(),
+                        "sha256:artifactkey".to_string(),
+                    ),
+                    (ANNO_ARTIFACT_DIGEST.to_string(), digest),
+                ])),
+                ..Default::default()
+            },
+            data: Some(BTreeMap::from([(
+                ARTIFACT_METADATA_KEY.to_string(),
+                serde_json::to_string(&metadata).unwrap(),
+            )])),
+            binary_data: Some(BTreeMap::from([(
+                PACKAGE_KEY.to_string(),
+                ByteString(bytes),
+            )])),
+            ..Default::default()
+        };
+
+        assert!(
+            artifact_metadata_from_configmap(&cm, "sha256:source", "sha256:artifactkey").is_some()
+        );
+
+        cm.metadata
+            .annotations
+            .as_mut()
+            .unwrap()
+            .insert(ANNO_ARTIFACT_KEY.to_string(), "sha256:other".to_string());
+
+        assert!(
+            artifact_metadata_from_configmap(&cm, "sha256:source", "sha256:artifactkey").is_none()
+        );
+    }
+
+    #[test]
+    fn publish_status_is_retained_only_for_same_artifact_key() {
+        let mut fe = sample_fe();
+        fe.status = Some(FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Ready,
+            observed_generation: Some(7),
+            observed_source_hash: Some("sha256:source".to_string()),
+            observed_rebuild_token: Some("token-1".to_string()),
+            artifact: Some(ExtensionArtifactStatus {
+                storage: ArtifactStorageStatus {
+                    kind: ArtifactStorageKind::ConfigMap,
+                    ref_: NamespacedResourceRef {
+                        namespace: "extension-frontend-forge".to_string(),
+                        name: "fe-inspecttask-d46b92fa1234".to_string(),
+                        uid: None,
+                    },
+                    key: PACKAGE_KEY.to_string(),
+                },
+                digest: "sha256:artifact".to_string(),
+                size_bytes: 1,
+                media_type: "application/gzip".to_string(),
+                filename: "inspecttask-0.1.0.tgz".to_string(),
+                generated_at: Utc::now(),
+                source_hash: "sha256:source".to_string(),
+                artifact_key: Some("sha256:artifactkey".to_string()),
+            }),
+            publish: Some(PublishStatus {
+                phase: PublishPhase::Succeeded,
+                artifact_digest: Some("sha256:artifact".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            retained_publish_for_artifact_key(&fe, "sha256:artifactkey")
+                .unwrap()
+                .phase,
+            PublishPhase::Succeeded
+        );
+        assert_eq!(
+            retained_publish_for_artifact_key(&fe, "sha256:newkey")
+                .unwrap()
+                .phase,
+            PublishPhase::NotRequested
+        );
     }
 
     #[test]
@@ -1523,6 +2137,7 @@ mod tests {
             phase: FrontendExtensionPhase::Ready,
             observed_generation: Some(1),
             observed_source_hash: Some("sha256:source".to_string()),
+            observed_rebuild_token: Some(String::new()),
             artifact: None,
             download: None,
             package_job: Some(PackageJobStatus {
@@ -1552,6 +2167,7 @@ mod tests {
             phase: FrontendExtensionPhase::Ready,
             observed_generation: Some(1),
             observed_source_hash: Some("sha256:source".to_string()),
+            observed_rebuild_token: Some(String::new()),
             artifact: None,
             download: None,
             package_job: None,
@@ -1614,7 +2230,8 @@ mod tests {
                     "mediaType": "application/gzip",
                     "filename": "inspecttask-0.1.0.tgz",
                     "generatedAt": "2026-04-20T10:00:00Z",
-                    "sourceHash": "sha256:previous"
+                    "sourceHash": "sha256:previous",
+                    "artifactKey": "sha256:previous-key"
                 }
             }
         }))
@@ -1724,6 +2341,7 @@ mod tests {
             job_active_deadline_seconds: 300,
             job_ttl_seconds_after_finished: Some(3600),
             artifact_retain_old_count: 1,
+            package_max_attempts: 3,
         };
         let request = PublishRequest {
             request_id: "request-1".to_string(),

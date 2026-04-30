@@ -5,7 +5,7 @@ metadata:
 spec:
   package:
     name: inspecttask
-    version: 0.1.1
+    version: 0.1.0
     displayName:
       zh: 巡检任务。
       en: Inspect Task.

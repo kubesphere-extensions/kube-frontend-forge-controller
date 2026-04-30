@@ -100,6 +100,7 @@ extensionController:
   jobActiveDeadlineSeconds: 300
   jobTtlSecondsAfterFinished: 3600
   artifactRetainOldCount: 1
+  packageMaxAttempts: 3
   podAnnotations: {}
   podLabels: {}
   podSecurityContext: {}
@@ -154,7 +155,7 @@ extensionApi:
     enabled: true
     onlyIfApiResourceExists: true
     name: ""
-    group: frontend-forge.kubesphere.io
+    group: frontend-forge-api.kubesphere.io
     version: v1alpha1
     url: ""
     caBundle: ""

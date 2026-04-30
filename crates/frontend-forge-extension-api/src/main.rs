@@ -16,9 +16,10 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use chrono::Utc;
 use frontend_forge_api::{
     ArtifactStorageKind, ExtensionArtifactStatus, FrontendExtension, FrontendExtensionPhase,
-    NamespacedResourceRef, PublishStatus,
+    NamespacedResourceRef, PublishStatus, PublishTargetKind,
 };
 use frontend_forge_common::{
     ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND,
@@ -35,8 +36,9 @@ use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
-const API_GROUP: &str = "frontend-forge.kubesphere.io";
-const API_VERSION: &str = "v1alpha1";
+const CRD_API_GROUP: &str = "frontend-forge.kubesphere.io";
+const DEFAULT_EXTENSION_API_GROUP: &str = "frontend-forge-api.kubesphere.io";
+const DEFAULT_API_VERSION: &str = "v1alpha1";
 const API_RESOURCE: &str = "frontendextensions";
 const KUBERNETES_API_PREFIX: &str = "/apis";
 const KUBESPHERE_API_PREFIX: &str = "/kapis";
@@ -141,15 +143,20 @@ struct DownloadSummary {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PublishRequest {
-    #[serde(rename = "requestId")]
+    #[serde(default, rename = "requestId")]
+    request_id: Option<String>,
+    #[serde(default, rename = "expectedArtifactDigest")]
+    expected_artifact_digest: Option<String>,
+}
+
+#[derive(Debug)]
+struct ResolvedPublishRequest {
     request_id: String,
-    #[serde(rename = "artifactDigest")]
     artifact_digest: String,
-    #[serde(default, rename = "targetRef")]
-    target_ref: Option<NamespacedResourceRef>,
-    #[serde(default, rename = "targetKind")]
-    target_kind: Option<String>,
+    target_ref: NamespacedResourceRef,
+    target_kind: String,
 }
 
 fn install_rustls_crypto_provider() {
@@ -173,8 +180,24 @@ async fn main() -> Result<(), Error> {
 
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
     let state = Arc::new(AppState { client });
-    let app = api_routes(KUBERNETES_API_PREFIX)
-        .merge(api_routes(KUBESPHERE_API_PREFIX))
+    let extension_api_group =
+        env::var("EXTENSION_API_GROUP").unwrap_or_else(|_| DEFAULT_EXTENSION_API_GROUP.to_string());
+    let extension_api_version =
+        env::var("EXTENSION_API_VERSION").unwrap_or_else(|_| DEFAULT_API_VERSION.to_string());
+    let mut app = api_routes(KUBERNETES_API_PREFIX, CRD_API_GROUP, DEFAULT_API_VERSION);
+    if extension_api_group != CRD_API_GROUP || extension_api_version != DEFAULT_API_VERSION {
+        app = app.merge(api_routes(
+            KUBERNETES_API_PREFIX,
+            &extension_api_group,
+            &extension_api_version,
+        ));
+    }
+    let app = app
+        .merge(api_routes(
+            KUBESPHERE_API_PREFIX,
+            &extension_api_group,
+            &extension_api_version,
+        ))
         .with_state(state);
 
     let bind_addr_raw =
@@ -195,10 +218,13 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn api_routes(prefix: &str) -> Router<Arc<AppState>> {
-    let resource_prefix = format!("{prefix}/{API_GROUP}/{API_VERSION}/{API_RESOURCE}");
+fn api_routes(prefix: &str, group: &str, version: &str) -> Router<Arc<AppState>> {
+    let resource_prefix = format!("{prefix}/{group}/{version}/{API_RESOURCE}");
     Router::new()
-        .route(&resource_prefix, get(list_extensions).post(create_extension))
+        .route(
+            &resource_prefix,
+            get(list_extensions).post(create_extension),
+        )
         .route(&format!("{resource_prefix}/{{name}}"), get(get_extension))
         .route(
             &format!("{resource_prefix}/{{name}}/download"),
@@ -296,14 +322,16 @@ async fn trigger_publish(
 ) -> Result<(StatusCode, Json<PublishStatus>), ApiError> {
     let extension = get_fe(&state, &name).await?;
     let artifact = ready_artifact(&extension)?;
-    if request.request_id.is_empty() {
-        return Err(ApiError::conflict("publish requestId is required"));
-    }
-    if request.artifact_digest != artifact.digest {
+    if request
+        .expected_artifact_digest
+        .as_deref()
+        .is_some_and(|expected| expected != artifact.digest)
+    {
         return Err(ApiError::conflict(
-            "publish artifactDigest does not match current ready artifact",
+            "publish expectedArtifactDigest does not match current ready artifact",
         ));
     }
+    let request = resolve_publish_request(&extension, &request, artifact)?;
 
     if let Some(current) = extension
         .status
@@ -315,30 +343,7 @@ async fn trigger_publish(
         return Ok((StatusCode::ACCEPTED, Json(current.clone())));
     }
 
-    let target_ref = request
-        .target_ref
-        .clone()
-        .or_else(|| {
-            extension
-                .spec
-                .publish_policy
-                .as_ref()
-                .and_then(|policy| policy.default_target_ref.clone())
-        })
-        .ok_or_else(|| ApiError::conflict("publish targetRef is required"))?;
-    if target_ref.namespace.is_empty() || target_ref.name.is_empty() {
-        return Err(ApiError::conflict(
-            "publish targetRef namespace and name are required",
-        ));
-    }
-    let target_kind = request.target_kind.as_deref().unwrap_or("ConfigMap");
-    if !matches!(target_kind, "ConfigMap" | "Secret") {
-        return Err(ApiError::conflict(
-            "publish targetKind must be ConfigMap or Secret",
-        ));
-    }
-
-    patch_publish_request(&state, &name, &request, &target_ref).await?;
+    patch_publish_request(&state, &name, &request).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(PublishStatus {
@@ -348,6 +353,96 @@ async fn trigger_publish(
             ..Default::default()
         }),
     ))
+}
+
+fn resolve_publish_request(
+    fe: &FrontendExtension,
+    request: &PublishRequest,
+    artifact: &ExtensionArtifactStatus,
+) -> Result<ResolvedPublishRequest, ApiError> {
+    let target_ref = publish_target_ref(fe)
+        .ok_or_else(|| ApiError::conflict("publish targetRef is required"))?;
+    if target_ref.namespace.is_empty() || target_ref.name.is_empty() {
+        return Err(ApiError::conflict(
+            "publish targetRef namespace and name are required",
+        ));
+    }
+    let target_kind = publish_target_kind(fe);
+    if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
+        return Err(ApiError::conflict(
+            "publish targetKind must be ConfigMap or Secret",
+        ));
+    }
+
+    Ok(ResolvedPublishRequest {
+        request_id: request
+            .request_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|request_id| !request_id.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| generated_publish_request_id(&artifact.digest)),
+        artifact_digest: artifact.digest.clone(),
+        target_ref,
+        target_kind,
+    })
+}
+
+fn publish_target_ref(fe: &FrontendExtension) -> Option<NamespacedResourceRef> {
+    let annos = fe.metadata.annotations.as_ref();
+    let target_name = annos
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_NAME))
+        .filter(|name| !name.is_empty());
+    if let Some(name) = target_name {
+        return Some(NamespacedResourceRef {
+            namespace: annos
+                .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_NAMESPACE))
+                .filter(|namespace| !namespace.is_empty())
+                .cloned()
+                .unwrap_or_else(|| "extension-frontend-forge".to_string()),
+            name: name.clone(),
+            uid: None,
+        });
+    }
+
+    fe.spec
+        .publish_policy
+        .as_ref()
+        .and_then(|policy| policy.default_target_ref.clone())
+}
+
+fn publish_target_kind(fe: &FrontendExtension) -> String {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
+        .filter(|kind| !kind.is_empty())
+        .cloned()
+        .or_else(|| {
+            fe.spec
+                .publish_policy
+                .as_ref()
+                .and_then(|policy| policy.default_target_kind.as_ref())
+                .map(|kind| match kind {
+                    PublishTargetKind::ConfigMap => "ConfigMap".to_string(),
+                    PublishTargetKind::Secret => "Secret".to_string(),
+                })
+        })
+        .unwrap_or_else(|| "ConfigMap".to_string())
+}
+
+fn generated_publish_request_id(artifact_digest: &str) -> String {
+    let timestamp = Utc::now().timestamp_nanos_opt().map_or_else(
+        || Utc::now().timestamp_millis().to_string(),
+        |ts| ts.to_string(),
+    );
+    let digest_suffix = artifact_digest
+        .strip_prefix("sha256:")
+        .unwrap_or(artifact_digest)
+        .chars()
+        .take(12)
+        .collect::<String>();
+    format!("api-{timestamp}-{digest_suffix}")
 }
 
 async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiError> {
@@ -461,8 +556,7 @@ fn verify_artifact_digest(bytes: &[u8], expected: &str) -> Result<(), ApiError> 
 async fn patch_publish_request(
     state: &AppState,
     name: &str,
-    request: &PublishRequest,
-    target_ref: &NamespacedResourceRef,
+    request: &ResolvedPublishRequest,
 ) -> Result<(), ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
     let patch = json!({
@@ -470,9 +564,9 @@ async fn patch_publish_request(
             "annotations": {
                 ANNO_PUBLISH_REQUEST_ID: request.request_id.clone(),
                 ANNO_PUBLISH_ARTIFACT_DIGEST: request.artifact_digest.clone(),
-                ANNO_PUBLISH_TARGET_KIND: request.target_kind.clone().unwrap_or_else(|| "ConfigMap".to_string()),
-                ANNO_PUBLISH_TARGET_NAMESPACE: target_ref.namespace.clone(),
-                ANNO_PUBLISH_TARGET_NAME: target_ref.name.clone(),
+                ANNO_PUBLISH_TARGET_KIND: request.target_kind.clone(),
+                ANNO_PUBLISH_TARGET_NAMESPACE: request.target_ref.namespace.clone(),
+                ANNO_PUBLISH_TARGET_NAME: request.target_ref.name.clone(),
             }
         }
     });
@@ -485,7 +579,8 @@ async fn patch_publish_request(
 #[cfg(test)]
 mod tests {
     use frontend_forge_api::{
-        ArtifactStorageStatus, ExtensionDownloadStatus, FrontendExtensionStatus,
+        ArtifactStorageStatus, ExtensionDownloadStatus, FrontendExtensionStatus, PublishPolicyMode,
+        PublishPolicySpec,
     };
     use kube::core::ObjectMeta;
 
@@ -541,6 +636,7 @@ spec:
                 filename: "inspecttask-0.1.0.tgz".to_string(),
                 generated_at: chrono::Utc::now(),
                 source_hash: "sha256:old".to_string(),
+                artifact_key: Some("sha256:artifact-key".to_string()),
             }),
             download: Some(ExtensionDownloadStatus {
                 ready: true,
@@ -551,6 +647,49 @@ spec:
         });
 
         assert!(ready_artifact(&fe).is_err());
+    }
+
+    #[test]
+    fn resolve_publish_request_uses_fe_publish_policy_and_current_artifact() {
+        let mut fe = ready_fe();
+        fe.spec.publish_policy = Some(PublishPolicySpec {
+            mode: PublishPolicyMode::Manual,
+            default_target_kind: Some(PublishTargetKind::Secret),
+            default_target_ref: Some(NamespacedResourceRef {
+                namespace: "extension-frontend-forge".to_string(),
+                name: "ksbuilder-publish-config".to_string(),
+                uid: None,
+            }),
+        });
+        let artifact = ExtensionArtifactStatus {
+            storage: ArtifactStorageStatus {
+                kind: ArtifactStorageKind::ConfigMap,
+                ref_: NamespacedResourceRef {
+                    namespace: "extension-frontend-forge".to_string(),
+                    name: "fe-inspecttask-a1b2c3d4".to_string(),
+                    uid: None,
+                },
+                key: "package.tgz".to_string(),
+            },
+            digest: "sha256:artifact".to_string(),
+            size_bytes: 1,
+            media_type: "application/gzip".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            generated_at: chrono::Utc::now(),
+            source_hash: "sha256:source".to_string(),
+            artifact_key: Some("sha256:artifact-key".to_string()),
+        };
+        let request = PublishRequest {
+            request_id: Some(" request-1 ".to_string()),
+            expected_artifact_digest: None,
+        };
+
+        let resolved = resolve_publish_request(&fe, &request, &artifact).unwrap();
+
+        assert_eq!(resolved.request_id, "request-1");
+        assert_eq!(resolved.artifact_digest, "sha256:artifact");
+        assert_eq!(resolved.target_kind, "Secret");
+        assert_eq!(resolved.target_ref.name, "ksbuilder-publish-config");
     }
 
     #[test]
@@ -589,6 +728,7 @@ spec:
                 filename: "inspecttask-0.1.0.tgz".to_string(),
                 generated_at: chrono::Utc::now(),
                 source_hash: "sha256:source".to_string(),
+                artifact_key: Some("sha256:artifact-key".to_string()),
             }),
             download: Some(ExtensionDownloadStatus {
                 ready: false,

@@ -33,9 +33,14 @@ available, the chart registers the FrontendExtension API through APIService:
 extensionApi:
   apiService:
     enabled: true
-    group: frontend-forge.kubesphere.io
+    group: frontend-forge-api.kubesphere.io
     version: v1alpha1
 ```
 
-This exposes the publish endpoint through ks-apiserver while the backend remains
-the chart service `frontend-forge-extension-api`.
+This exposes publisher endpoints through ks-apiserver under
+`/kapis/frontend-forge-api.kubesphere.io/v1alpha1/...` and the API backend also
+serves the same API group under `/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`.
+The backend remains the chart service `frontend-forge-extension-api`. The group
+intentionally differs from the FrontendExtension CRD group
+`frontend-forge.kubesphere.io`, because KubeSphere serves CRDs with
+`kubesphere.io/resource-served: 'true'` through `/kapis/<crd-group>/<version>/...`.

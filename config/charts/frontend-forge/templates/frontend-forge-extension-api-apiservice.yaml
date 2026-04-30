@@ -3,12 +3,12 @@
 apiVersion: extensions.kubesphere.io/v1alpha1
 kind: APIService
 metadata:
-  name: {{ include "frontend-forge.extensionApiAPIServiceName" . }}
+  name: {{ include "frontend-forge.extensionApiAPIServiceName" . | quote }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "component" "extension-api") | nindent 4 }}
 spec:
-  group: {{ .Values.extensionApi.apiService.group | quote }}
-  version: {{ .Values.extensionApi.apiService.version | quote }}
+  group: {{ include "frontend-forge.extensionApiAPIServiceGroup" . | quote }}
+  version: {{ include "frontend-forge.extensionApiAPIServiceVersion" . | quote }}
   url: {{ include "frontend-forge.extensionApiAPIServiceURL" . | quote }}
   {{- with .Values.extensionApi.apiService.caBundle }}
   caBundle: {{ . | quote }}
@@ -16,4 +16,6 @@ spec:
   {{- if ne .Values.extensionApi.apiService.insecureSkipTLSVerify nil }}
   insecureSkipTLSVerify: {{ .Values.extensionApi.apiService.insecureSkipTLSVerify }}
   {{- end }}
+status:
+  state: Available
 {{- end }}

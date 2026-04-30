@@ -48,6 +48,10 @@ spec:
           env:
             - name: EXTENSION_API_BIND_ADDR
               value: {{ .Values.extensionApi.bindAddr | quote }}
+            - name: EXTENSION_API_GROUP
+              value: {{ include "frontend-forge.extensionApiAPIServiceGroup" . | quote }}
+            - name: EXTENSION_API_VERSION
+              value: {{ include "frontend-forge.extensionApiAPIServiceVersion" . | quote }}
           {{- with .Values.extensionApi.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
