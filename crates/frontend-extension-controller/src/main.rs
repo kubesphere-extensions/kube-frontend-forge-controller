@@ -426,7 +426,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                         &artifact_key,
                         &cm,
                         metadata,
-                        Some(package_job_status(&job)),
+                        Some(package_job_status(job)),
                     );
                     apply_publish_sync(&mut status, &publish);
                     patch_fe_status(&fe_api, &fe, status).await?;
