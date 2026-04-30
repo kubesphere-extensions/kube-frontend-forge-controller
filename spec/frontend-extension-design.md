@@ -202,6 +202,7 @@ spec:
 
   publishPolicy:
     mode: Manual
+    defaultTargetKind: ConfigMap
     defaultTargetRef:
       namespace: extension-frontend-forge
       name: ksbuilder-publish-config
@@ -245,6 +246,7 @@ spec:
 | `spec.source.inline.frontend` | 前端菜单、页面、locales 等渲染输入。 |
 | `spec.source.inline.extensionResources` | install-time Kubernetes 资源声明，包括 `jsBundle`。 |
 | `spec.publishPolicy.mode` | publish 策略。当前建议 `Manual`，未来可扩展 `Auto`、`Disabled`。 |
+| `spec.publishPolicy.defaultTargetKind` | 默认 publish target 类型，支持 `ConfigMap` 或 `Secret`。 |
 | `spec.publishPolicy.defaultTargetRef` | 默认 publish target 配置引用，通常指向包含 registry/ksbuilder 配置的 Secret 或 ConfigMap。 |
 
 `spec.source.inline.frontend` 与 `FrontendIntegration.spec` 可以共享菜单、页面、locales 的 schema，但不应完整复用 FI spec：
@@ -430,7 +432,7 @@ if status.artifact.sourceHash != status.observedSourceHash:
 ### 6.2 Publish 请求是否命中过期产物
 
 ```text
-if request.artifactDigest != status.artifact.digest:
+if request.expectedArtifactDigest is set and request.expectedArtifactDigest != status.artifact.digest:
     返回 409 Conflict
 ```
 
@@ -577,9 +579,9 @@ package Job 不应创建 `JSBundle`，也不应调用 install 逻辑。
 publish Job 的职责：
 
 - 读取 `FrontendExtension.status.artifact` 指向的 package。
-- 校验请求中的 `artifactDigest` 与当前 status digest 一致。
+- 校验请求中的 `expectedArtifactDigest` 与当前 status digest 一致。
 - 解包或挂载 package。
-- 使用 `publishPolicy.defaultTargetRef` 或请求中的 targetRef 获取 publish 配置。
+- 使用 `publishPolicy.defaultTargetKind/defaultTargetRef` 获取 publish 配置。
 - 调用 `ksbuilder publish`。
 - 将结果反馈给 controller，由 controller 更新 `status.publish`。
 
@@ -711,12 +713,12 @@ HTTP API 是产品 API，不应泄漏 artifact ConfigMap 的内部结构。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions` | 创建 `FrontendExtension`。适合 UI 表单创建，也可仅支持 Kubernetes API 创建。 |
-| `GET` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions` | 列表，返回 metadata、package、phase、download ready、publish phase。 |
-| `GET` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/{name}` | 查询详情。 |
-| `GET` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/{name}/download` | 下载当前 Ready artifact。 |
-| `POST` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/{name}/publish` | 触发 publish Job。 |
-| `GET` | `/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/{name}/publish` | 查询最近一次 publish 状态。 |
+| `POST` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions` | 创建 `FrontendExtension`。适合 UI 表单创建，也可仅支持 Kubernetes API 创建。 |
+| `GET` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions` | 列表，返回 metadata、package、phase、download ready、publish phase。 |
+| `GET` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/{name}` | 查询详情。 |
+| `GET` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/{name}/download` | 下载当前 Ready artifact。 |
+| `POST` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/{name}/publish` | 触发 publish Job。 |
+| `GET` | `/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/{name}/publish` | 查询最近一次 publish 状态。 |
 
 列表响应示例：
 
@@ -752,21 +754,17 @@ publish 请求示例：
 ```json
 {
   "requestId": "20260420-100000",
-  "artifactDigest": "sha256:ddee1122...",
-  "targetRef": {
-    "namespace": "extension-frontend-forge",
-    "name": "ksbuilder-publish-config"
-  }
+  "expectedArtifactDigest": "sha256:ddee1122..."
 }
 ```
 
 publish API 行为：
 
-- `artifactDigest` 必填。
-- 当 `artifactDigest != status.artifact.digest` 时返回 `409 Conflict`。
+- `requestId` 可选；不传时由 API 生成请求 id。
+- `expectedArtifactDigest` 可选；传入时必须等于 `status.artifact.digest`，否则返回 `409 Conflict`。
 - 当 artifact 未 Ready 时返回 `409 Conflict`。
 - 当已有同一 `requestId` 的 publish Job 时返回当前状态，保证幂等。
-- targetRef 缺省时使用 `spec.publishPolicy.defaultTargetRef`。
+- 使用 `spec.publishPolicy.defaultTargetKind/defaultTargetRef` 作为 publish target。
 
 下载 API 行为：
 

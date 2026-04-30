@@ -166,6 +166,12 @@ pub struct PublishPolicySpec {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
+        rename = "defaultTargetKind"
+    )]
+    pub default_target_kind: Option<PublishTargetKind>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
         rename = "defaultTargetRef"
     )]
     pub default_target_ref: Option<NamespacedResourceRef>,
@@ -175,6 +181,13 @@ pub struct PublishPolicySpec {
 #[serde(rename_all = "PascalCase")]
 pub enum PublishPolicyMode {
     Manual,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum PublishTargetKind {
+    ConfigMap,
+    Secret,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
@@ -462,6 +475,7 @@ spec:
           name: inspecttask
   publishPolicy:
     mode: Manual
+    defaultTargetKind: Secret
     defaultTargetRef:
       namespace: extension-frontend-forge
       name: ksbuilder-publish-config
@@ -472,6 +486,13 @@ spec:
         assert_eq!(fe.spec.package.version, "0.1.0");
         assert_eq!(fe.spec.package.name.as_deref(), Some("inspecttask"));
         assert_eq!(fe.spec.package.display_name["en"], "Inspect Task");
+        assert_eq!(
+            fe.spec
+                .publish_policy
+                .as_ref()
+                .and_then(|policy| policy.default_target_kind.as_ref()),
+            Some(&PublishTargetKind::Secret)
+        );
         assert_eq!(
             fe.spec.package.provider["en"].name,
             "QingCloud Technologies"
@@ -532,6 +553,11 @@ spec:
         assert!(spec_properties.get("package").is_some());
         assert!(spec_properties.get("source").is_some());
         assert!(spec_properties.get("publishPolicy").is_some());
+        assert!(
+            spec_properties["publishPolicy"]["properties"]
+                .get("defaultTargetKind")
+                .is_some()
+        );
         assert_eq!(
             package["properties"]["displayName"]["type"],
             Value::String("object".to_string())

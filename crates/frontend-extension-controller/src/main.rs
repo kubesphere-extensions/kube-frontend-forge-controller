@@ -10,6 +10,7 @@ use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
     ExtensionDownloadStatus, FrontendExtension, FrontendExtensionPhase, FrontendExtensionStatus,
     NamespacedResourceRef, PackageJobPhase, PackageJobStatus, PublishPhase, PublishStatus,
+    PublishTargetKind,
 };
 use frontend_forge_common::{
     ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_KEY, ANNO_OBSERVED_GENERATION,
@@ -899,11 +900,14 @@ fn publish_request(
             "publish targetRef is required",
         ))
     })?;
-    let target_kind = annos
-        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
-        .filter(|kind| !kind.is_empty())
-        .cloned()
-        .unwrap_or_else(|| "ConfigMap".to_string());
+    let target_kind = publish_target_kind(fe);
+    if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
+        return Err(Box::new(failed_publish_status(
+            request_id,
+            Some(current_artifact_digest.to_string()),
+            "publish targetKind must be ConfigMap or Secret",
+        )));
+    }
 
     Ok(PublishRequest {
         request_id: request_id.to_string(),
@@ -934,6 +938,26 @@ fn publish_target_ref(fe: &FrontendExtension) -> Option<NamespacedResourceRef> {
         .publish_policy
         .as_ref()
         .and_then(|policy| policy.default_target_ref.clone())
+}
+
+fn publish_target_kind(fe: &FrontendExtension) -> String {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_PUBLISH_TARGET_KIND))
+        .filter(|kind| !kind.is_empty())
+        .cloned()
+        .or_else(|| {
+            fe.spec
+                .publish_policy
+                .as_ref()
+                .and_then(|policy| policy.default_target_kind.as_ref())
+                .map(|kind| match kind {
+                    PublishTargetKind::ConfigMap => "ConfigMap".to_string(),
+                    PublishTargetKind::Secret => "Secret".to_string(),
+                })
+        })
+        .unwrap_or_else(|| "ConfigMap".to_string())
 }
 
 fn failed_publish_status(

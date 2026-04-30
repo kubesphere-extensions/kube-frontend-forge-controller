@@ -86,7 +86,7 @@ HELM_FORCE_CONFLICTS_ON_RETRY=false scripts/manual-build-kind-helm-install.sh
 REMOTE="" KIND_CLUSTER=fe scripts/manual-build-kind-helm-install.sh
 ```
 
-如果要测试 publish，还需要一个 publish target。`FrontendExtension.spec.publishPolicy.defaultTargetRef` 默认指向：
+如果要测试 publish，还需要一个 publish target。`FrontendExtension.spec.publishPolicy.defaultTargetKind/defaultTargetRef` 默认指向：
 
 ```bash
 export PUBLISH_TARGET_KIND="ConfigMap"
@@ -411,6 +411,7 @@ artifacts/fe-full-regression/<timestamp>
 ```yaml
 publishPolicy:
   mode: Manual
+  defaultTargetKind: ConfigMap
   defaultTargetRef:
     namespace: extension-frontend-forge
     name: ksbuilder-publish-config
@@ -431,7 +432,7 @@ kubectl -n "$NAMESPACE" create configmap "$PUBLISH_TARGET_NAME" \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-实际发布所需 key 取决于当前 `ksbuilder publish` 版本和 registry 配置要求。凭据类数据应使用 `Secret`，并在 API 请求里指定 `targetKind: Secret`。
+实际发布所需 key 取决于当前 `ksbuilder publish` 版本和 registry 配置要求。凭据类数据应使用 `Secret`，并在 `FrontendExtension.spec.publishPolicy.defaultTargetKind` 中指定 `Secret`。
 
 ### 触发 publish
 
@@ -449,16 +450,11 @@ artifact_digest="$(kubectl get frontendextension inspecttask -o jsonpath='{.stat
 request_id="manual-$(date +%Y%m%d%H%M%S)"
 
 curl -fsS -X POST \
-  "http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish" \
+  "http://127.0.0.1:18080/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish" \
   -H 'Content-Type: application/json' \
   -d "{
     \"requestId\": \"${request_id}\",
-    \"artifactDigest\": \"${artifact_digest}\",
-    \"targetKind\": \"${PUBLISH_TARGET_KIND}\",
-    \"targetRef\": {
-      \"namespace\": \"${PUBLISH_TARGET_NAMESPACE}\",
-      \"name\": \"${PUBLISH_TARGET_NAME}\"
-    }
+    \"expectedArtifactDigest\": \"${artifact_digest}\"
   }"
 ```
 
@@ -466,7 +462,7 @@ curl -fsS -X POST \
 
 ```bash
 curl -fsS \
-  "http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish"
+  "http://127.0.0.1:18080/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish"
 
 kubectl get frontendextension inspecttask \
   -o jsonpath='{.status.publish.phase}{"\n"}{.status.publish.jobRef.name}{"\n"}{.status.publish.lastError}{"\n"}'

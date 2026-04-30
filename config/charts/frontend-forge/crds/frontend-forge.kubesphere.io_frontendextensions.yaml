@@ -127,6 +127,13 @@ spec:
               publishPolicy:
                 nullable: true
                 properties:
+                  defaultTargetKind:
+                    enum:
+                    - ConfigMap
+                    - Secret
+                    - null
+                    nullable: true
+                    type: string
                   defaultTargetRef:
                     nullable: true
                     properties:
