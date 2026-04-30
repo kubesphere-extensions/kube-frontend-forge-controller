@@ -10,7 +10,7 @@ use frontend_forge_api::{
     JsBundleRawFromSpec, JsBundleSpec, JsBundleStatus, LastBuildError,
 };
 use frontend_forge_build_service_client::{
-    BuildServiceClient, BuildServiceError, select_bundle_artifact,
+    BuildServiceClient, BuildServiceError, RemoteFile, select_bundle_artifact,
 };
 use frontend_forge_common::{
     ANNO_BUILD_JOB, ANNO_MANIFEST_CONTENT, ANNO_MANIFEST_HASH, ANNO_SOURCE_GENERATION,
@@ -28,6 +28,10 @@ use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
+
+const BUILD_SERVICE_REQUEST_RETRY_WINDOW_SECONDS: u64 = 60;
+const BUILD_SERVICE_REQUEST_RETRY_INITIAL_DELAY_SECONDS: u64 = 1;
+const BUILD_SERVICE_REQUEST_RETRY_MAX_DELAY_SECONDS: u64 = 5;
 
 #[derive(Debug, Snafu)]
 enum Error {
@@ -196,8 +200,7 @@ async fn run() -> Result<(), Error> {
             manifest_hash = %manifest_hash,
             "starting build runner"
         );
-        let files = build_client
-            .build_project(&manifest)
+        let files = build_project_with_retry(&build_client, &manifest)
             .await
             .context(BuildServiceSnafu)?;
         info!(files = files.len(), "build artifacts fetched");
@@ -244,6 +247,45 @@ async fn run() -> Result<(), Error> {
     }
 
     outcome
+}
+
+async fn build_project_with_retry(
+    build_client: &BuildServiceClient,
+    manifest: &str,
+) -> Result<Vec<RemoteFile>, BuildServiceError> {
+    let deadline = Instant::now() + Duration::from_secs(BUILD_SERVICE_REQUEST_RETRY_WINDOW_SECONDS);
+    let mut attempt = 1_u64;
+    let mut delay = Duration::from_secs(BUILD_SERVICE_REQUEST_RETRY_INITIAL_DELAY_SECONDS);
+
+    loop {
+        match build_client.build_project(manifest).await {
+            Ok(files) => return Ok(files),
+            Err(err) if is_retryable_build_service_error(&err) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let sleep_for = delay.min(remaining);
+                if sleep_for.is_zero() {
+                    return Err(err);
+                }
+
+                warn!(
+                    attempt,
+                    retry_in_ms = sleep_for.as_millis() as u64,
+                    error = %err,
+                    "build-service request failed; retrying"
+                );
+                sleep(sleep_for).await;
+                attempt += 1;
+                delay = (delay + delay).min(Duration::from_secs(
+                    BUILD_SERVICE_REQUEST_RETRY_MAX_DELAY_SECONDS,
+                ));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+fn is_retryable_build_service_error(err: &BuildServiceError) -> bool {
+    matches!(err, BuildServiceError::Request { .. })
 }
 
 async fn stale_check(

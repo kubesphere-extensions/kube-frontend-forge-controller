@@ -398,23 +398,26 @@ run_fe_e2e_test() {
     --address 127.0.0.1 "${EXTENSION_API_LOCAL_PORT}:80" > "$port_forward_log" 2>&1 &
   port_forward_pid="$!"
 
-  cleanup_extension_api_port_forward() {
-    trap - RETURN
-    if [[ -n "$port_forward_pid" ]] && kill -0 "$port_forward_pid" >/dev/null 2>&1; then
+  local status=0
+  if ! wait_until "$READINESS_TIMEOUT_SECONDS" curl -fsS "$download_api_base_url"; then
+    status=1
+  elif ! KUBECONFIG_PATH="$kubeconfig_path" \
+    FRONTEND_FORGE_NAMESPACE="$FRONTEND_FORGE_NAMESPACE" \
+    ARTIFACT_DIR="$ARTIFACT_DIR/fe-full-regression" \
+    DOWNLOAD_API_BASE_URL="$download_api_base_url" \
+    EXPECTED_PACKAGER_IMAGE="$FRONTEND_EXTENSION_PACKAGER_IMAGE" \
+    "$FE_FULL_REGRESSION_SCRIPT" | tee "$ARTIFACT_DIR/fe-full-regression.log"; then
+    status=1
+  fi
+
+  if [[ -n "$port_forward_pid" ]]; then
+    if kill -0 "$port_forward_pid" >/dev/null 2>&1; then
       kill "$port_forward_pid" >/dev/null 2>&1 || true
-      wait "$port_forward_pid" >/dev/null 2>&1 || true
     fi
-  }
-  trap cleanup_extension_api_port_forward RETURN
+    wait "$port_forward_pid" >/dev/null 2>&1 || true
+  fi
 
-  wait_until "$READINESS_TIMEOUT_SECONDS" curl -fsS "$download_api_base_url" || return 1
-
-  KUBECONFIG_PATH="$kubeconfig_path" \
-  FRONTEND_FORGE_NAMESPACE="$FRONTEND_FORGE_NAMESPACE" \
-  ARTIFACT_DIR="$ARTIFACT_DIR/fe-full-regression" \
-  DOWNLOAD_API_BASE_URL="$download_api_base_url" \
-  EXPECTED_PACKAGER_IMAGE="$FRONTEND_EXTENSION_PACKAGER_IMAGE" \
-  "$FE_FULL_REGRESSION_SCRIPT" | tee "$ARTIFACT_DIR/fe-full-regression.log"
+  return "$status"
 }
 
 collect_failure_artifacts() {
