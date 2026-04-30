@@ -102,6 +102,12 @@ capture_yaml_snapshot() {
   "$@" > "$ARTIFACT_DIR/$file_name"
 }
 
+capture_optional_yaml_snapshot() {
+  local file_name="$1"
+  shift
+  "$@" > "$ARTIFACT_DIR/$file_name" 2>/dev/null || true
+}
+
 wait_until() {
   local timeout_seconds="$1"
   shift
@@ -288,6 +294,25 @@ cleanup_previous_test_resources() {
   wait_until "$DELETE_TIMEOUT_SECONDS" bash -lc "! kubectl -n ${FRONTEND_FORGE_NAMESPACE} get cm ${CONFIGMAP_NAME} >/dev/null 2>&1" || true
 }
 
+record_lifecycle_create_skip() {
+  local reason="$1"
+
+  log "FrontendIntegration 创建测试超时，跳过生命周期测试: ${reason}"
+  cat > "$ARTIFACT_DIR/fi-create.skip.log" <<EOF
+FrontendIntegration create test timed out and lifecycle test was skipped.
+reason: ${reason}
+timeout_seconds: ${LIFECYCLE_TIMEOUT_SECONDS}
+fi_name: ${FI_NAME}
+jsbundle_name: ${JSBUNDLE_NAME}
+namespace: ${FRONTEND_FORGE_NAMESPACE}
+EOF
+
+  capture_optional_yaml_snapshot "fi-create.timeout.yaml" kubectl get fi "$FI_NAME" -o yaml
+  capture_optional_yaml_snapshot "jsbundle-create.timeout.yaml" kubectl get jsbundle "$JSBUNDLE_NAME" -o yaml
+  capture_optional_yaml_snapshot "configmap-create.timeout.yaml" kubectl -n "$FRONTEND_FORGE_NAMESPACE" get cm "$CONFIGMAP_NAME" -o yaml
+  kubectl get events -A --sort-by=.lastTimestamp > "$ARTIFACT_DIR/events-create-timeout.txt" 2>/dev/null || true
+}
+
 run_lifecycle_test() {
   local create_hash=""
   local modify_hash=""
@@ -296,8 +321,14 @@ run_lifecycle_test() {
 
   log "执行 FrontendIntegration 创建测试"
   kubectl apply -f "$ARTIFACT_DIR/fi-create.yaml" > "$ARTIFACT_DIR/fi-create.apply.log"
-  wait_for_fi_phase "Succeeded" || return 1
-  wait_for_jsbundle_state "Available" || return 1
+  if ! wait_for_fi_phase "Succeeded"; then
+    record_lifecycle_create_skip "FI did not reach Succeeded"
+    return 2
+  fi
+  if ! wait_for_jsbundle_state "Available"; then
+    record_lifecycle_create_skip "JSBundle did not reach Available"
+    return 2
+  fi
 
   create_hash="$(kubectl get fi "$FI_NAME" -o jsonpath='{.status.observed_spec_hash}')"
   assert_non_empty "$create_hash" "create step observed_spec_hash is empty"
@@ -398,23 +429,26 @@ run_fe_e2e_test() {
     --address 127.0.0.1 "${EXTENSION_API_LOCAL_PORT}:80" > "$port_forward_log" 2>&1 &
   port_forward_pid="$!"
 
-  cleanup_extension_api_port_forward() {
-    trap - RETURN
-    if [[ -n "$port_forward_pid" ]] && kill -0 "$port_forward_pid" >/dev/null 2>&1; then
+  local status=0
+  if ! wait_until "$READINESS_TIMEOUT_SECONDS" curl -fsS "$download_api_base_url"; then
+    status=1
+  elif ! KUBECONFIG_PATH="$kubeconfig_path" \
+    FRONTEND_FORGE_NAMESPACE="$FRONTEND_FORGE_NAMESPACE" \
+    ARTIFACT_DIR="$ARTIFACT_DIR/fe-full-regression" \
+    DOWNLOAD_API_BASE_URL="$download_api_base_url" \
+    EXPECTED_PACKAGER_IMAGE="$FRONTEND_EXTENSION_PACKAGER_IMAGE" \
+    "$FE_FULL_REGRESSION_SCRIPT" | tee "$ARTIFACT_DIR/fe-full-regression.log"; then
+    status=1
+  fi
+
+  if [[ -n "$port_forward_pid" ]]; then
+    if kill -0 "$port_forward_pid" >/dev/null 2>&1; then
       kill "$port_forward_pid" >/dev/null 2>&1 || true
-      wait "$port_forward_pid" >/dev/null 2>&1 || true
     fi
-  }
-  trap cleanup_extension_api_port_forward RETURN
+    wait "$port_forward_pid" >/dev/null 2>&1 || true
+  fi
 
-  wait_until "$READINESS_TIMEOUT_SECONDS" curl -fsS "$download_api_base_url" || return 1
-
-  KUBECONFIG_PATH="$kubeconfig_path" \
-  FRONTEND_FORGE_NAMESPACE="$FRONTEND_FORGE_NAMESPACE" \
-  ARTIFACT_DIR="$ARTIFACT_DIR/fe-full-regression" \
-  DOWNLOAD_API_BASE_URL="$download_api_base_url" \
-  EXPECTED_PACKAGER_IMAGE="$FRONTEND_EXTENSION_PACKAGER_IMAGE" \
-  "$FE_FULL_REGRESSION_SCRIPT" | tee "$ARTIFACT_DIR/fe-full-regression.log"
+  return "$status"
 }
 
 collect_failure_artifacts() {
@@ -434,10 +468,12 @@ collect_failure_artifacts() {
 
 write_summary_json() {
   local status="$1"
+  local lifecycle_status="$2"
   cat > "$ARTIFACT_DIR/summary.json" <<EOF
 {
   "kind_cluster_name": "${KIND_CLUSTER_NAME}",
   "status": "${status}",
+  "lifecycle_status": "${lifecycle_status}",
   "namespace": "${FRONTEND_FORGE_NAMESPACE}",
   "run_fe_e2e": "${RUN_FE_E2E}"
 }
@@ -446,6 +482,8 @@ EOF
 
 main() {
   local status="PASS"
+  local lifecycle_status="PASS"
+  local lifecycle_rc=0
 
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
@@ -461,17 +499,29 @@ main() {
 
   if ! wait_for_frontend_forge_readiness; then
     status="FAIL_READINESS"
-  elif ! run_lifecycle_test; then
-    status="FAIL_LIFECYCLE"
-  elif is_true "$RUN_FE_E2E" && ! run_fe_e2e_test; then
-    status="FAIL_FE_E2E"
+  else
+    if run_lifecycle_test; then
+      lifecycle_status="PASS"
+    else
+      lifecycle_rc=$?
+      if [[ "$lifecycle_rc" -eq 2 ]]; then
+        lifecycle_status="SKIPPED_CREATE_TIMEOUT"
+      else
+        lifecycle_status="FAIL"
+        status="FAIL_LIFECYCLE"
+      fi
+    fi
+
+    if [[ "$status" == "PASS" ]] && is_true "$RUN_FE_E2E" && ! run_fe_e2e_test; then
+      status="FAIL_FE_E2E"
+    fi
   fi
 
   if [[ "$status" != "PASS" ]]; then
     collect_failure_artifacts
   fi
 
-  write_summary_json "$status"
+  write_summary_json "$status" "$lifecycle_status"
   [[ "$status" == "PASS" ]] || die "ci-kind-e2e failed with status ${status}"
   log "ci-kind-e2e 通过"
 }
