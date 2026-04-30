@@ -130,7 +130,17 @@ Create the name of the runner service account to use.
 {{- end }}
 
 {{- define "frontend-forge.extensionApiAPIServiceName" -}}
-{{- default (printf "%s.%s" .Values.extensionApi.apiService.version .Values.extensionApi.apiService.group) .Values.extensionApi.apiService.name -}}
+{{- $group := include "frontend-forge.extensionApiAPIServiceGroup" . -}}
+{{- $version := include "frontend-forge.extensionApiAPIServiceVersion" . -}}
+{{- default (printf "%s.%s" $version $group) .Values.extensionApi.apiService.name -}}
+{{- end }}
+
+{{- define "frontend-forge.extensionApiAPIServiceGroup" -}}
+{{- default "frontend-forge-api.kubesphere.io" .Values.extensionApi.apiService.group -}}
+{{- end }}
+
+{{- define "frontend-forge.extensionApiAPIServiceVersion" -}}
+{{- default "v1alpha1" .Values.extensionApi.apiService.version -}}
 {{- end }}
 
 {{- define "frontend-forge.extensionApiAPIServiceURL" -}}
