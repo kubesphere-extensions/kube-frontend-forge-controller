@@ -86,9 +86,9 @@ migration:
     backoffLimit: 0
     hookDeletePolicy: before-hook-creation
     activeDeadlineSeconds: null
-    ksApiserverBaseUrl: https://ks-apiserver.kubesphere-system.svc
-    ksApiserverInsecureSkipTlsVerify: false
-    ksApiserverCaCertPath: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    feApiBaseUrl: ""
+    feApiInsecureSkipTlsVerify: false
+    feApiCaCertPath: ""
     publishTarget:
       kind: ConfigMap
       namespace: ""

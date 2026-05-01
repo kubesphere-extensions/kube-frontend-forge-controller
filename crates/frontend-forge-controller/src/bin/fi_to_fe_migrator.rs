@@ -10,8 +10,7 @@ use frontend_forge_common::sha256_hex;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     Api, Client, Resource, ResourceExt,
-    api::{DeleteParams, DynamicObject, Patch, PatchParams, PostParams},
-    core::{ApiResource, GroupVersionKind},
+    api::{DeleteParams, Patch, PatchParams, PostParams},
 };
 use reqwest::StatusCode;
 use serde_json::{Value, json};
@@ -27,12 +26,10 @@ const DEFAULT_PACKAGE_VERSION: &str = "0.1.0";
 const DEFAULT_SCHEMA_VERSION: &str = "v1";
 const DEFAULT_READY_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
-const DEFAULT_KS_APISERVER_BASE_URL: &str = "https://ks-apiserver.kubesphere-system.svc";
+const DEFAULT_FE_API_BASE_URL: &str =
+    "http://frontend-forge-extension-api.extension-frontend-forge.svc";
 const DEFAULT_FE_API_GROUP: &str = "frontend-forge-api.kubesphere.io";
 const DEFAULT_FE_API_VERSION: &str = "v1alpha1";
-const DEFAULT_API_SERVICE_NAME: &str = "v1alpha1.frontend-forge-api.kubesphere.io";
-const DEFAULT_TOKEN_PATH: &str = "/var/run/secrets/kubernetes.io/serviceaccount/token";
-const DEFAULT_CA_CERT_PATH: &str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt";
 const DEFAULT_PUBLISH_TARGET_KIND: &str = "ConfigMap";
 const DEFAULT_PUBLISH_TARGET_NAME: &str = "ksbuilder-publish-config";
 
@@ -70,13 +67,11 @@ struct MigratorConfig {
     schema_version: String,
     ready_timeout: Duration,
     poll_interval: Duration,
-    ks_apiserver_base_url: String,
-    ks_apiserver_insecure_skip_tls_verify: bool,
-    ks_apiserver_ca_cert_path: Option<String>,
-    service_account_token_path: Option<String>,
+    fe_api_base_url: String,
+    fe_api_insecure_skip_tls_verify: bool,
+    fe_api_ca_cert_path: Option<String>,
     fe_api_group: String,
     fe_api_version: String,
-    fe_api_service_name: String,
     publish_target_kind: PublishTargetKind,
     publish_target_namespace: String,
     publish_target_name: String,
@@ -97,23 +92,17 @@ impl MigratorConfig {
                 "POLL_INTERVAL_SECONDS",
                 DEFAULT_POLL_INTERVAL_SECONDS,
             )?),
-            ks_apiserver_base_url: trim_trailing_slash(&env_or(
-                "KS_APISERVER_BASE_URL",
-                DEFAULT_KS_APISERVER_BASE_URL,
+            fe_api_base_url: trim_trailing_slash(&env_or(
+                "FE_API_BASE_URL",
+                DEFAULT_FE_API_BASE_URL,
             )),
-            ks_apiserver_insecure_skip_tls_verify: parse_env_bool(
-                "KS_APISERVER_INSECURE_SKIP_TLS_VERIFY",
+            fe_api_insecure_skip_tls_verify: parse_env_bool(
+                "FE_API_INSECURE_SKIP_TLS_VERIFY",
                 false,
             )?,
-            ks_apiserver_ca_cert_path: optional_env("KS_APISERVER_CA_CERT_PATH")
-                .or_else(|| Some(DEFAULT_CA_CERT_PATH.to_string()))
-                .filter(|path| !path.is_empty()),
-            service_account_token_path: optional_env("SERVICE_ACCOUNT_TOKEN_PATH")
-                .or_else(|| Some(DEFAULT_TOKEN_PATH.to_string()))
-                .filter(|path| !path.is_empty()),
+            fe_api_ca_cert_path: optional_env("FE_API_CA_CERT_PATH"),
             fe_api_group: env_or("FE_API_GROUP", DEFAULT_FE_API_GROUP),
             fe_api_version: env_or("FE_API_VERSION", DEFAULT_FE_API_VERSION),
-            fe_api_service_name: env_or("FE_API_SERVICE_NAME", DEFAULT_API_SERVICE_NAME),
             publish_target_kind,
             publish_target_namespace: required_env("PUBLISH_TARGET_NAMESPACE")?,
             publish_target_name: env_or("PUBLISH_TARGET_NAME", DEFAULT_PUBLISH_TARGET_NAME),
@@ -216,21 +205,18 @@ async fn wait_for_prerequisites(client: &Client, cfg: &MigratorConfig) -> Result
     loop {
         let fi = frontend_integration_crd_ready(client).await;
         let fe = frontend_extension_crd_ready(client).await;
-        let api_service = frontend_extension_api_service_ready(client, cfg).await;
 
-        match (&fi, &fe, &api_service) {
-            (Ok(()), Ok(()), Ok(())) => {
+        match (&fi, &fe) {
+            (Ok(()), Ok(())) => {
                 info!("migration prerequisites are ready");
                 return Ok(());
             }
             _ if Instant::now() >= deadline => {
                 return Err(Error::Message {
                     message: format!(
-                        "timed out waiting for migration prerequisites: fi={:?}; fe={:?}; \
-                         apiService={:?}",
+                        "timed out waiting for migration prerequisites: fi={:?}; fe={:?}",
                         fi.err(),
                         fe.err(),
-                        api_service.err()
                     ),
                 });
             }
@@ -238,7 +224,6 @@ async fn wait_for_prerequisites(client: &Client, cfg: &MigratorConfig) -> Result
                 warn!(
                     fi_ready = fi.is_ok(),
                     fe_ready = fe.is_ok(),
-                    api_service_ready = api_service.is_ok(),
                     "waiting for migration prerequisites"
                 );
                 sleep(cfg.poll_interval).await;
@@ -283,49 +268,6 @@ async fn crd_ready(client: &Client, name: &str, require_status_subresource: bool
     if require_status_subresource && !crd_has_v1alpha1_status_subresource(&value) {
         return Err(Error::Message {
             message: format!("CRD {name} does not serve v1alpha1 status subresource"),
-        });
-    }
-    Ok(())
-}
-
-async fn frontend_extension_api_service_ready(client: &Client, cfg: &MigratorConfig) -> Result<()> {
-    let gvk = GroupVersionKind::gvk("extensions.kubesphere.io", "v1alpha1", "APIService");
-    let resource = ApiResource::from_gvk_with_plural(&gvk, "apiservices");
-    let api = Api::<DynamicObject>::all_with(client.clone(), &resource);
-    let api_service = api
-        .get(&cfg.fe_api_service_name)
-        .await
-        .map_err(|source| Error::Kube {
-            action: format!("getting APIService {}", cfg.fe_api_service_name),
-            source,
-        })?;
-    let group = api_service
-        .data
-        .pointer("/spec/group")
-        .and_then(Value::as_str);
-    let version = api_service
-        .data
-        .pointer("/spec/version")
-        .and_then(Value::as_str);
-    if group != Some(cfg.fe_api_group.as_str()) || version != Some(cfg.fe_api_version.as_str()) {
-        return Err(Error::Message {
-            message: format!(
-                "APIService {} does not target {}/{}",
-                cfg.fe_api_service_name, cfg.fe_api_group, cfg.fe_api_version
-            ),
-        });
-    }
-    let state = api_service
-        .data
-        .pointer("/status/state")
-        .and_then(Value::as_str);
-    if state.is_some_and(|state| state != "Available") {
-        return Err(Error::Message {
-            message: format!(
-                "APIService {} is not Available: {}",
-                cfg.fe_api_service_name,
-                state.unwrap_or_default()
-            ),
         });
     }
     Ok(())
@@ -506,13 +448,12 @@ async fn publish_fe(
     artifact_digest: &str,
 ) -> Result<()> {
     let url = format!(
-        "{}/kapis/{}/{}/frontendextensions/{}/publish",
-        cfg.ks_apiserver_base_url, cfg.fe_api_group, cfg.fe_api_version, fe_name
+        "{}/apis/{}/{}/frontendextensions/{}/publish",
+        cfg.fe_api_base_url, cfg.fe_api_group, cfg.fe_api_version, fe_name
     );
     let request_id = publish_request_id(fe_name, artifact_digest);
     let response = http
         .post(&url)
-        .bearer_auth(read_service_account_token(cfg)?)
         .json(&json!({
             "requestId": request_id,
             "expectedArtifactDigest": artifact_digest,
@@ -538,10 +479,10 @@ async fn publish_fe(
 }
 
 fn publish_http_client(cfg: &MigratorConfig) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder()
-        .danger_accept_invalid_certs(cfg.ks_apiserver_insecure_skip_tls_verify);
-    if !cfg.ks_apiserver_insecure_skip_tls_verify
-        && let Some(path) = cfg.ks_apiserver_ca_cert_path.as_ref()
+    let mut builder =
+        reqwest::Client::builder().danger_accept_invalid_certs(cfg.fe_api_insecure_skip_tls_verify);
+    if !cfg.fe_api_insecure_skip_tls_verify
+        && let Some(path) = cfg.fe_api_ca_cert_path.as_ref()
     {
         match fs::read(path) {
             Ok(bytes) => {
@@ -565,18 +506,6 @@ fn publish_http_client(cfg: &MigratorConfig) -> Result<reqwest::Client> {
         action: "building HTTP client".to_string(),
         source,
     })
-}
-
-fn read_service_account_token(cfg: &MigratorConfig) -> Result<String> {
-    let Some(path) = cfg.service_account_token_path.as_ref() else {
-        return Ok(String::new());
-    };
-    fs::read_to_string(path)
-        .map(|token| token.trim().to_string())
-        .map_err(|source| Error::ReadFile {
-            path: path.clone(),
-            source,
-        })
 }
 
 fn frontend_extension_from_fi(
@@ -826,13 +755,12 @@ mod tests {
             schema_version: "v1".to_string(),
             ready_timeout: Duration::from_secs(1),
             poll_interval: Duration::from_millis(1),
-            ks_apiserver_base_url: "https://ks-apiserver.kubesphere-system.svc".to_string(),
-            ks_apiserver_insecure_skip_tls_verify: false,
-            ks_apiserver_ca_cert_path: None,
-            service_account_token_path: None,
+            fe_api_base_url: "http://frontend-forge-extension-api.extension-frontend-forge.svc"
+                .to_string(),
+            fe_api_insecure_skip_tls_verify: false,
+            fe_api_ca_cert_path: None,
             fe_api_group: DEFAULT_FE_API_GROUP.to_string(),
             fe_api_version: DEFAULT_FE_API_VERSION.to_string(),
-            fe_api_service_name: DEFAULT_API_SERVICE_NAME.to_string(),
             publish_target_kind: PublishTargetKind::ConfigMap,
             publish_target_namespace: "extension-frontend-forge".to_string(),
             publish_target_name: "ksbuilder-publish-config".to_string(),
@@ -962,12 +890,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn publish_fe_posts_to_ks_apiserver_kapis() {
+    async fn publish_fe_posts_directly_to_fe_api() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let token_path =
-            std::env::temp_dir().join(format!("fi-to-fe-migrator-token-{}", std::process::id()));
-        std::fs::write(&token_path, "token-1").unwrap();
 
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
@@ -991,23 +916,21 @@ mod tests {
         });
 
         let mut cfg = cfg();
-        cfg.ks_apiserver_base_url = format!("http://{addr}");
-        cfg.ks_apiserver_insecure_skip_tls_verify = true;
-        cfg.ks_apiserver_ca_cert_path = None;
-        cfg.service_account_token_path = Some(token_path.to_string_lossy().to_string());
+        cfg.fe_api_base_url = format!("http://{addr}");
+        cfg.fe_api_insecure_skip_tls_verify = true;
+        cfg.fe_api_ca_cert_path = None;
         let http = publish_http_client(&cfg).unwrap();
 
         publish_fe(&http, &cfg, "fi-demo", "sha256:abcdef1234567890")
             .await
             .unwrap();
         let request = server.await.unwrap();
-        std::fs::remove_file(token_path).unwrap();
 
         assert!(request.starts_with(
-            "POST /kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/fi-demo/\
+            "POST /apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/fi-demo/\
              publish "
         ));
-        assert!(request.contains("authorization: Bearer token-1"));
+        assert!(!request.to_ascii_lowercase().contains("authorization:"));
         assert!(request.contains("\"requestId\":\"fi-migration-fi-demo-abcdef123456\""));
         assert!(request.contains("\"expectedArtifactDigest\":\"sha256:abcdef1234567890\""));
     }

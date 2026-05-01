@@ -37,10 +37,9 @@ extensionApi:
     version: v1alpha1
 ```
 
-This exposes publisher endpoints through ks-apiserver under
-`/kapis/frontend-forge-api.kubesphere.io/v1alpha1/...` and the API backend also
-serves the same API group under `/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`.
-The backend remains the chart service `frontend-forge-extension-api`. The group
-intentionally differs from the FrontendExtension CRD group
-`frontend-forge.kubesphere.io`, because KubeSphere serves CRDs with
+The API backend serves publisher endpoints under
+`/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`. The FI to FE migrator
+calls the chart service `frontend-forge-extension-api` directly instead of going
+through ks-apiserver. The group intentionally differs from the FrontendExtension
+CRD group `frontend-forge.kubesphere.io`, because KubeSphere serves CRDs with
 `kubesphere.io/resource-served: 'true'` through `/kapis/<crd-group>/<version>/...`.
