@@ -7,6 +7,7 @@ global:
   imagePullSecrets: []
 
 controller:
+  enabled: false
   workNamespace: ""
   jsbundleConfigmapNamespace: ""
   runnerServiceAccountName: ""
@@ -74,6 +75,33 @@ affinity: {}
 
 crds:
   installJsBundle: false
+
+migration:
+  fiToFe:
+    enabled: true
+    packageVersion: "0.1.0"
+    schemaVersion: v1
+    readyTimeoutSeconds: 600
+    pollIntervalSeconds: 5
+    backoffLimit: 0
+    hookDeletePolicy: before-hook-creation
+    activeDeadlineSeconds: null
+    ksApiserverBaseUrl: https://ks-apiserver.kubesphere-system.svc
+    ksApiserverInsecureSkipTlsVerify: false
+    ksApiserverCaCertPath: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    publishTarget:
+      kind: ConfigMap
+      namespace: ""
+      name: ksbuilder-publish-config
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
 
 extensionController:
   enabled: true

@@ -93,6 +93,14 @@ Create the name of the runner service account to use.
 {{- end }}
 {{- end }}
 
+{{- define "frontend-forge.fiToFeMigratorServiceAccountName" -}}
+{{- if .Values.migration.fiToFe.serviceAccount.create }}
+{{- default (printf "%s-fi-to-fe-migrator" (include "frontend-forge.fullname" .)) .Values.migration.fiToFe.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.migration.fiToFe.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
 {{- define "frontend-forge.extensionControllerServiceAccountName" -}}
 {{- if .Values.extensionController.serviceAccount.create }}
 {{- default (printf "%s-extension-controller" (include "frontend-forge.fullname" .)) .Values.extensionController.serviceAccount.name }}

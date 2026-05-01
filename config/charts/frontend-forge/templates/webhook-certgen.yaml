@@ -1,4 +1,4 @@
-{{- if .Values.webhook.enabled }}
+{{- if and .Values.controller.enabled .Values.webhook.enabled }}
 {{- if .Values.webhook.certgen.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount

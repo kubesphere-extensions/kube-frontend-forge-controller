@@ -1,0 +1,119 @@
+{{- if .Values.migration.fiToFe.enabled }}
+{{- $publishNamespace := default .Release.Namespace .Values.migration.fiToFe.publishTarget.namespace }}
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-fi-to-fe-migrator
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "fi-to-fe-migrator") | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["apiservices"]
+    verbs: ["get"]
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendintegrations"]
+    verbs: ["delete", "get", "list"]
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendextensions"]
+    verbs: ["create", "get", "patch", "update"]
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendextensions/status"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-fi-to-fe-migrator
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "fi-to-fe-migrator") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "frontend-forge.fullname" . }}-fi-to-fe-migrator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.fiToFeMigratorServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-fi-to-fe-migrator
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": {{ .Values.migration.fiToFe.hookDeletePolicy | quote }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "fi-to-fe-migrator") | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.migration.fiToFe.backoffLimit }}
+  {{- with .Values.migration.fiToFe.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "frontend-forge.labels" . | nindent 8 }}
+        app.kubernetes.io/component: fi-to-fe-migrator
+    spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "frontend-forge.fiToFeMigratorServiceAccountName" . }}
+      restartPolicy: Never
+      containers:
+        - name: fi-to-fe-migrator
+          image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.image) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/fi-to-fe-migrator
+          env:
+            - name: PACKAGE_VERSION
+              value: {{ .Values.migration.fiToFe.packageVersion | quote }}
+            - name: SCHEMA_VERSION
+              value: {{ .Values.migration.fiToFe.schemaVersion | quote }}
+            - name: READY_TIMEOUT_SECONDS
+              value: {{ .Values.migration.fiToFe.readyTimeoutSeconds | quote }}
+            - name: POLL_INTERVAL_SECONDS
+              value: {{ .Values.migration.fiToFe.pollIntervalSeconds | quote }}
+            - name: KS_APISERVER_BASE_URL
+              value: {{ .Values.migration.fiToFe.ksApiserverBaseUrl | quote }}
+            - name: KS_APISERVER_INSECURE_SKIP_TLS_VERIFY
+              value: {{ .Values.migration.fiToFe.ksApiserverInsecureSkipTlsVerify | quote }}
+            - name: KS_APISERVER_CA_CERT_PATH
+              value: {{ .Values.migration.fiToFe.ksApiserverCaCertPath | quote }}
+            - name: FE_API_GROUP
+              value: {{ include "frontend-forge.extensionApiAPIServiceGroup" . | quote }}
+            - name: FE_API_VERSION
+              value: {{ include "frontend-forge.extensionApiAPIServiceVersion" . | quote }}
+            - name: FE_API_SERVICE_NAME
+              value: {{ include "frontend-forge.extensionApiAPIServiceName" . | quote }}
+            - name: PUBLISH_TARGET_KIND
+              value: {{ .Values.migration.fiToFe.publishTarget.kind | quote }}
+            - name: PUBLISH_TARGET_NAMESPACE
+              value: {{ $publishNamespace | quote }}
+            - name: PUBLISH_TARGET_NAME
+              value: {{ .Values.migration.fiToFe.publishTarget.name | quote }}
+          {{- with .Values.migration.fiToFe.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.migration.fiToFe.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.migration.fiToFe.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.migration.fiToFe.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

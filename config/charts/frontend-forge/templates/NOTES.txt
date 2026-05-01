@@ -1,7 +1,9 @@
 Frontend Forge has been rendered for namespace {{ .Release.Namespace }}.
 
 Installed entry points:
+{{- if .Values.controller.enabled }}
 - Runtime controller: deployment/{{ include "frontend-forge.fullname" . }}-controller
+{{- end }}
 {{- if .Values.extensionController.enabled }}
 - FrontendExtension controller: deployment/{{ include "frontend-forge.fullname" . }}-extension-controller
 {{- end }}
@@ -10,6 +12,9 @@ Installed entry points:
 {{- if .Values.extensionApi.apiService.enabled }}
 - FrontendExtension APIService: {{ include "frontend-forge.extensionApiAPIServiceName" . }}
 {{- end }}
+{{- end }}
+{{- if .Values.migration.fiToFe.enabled }}
+- FI to FE migrator: job/{{ include "frontend-forge.fullname" . }}-fi-to-fe-migrator
 {{- end }}
 
 CRDs installed from crds/:
