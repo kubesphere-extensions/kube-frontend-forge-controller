@@ -1,10 +1,11 @@
 use std::{collections::BTreeMap, env, fs, time::Duration};
 
 use frontend_forge_api::{
-    FrontendExtension, FrontendExtensionFrontendSpec, FrontendExtensionPackageSpec,
-    FrontendExtensionPhase, FrontendExtensionSourceSpec, FrontendExtensionSourceType,
-    FrontendExtensionSpec, FrontendIntegration, InlineFrontendExtensionSourceSpec,
-    NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec, PublishTargetKind,
+    ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
+    FrontendExtensionPackageSpec, FrontendExtensionPhase, FrontendExtensionSourceSpec,
+    FrontendExtensionSourceType, FrontendExtensionSpec, FrontendIntegration,
+    InlineFrontendExtensionSourceSpec, NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec,
+    PublishTargetKind,
 };
 use frontend_forge_common::sha256_hex;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
@@ -24,6 +25,10 @@ const ANNO_SOURCE_FI_NAME: &str = "frontend-forge.io/source-fi-name";
 const ANNO_SOURCE_FI_UID: &str = "frontend-forge.io/source-fi-uid";
 const DEFAULT_PACKAGE_VERSION: &str = "0.1.0";
 const DEFAULT_SCHEMA_VERSION: &str = "v1";
+const DEFAULT_PACKAGE_ICON: &str = "./static/favicon.svg";
+const DEFAULT_PACKAGE_CATEGORY: &str = "dev-tools";
+const DEFAULT_PROVIDER_NAME: &str = "Fi Migration Bot";
+const ANNO_CREATOR: &str = "kubesphere.io/creator";
 const DEFAULT_READY_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DEFAULT_FE_API_BASE_URL: &str =
@@ -535,15 +540,15 @@ fn frontend_extension_from_fi(
                 version: cfg.package_version.clone(),
                 display_name: localized_map(display_name),
                 description: localized_map(description),
-                category: None,
+                category: Some(DEFAULT_PACKAGE_CATEGORY.to_string()),
                 keywords: Vec::new(),
                 sources: Vec::new(),
                 kube_version: None,
                 ks_version: None,
                 maintainers: Vec::new(),
                 home: None,
-                provider: BTreeMap::new(),
-                icon: None,
+                provider: default_provider(fi),
+                icon: Some(DEFAULT_PACKAGE_ICON.to_string()),
                 static_file_directory: None,
                 dependencies: None,
                 installation_mode: None,
@@ -645,6 +650,39 @@ fn fi_description(fi: &FrontendIntegration, display_name: &str) -> String {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| display_name.to_string())
+}
+
+fn default_provider(fi: &FrontendIntegration) -> BTreeMap<String, ExtensionProviderSpec> {
+    let name = fi_creator(fi);
+    BTreeMap::from([
+        (
+            "en".to_string(),
+            ExtensionProviderSpec {
+                name: name.clone(),
+                email: None,
+                url: None,
+            },
+        ),
+        (
+            "zh".to_string(),
+            ExtensionProviderSpec {
+                name,
+                email: None,
+                url: None,
+            },
+        ),
+    ])
+}
+
+fn fi_creator(fi: &FrontendIntegration) -> String {
+    fi.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_CREATOR))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| DEFAULT_PROVIDER_NAME.to_string())
 }
 
 fn localized_map(value: String) -> BTreeMap<String, String> {
@@ -776,10 +814,13 @@ mod tests {
         FrontendIntegration {
             metadata: ObjectMeta {
                 name: Some(name.to_string()),
-                annotations: Some(BTreeMap::from([(
-                    "kubesphere.io/description".to_string(),
-                    "description from annotation".to_string(),
-                )])),
+                annotations: Some(BTreeMap::from([
+                    (
+                        "kubesphere.io/description".to_string(),
+                        "description from annotation".to_string(),
+                    ),
+                    (ANNO_CREATOR.to_string(), "creator-user".to_string()),
+                ])),
                 uid: Some("fi-uid".to_string()),
                 ..Default::default()
             },
@@ -849,6 +890,13 @@ mod tests {
             fe.spec.package.description["en"],
             "description from annotation"
         );
+        assert_eq!(fe.spec.package.icon.as_deref(), Some(DEFAULT_PACKAGE_ICON));
+        assert_eq!(
+            fe.spec.package.category.as_deref(),
+            Some(DEFAULT_PACKAGE_CATEGORY)
+        );
+        assert_eq!(fe.spec.package.provider["en"].name, "creator-user");
+        assert_eq!(fe.spec.package.provider["zh"].name, "creator-user");
         assert_eq!(fe.spec.source.inline.schema_version, "v1alpha1");
         assert_eq!(
             fe.spec.source.inline.frontend.display_name.as_deref(),
@@ -872,6 +920,8 @@ mod tests {
 
         assert_eq!(fe.spec.package.display_name["en"], "demo");
         assert_eq!(fe.spec.package.description["en"], "demo");
+        assert_eq!(fe.spec.package.provider["en"].name, DEFAULT_PROVIDER_NAME);
+        assert_eq!(fe.spec.package.provider["zh"].name, DEFAULT_PROVIDER_NAME);
         assert_eq!(fe.spec.source.inline.schema_version, "v1");
     }
 
