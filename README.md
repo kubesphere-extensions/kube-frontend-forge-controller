@@ -10,7 +10,7 @@
 
 相关设计见 [`spec/design.md`](spec/design.md)。
 
-Kubernetes 交付面见 [`spec/k8s-resources.md`](spec/k8s-resources.md)，Helm chart 设计见 [`spec/helm-chart.md`](spec/helm-chart.md)。
+Kubernetes 交付面见 [`spec/k8s-resources.md`](spec/k8s-resources.md)，Helm chart 设计见 [`spec/helm-chart.md`](spec/helm-chart.md)。FI 到 FE 迁移 Job 见 [`spec/fi-to-fe-migration.md`](spec/fi-to-fe-migration.md)。
 
 ## Kubernetes 支持区间
 
@@ -39,12 +39,14 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
 
 ## 当前架构
 
-当前实现由四部分组成：
+当前实现由以下部分组成：
 
 - `FrontendIntegration`：用户入口 CR，表达菜单、页面和构建引擎版本等意图
+- `FrontendExtension`：发布态 CR，表达 extension package、inline frontend source 和手动 publish policy
 - `frontend-forge-manifest`：共享 Manifest 渲染与语义校验逻辑，供 controller webhook 与 runner 复用
 - `frontend-forge-controller`：监听 `FrontendIntegration` 和 `Job`，负责状态流转、Job 创建、失败处理、`JSBundle` 关联，并可选承载 validating webhook
 - `frontend-forge-runner`：作为一次性 Job 运行，读取 `FrontendIntegration`，渲染 Manifest，调用 build-service，并写回产物与状态
+- `fi-to-fe-migrator`：Helm hook Job，用于把历史 FI 转换为 FE，并在原 FI 启用时通过 FE API 触发 publish
 
 资源关系大致如下：
 
@@ -106,6 +108,18 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
 - runner 失败时会把真实错误回写到 `status.message` 和 `status.last_error`
 - controller 会尽量保留 runner 写入的业务错误，而不是只显示 `Job has reached the specified backoff limit`
 
+### FI 到 FE 迁移
+
+- chart 默认启用 `migration.fiToFe.enabled=true`，安装或升级时通过 Helm hook Job 自动运行 migrator
+- chart 默认关闭旧 FI runtime controller：`controller.enabled=false`
+- migrator 扫描 cluster-scoped FI，并创建或更新对应 cluster-scoped FE
+- FE 名称固定为 `fi-<fi.metadata.name>`，不会去重已有 `fi-` 前缀；超长名称使用稳定 slice-hash
+- migrator 创建的 FE 带 `frontend-forge.io/managed-by=frontend-forge-fi-migrator` 以及 source FI name/uid annotations
+- FE package 默认补齐 `icon=./static/favicon.svg`、`category=dev-tools`、provider name。provider name 优先取 FI annotation `kubesphere.io/creator`，否则使用 `Fi Migration Bot`
+- 原 FI `enabled` 缺省按 `true` 处理；启用的 FI 会在 FE Ready 且 FI 删除成功后，通过 direct FE API 调用 publish
+- publish 调用 direct fe-api Service 的 `/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`，不走 ks-apiserver，也不需要 KubeSphere token
+- 详细映射、Helm values、失败和 finalizer 行为见 [`spec/fi-to-fe-migration.md`](spec/fi-to-fe-migration.md)
+
 ### 运行与交付
 
 - 提供 controller、runner、extension controller、extension API、packager、publisher 的 Dockerfile
@@ -114,6 +128,7 @@ ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.
   - `FrontendIntegration` / `FrontendExtension` CRD
   - runtime controller / runner RBAC
   - FrontendExtension controller / packager / publisher / API RBAC
+  - FI 到 FE 迁移 Job 及 RBAC
   - 可选 admission webhook、webhook certgen、可选本地/e2e `JSBundle` CRD
 - 提供示例 `FrontendIntegration` 清单：
   - [`config/samples/frontend-forge_v1alpha1_frontendintegration.yaml`](config/samples/frontend-forge_v1alpha1_frontendintegration.yaml)

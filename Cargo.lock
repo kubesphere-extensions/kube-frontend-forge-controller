@@ -595,6 +595,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "kube-runtime",
+ "reqwest",
  "rustls",
  "serde_json",
  "snafu",

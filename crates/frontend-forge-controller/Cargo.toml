@@ -15,9 +15,14 @@ frontend-forge-manifest = { path = "../manifest" }
 k8s-openapi.workspace = true
 kube.workspace = true
 kube-runtime.workspace = true
+reqwest.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
 snafu.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[[bin]]
+name = "fi-to-fe-migrator"
+path = "src/bin/fi_to_fe_migrator.rs"

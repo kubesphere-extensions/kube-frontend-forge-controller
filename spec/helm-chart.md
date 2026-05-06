@@ -20,6 +20,7 @@ chart 负责安装：
 - `frontend-forge-extension-packager` ServiceAccount / RBAC，供 package Job 使用
 - `frontend-forge-extension-publisher` ServiceAccount / RBAC，供独立 publish Job 使用
 - `frontend-forge-extension-api` Deployment / Service / RBAC
+- `fi-to-fe-migrator` Helm hook Job / ServiceAccount / RBAC
 - 可选 FI admission webhook
 - 可选 webhook certgen Job
 - 可选本地/e2e `JSBundle` CRD
@@ -86,6 +87,7 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
 | `extensionPackager` | package Job 镜像和 ServiceAccount。 |
 | `extensionPublisher` | publish Job 镜像和 ServiceAccount。 |
 | `extensionApi` | FE HTTP API Deployment / Service。 |
+| `migration.fiToFe` | FI 到 FE 迁移 Job、direct fe-api 地址、publish target 和 Job hook 行为。 |
 | `webhook` | FI admission webhook、certgen 和 webhook TLS Secret。 |
 | `buildService` | 本地/e2e build-service stub。生产环境通常关闭。 |
 | `crds` | 条件 CRD，例如本地/e2e `JSBundle` CRD。 |
@@ -121,7 +123,57 @@ certgen Job 使用 Helm hook：
 
 这样避免 Helm upgrade 时因为同名 completed Job 的 immutable 字段导致升级失败。
 
-## 7. e2e 行为
+## 7. FI 到 FE 迁移行为
+
+`migration.fiToFe.enabled=true` 时，chart 会安装一个 Helm hook Job：
+
+```text
+<release-name>-fi-to-fe-migrator
+```
+
+该 Job 在 `post-install,post-upgrade` 阶段运行，用于把历史 cluster-scoped `FrontendIntegration` 迁移为 cluster-scoped `FrontendExtension`。
+
+默认值：
+
+```yaml
+controller:
+  enabled: false
+
+migration:
+  fiToFe:
+    enabled: true
+    packageVersion: "0.1.0"
+    schemaVersion: v1
+    readyTimeoutSeconds: 600
+    pollIntervalSeconds: 5
+    backoffLimit: 0
+    hookDeletePolicy: before-hook-creation
+    feApiBaseUrl: ""
+    feApiInsecureSkipTlsVerify: false
+    feApiCaCertPath: ""
+    publishTarget:
+      kind: ConfigMap
+      namespace: ""
+      name: ksbuilder-publish-config
+```
+
+`hookDeletePolicy` 不包含 `hook-failed`，失败 Job 会保留日志。`backoffLimit` 默认是 `0`，因为当前流程在删除 FI 后触发 publish，单纯依赖 Job 级重试不能保证补偿“FI 已删除但 publish 失败”的场景。
+
+当 `feApiBaseUrl` 为空时，chart 将其派生为：
+
+```text
+http://<extension-api-service>.<release-namespace>.svc:<extensionApi.service.port>
+```
+
+migrator 通过 direct fe-api 调用 publish，不走 ks-apiserver：
+
+```text
+POST /apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/<fe-name>/publish
+```
+
+字段映射、FE 命名、管理标记、publish 行为和 finalizer 注意事项见 [`fi-to-fe-migration.md`](fi-to-fe-migration.md)。
+
+## 8. e2e 行为
 
 `scripts/ci-kind-e2e.sh` 不再逐个 apply 安装清单，而是生成临时 values 文件后执行：
 
