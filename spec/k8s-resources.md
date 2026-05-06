@@ -53,6 +53,7 @@ config/charts/frontend-forge/
     frontend-forge-controller-deployment.yaml
     frontend-extension-controller-deployment.yaml
     frontend-forge-extension-api-deployment.yaml
+    fi-to-fe-migration-job.yaml
     rbac-runtime.yaml
     rbac-extension.yaml
     serviceaccounts.yaml
@@ -73,8 +74,10 @@ config/charts/frontend-forge/
 | `Deployment/frontend-extension-controller` | 是 | `templates/frontend-extension-controller-deployment.yaml` | FE package/publish controller。 |
 | `Deployment/frontend-forge-extension-api` | 是 | `templates/frontend-forge-extension-api-deployment.yaml` | 前端访问 FE 列表、详情、下载、publish 的 HTTP API。 |
 | `Service/frontend-forge-extension-api` | 是 | 同上 | 暴露 extension API。 |
+| `Job/<release-name>-fi-to-fe-migrator` | 是 | `templates/fi-to-fe-migration-job.yaml` | Helm hook Job，用于把 FI 自动迁移为 FE。 |
 | Runtime RBAC | 是 | `templates/rbac-runtime.yaml` | controller 与 runner 所需权限。 |
 | Extension RBAC | 是 | `templates/rbac-extension.yaml` | FE controller、packager、publisher、extension API 所需权限。 |
+| FI to FE migrator RBAC | 是 | `templates/fi-to-fe-migration-job.yaml` | migrator 读取 CRD、读删 FI、创建/更新 FE 所需权限。 |
 | Webhook Service / VWC | 否 | `templates/webhook.yaml` | `webhook.enabled=true` 时安装。 |
 | Webhook certgen RBAC / Job | 否 | `templates/webhook-certgen.yaml` | `webhook.enabled=true` 时安装。 |
 | Dev/e2e build-service | 否 | `templates/build-service.yaml` | `buildService.enabled=true` 时安装。 |
@@ -83,8 +86,8 @@ config/charts/frontend-forge/
 
 | Group / Version | Kind | 作用域 | 使用方 | 说明 |
 | --- | --- | --- | --- | --- |
-| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | `frontend-forge-controller`、`frontend-forge-runner`、FI webhook | runtime 生效入口。 |
-| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendExtension` | Cluster | `frontend-extension-controller`、`frontend-forge-extension-api`、packager Job | package/publish 发布态入口。 |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | `frontend-forge-controller`、`frontend-forge-runner`、FI webhook、`fi-to-fe-migrator` | runtime 生效入口；迁移时作为源资源，migrator 在 FE Ready 后删除。 |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendExtension` | Cluster | `frontend-extension-controller`、`frontend-forge-extension-api`、packager Job、`fi-to-fe-migrator` | package/publish 发布态入口。 |
 | `extensions.kubesphere.io/v1alpha1` | `JSBundle` | Cluster | FI controller、runner | 安装后 runtime 前端 bundle CR。 |
 | `batch/v1` | `Job` | Namespaced | FI controller、FE controller | runtime build、package、publish 都通过独立 Job 执行。 |
 | `v1` | `ConfigMap` | Namespaced | runner、packager、extension API | runtime bundle 或 FE package artifact 存储。 |
@@ -103,6 +106,10 @@ config/charts/frontend-forge/
 | `extensionPackager.image.repository` | `kubesphere/frontend-forge-extension-packager` | package Job 镜像。 |
 | `extensionPublisher.image.repository` | `kubesphere/frontend-forge-extension-publisher` | 独立 `ksbuilder publish` Job 镜像。 |
 | `extensionApi.enabled` | `true` | 是否安装 FE HTTP API。 |
+| `migration.fiToFe.enabled` | `true` | 是否安装并运行 FI 到 FE 迁移 Helm hook Job。 |
+| `migration.fiToFe.backoffLimit` | `0` | 迁移 Job 的 Kubernetes backoffLimit；失败 Job 默认保留日志。 |
+| `migration.fiToFe.feApiBaseUrl` | `http://<extension-api-service>.<release-namespace>.svc:<port>` | migrator direct 调用 FE API 的 base URL；空值时由 chart 派生。 |
+| `migration.fiToFe.publishTarget.*` | `ConfigMap/<release-namespace>/ksbuilder-publish-config` | 迁移生成 FE 的默认 publish target。 |
 | `webhook.enabled` | `false` | 是否安装并启用 FI admission webhook。 |
 | `buildService.enabled` | `false` | 是否安装本地/e2e build-service stub。 |
 
@@ -112,3 +119,7 @@ config/charts/frontend-forge/
 - `crds/` 下的 FI/FE CRD 由 `cargo xtask gen-crd` 生成并提交。
 - `JSBundle` CRD 默认视为外部依赖；只有本地/e2e 场景才由 chart 条件安装。
 - `ksbuilder publish` 只允许在 `frontend-forge-extension-publisher` Job 中执行，不能进入 controller 或 API Deployment。
+- FI 到 FE migrator 不直接创建 publish Job，也不 patch publish annotations；它只调用 direct FE API，由 FE controller 负责创建 publish Job。
+- FI/FE CRD 是 cluster-scoped；migrator 访问 FI/FE 使用 cluster-scoped API。Job、ConfigMap、Secret 等 artifact/publish 资源仍是 namespaced。
+
+FI 到 FE 迁移细节见 [`fi-to-fe-migration.md`](fi-to-fe-migration.md)。

@@ -310,3 +310,21 @@ spec:
 - 一个菜单树
 - 一组页面定义
 - 菜单与页面之间明确的 key 绑定关系
+
+## 10. 迁移到 FrontendExtension
+
+新版本通过 Helm hook Job 将 FI 自动迁移为 FE。FI 和 FE 都是 cluster-scoped CRD，迁移后的 FE 继续使用 `frontend-forge.kubesphere.io/v1alpha1` API group。
+
+迁移时：
+
+- FE 名称固定为 `fi-<fi.metadata.name>`，例如 `demo-fi -> fi-demo-fi`。
+- 如果 FI 名称本身已有 `fi-` 前缀，仍会继续添加前缀，例如 `fi-demo -> fi-fi-demo`。
+- 迁移后的 FE 带 `frontend-forge.io/managed-by=frontend-forge-fi-migrator` 标记。
+- `spec.displayName/locales/menus/pages` 会复制到 FE inline frontend source。
+- `spec.builder.engineVersion` 会映射为 FE inline source `schemaVersion`，缺省为 `v1`。
+- `metadata.annotations["kubesphere.io/description"]` 会作为 FE package description。
+- `metadata.annotations["kubesphere.io/creator"]` 会作为 FE package provider name，缺省为 `Fi Migration Bot`。
+- 迁移生成的 FE package 默认包含 `icon=./static/favicon.svg` 和 `category=dev-tools`。
+- 原 FI `enabled` 缺省按 `true` 处理；启用的 FI 在 FE Ready 且 FI 删除成功后会触发 FE publish。
+
+完整流程、Helm values、publish API 和失败处理见 [`fi-to-fe-migration.md`](fi-to-fe-migration.md)。
