@@ -36,13 +36,16 @@ const DEFAULT_PUBLISH_TARGET_NAME: &str = "ksbuilder-publish-config";
 #[derive(Debug, Snafu)]
 enum Error {
     #[snafu(display("failed to initialize Kubernetes client: {source}"))]
-    KubeClientInit { source: kube::Error },
+    KubeClientInit { source: Box<kube::Error> },
     #[snafu(display("Kubernetes operation failed while {action}: {source}"))]
-    Kube { action: String, source: kube::Error },
+    Kube {
+        action: String,
+        source: Box<kube::Error>,
+    },
     #[snafu(display("HTTP operation failed while {action}: {source}"))]
     Http {
         action: String,
-        source: reqwest::Error,
+        source: Box<reqwest::Error>,
     },
     #[snafu(display("failed to read file {path}: {source}"))]
     ReadFile {
@@ -131,7 +134,9 @@ async fn main() -> Result<()> {
     let cfg = MigratorConfig::from_env()?;
     let client = Client::try_default()
         .await
-        .map_err(|source| Error::KubeClientInit { source })?;
+        .map_err(|source| Error::KubeClientInit {
+            source: Box::new(source),
+        })?;
     let http = publish_http_client(&cfg)?;
 
     run(client, http, cfg).await
@@ -146,7 +151,7 @@ async fn run(client: Client, http: reqwest::Client, cfg: MigratorConfig) -> Resu
         .await
         .map_err(|source| Error::Kube {
             action: "listing FrontendIntegrations".to_string(),
-            source,
+            source: Box::new(source),
         })?
         .items;
 
@@ -254,7 +259,7 @@ async fn crd_ready(client: &Client, name: &str, require_status_subresource: bool
     let api = Api::<CustomResourceDefinition>::all(client.clone());
     let crd = api.get(name).await.map_err(|source| Error::Kube {
         action: format!("getting CRD {name}"),
-        source,
+        source: Box::new(source),
     })?;
     let value = serde_json::to_value(&crd).map_err(|source| Error::Message {
         message: format!("failed to serialize CRD {name}: {source}"),
@@ -285,7 +290,7 @@ async fn upsert_managed_fe(
         .await
         .map_err(|source| Error::Kube {
             action: format!("getting FrontendExtension {fe_name}"),
-            source,
+            source: Box::new(source),
         })? {
         None => {
             fe_api
@@ -293,7 +298,7 @@ async fn upsert_managed_fe(
                 .await
                 .map_err(|source| Error::Kube {
                     action: format!("creating FrontendExtension {fe_name}"),
-                    source,
+                    source: Box::new(source),
                 })?;
             info!(fe = %fe_name, "created migrated FrontendExtension");
         }
@@ -311,7 +316,7 @@ async fn upsert_managed_fe(
                 .await
                 .map_err(|source| Error::Kube {
                     action: format!("patching FrontendExtension {fe_name}"),
-                    source,
+                    source: Box::new(source),
                 })?;
             info!(fe = %fe_name, "patched migrated FrontendExtension");
         }
@@ -365,7 +370,7 @@ async fn wait_for_fe_ready(
     loop {
         let fe = fe_api.get(fe_name).await.map_err(|source| Error::Kube {
             action: format!("getting FrontendExtension {fe_name} while waiting for Ready"),
-            source,
+            source: Box::new(source),
         })?;
         let phase = fe.status.as_ref().map(|status| status.phase.clone());
         let digest = fe
@@ -409,7 +414,7 @@ async fn delete_fi_and_wait(client: &Client, fi_name: &str, cfg: &MigratorConfig
         Err(source) => {
             return Err(Error::Kube {
                 action: format!("deleting FrontendIntegration {fi_name}"),
-                source,
+                source: Box::new(source),
             });
         }
     }
@@ -434,7 +439,7 @@ async fn delete_fi_and_wait(client: &Client, fi_name: &str, cfg: &MigratorConfig
             Err(source) => {
                 return Err(Error::Kube {
                     action: format!("checking FrontendIntegration {fi_name} deletion"),
-                    source,
+                    source: Box::new(source),
                 });
             }
         }
@@ -462,7 +467,7 @@ async fn publish_fe(
         .await
         .map_err(|source| Error::Http {
             action: format!("posting FE publish request to {url}"),
-            source,
+            source: Box::new(source),
         })?;
     let status = response.status();
     if matches!(
@@ -489,7 +494,7 @@ fn publish_http_client(cfg: &MigratorConfig) -> Result<reqwest::Client> {
                 let cert =
                     reqwest::Certificate::from_pem(&bytes).map_err(|source| Error::Http {
                         action: format!("loading CA certificate {path}"),
-                        source,
+                        source: Box::new(source),
                     })?;
                 builder = builder.add_root_certificate(cert);
             }
@@ -504,7 +509,7 @@ fn publish_http_client(cfg: &MigratorConfig) -> Result<reqwest::Client> {
     }
     builder.build().map_err(|source| Error::Http {
         action: "building HTTP client".to_string(),
-        source,
+        source: Box::new(source),
     })
 }
 
