@@ -1,346 +1,259 @@
-# Manifest 定义
+# Manifest Renderer
+
+Code owner: `crates/manifest`
+
+Source of truth: `crates/manifest/src/lib.rs`,
+`crates/manifest/src/v1.rs`
+
+## Status
+
+| Capability | Status | Code path |
+| --- | --- | --- |
+| FI manifest render | Implemented | `render_extension_manifest` |
+| FE manifest render | Implemented | `render_frontend_extension_manifest` |
+| FI semantic validation | Implemented | `validate_frontend_integration` |
+| FE semantic validation | Implemented | `validate_frontend_extension` |
+| Resolved FE page list for package RoleTemplate generation | Implemented | `resolve_frontend_extension_pages` |
+| Renderer versions beyond v1 | Planned / TODO | Not implemented |
+
+## Render Input Mapping
+
+| Field | FI source | FE source |
+| --- | --- | --- |
+| `name` | FI `metadata.name` | `spec.package.name` or FE `metadata.name` |
+| `displayName` | `spec.displayName` | `source.inline.frontend.displayName`, then localized package display name |
+| `description` | `metadata.annotations["kubesphere.io/description"]` | localized package description |
+| `schema_version` | `spec.builder.engineVersion` | `source.inline.schemaVersion` |
+| `route_namespace` | `frontendintegrations` | `frontendextensions` |
+| `locales` | `spec.locales` | `source.inline.frontend.locales` |
+| `menus` | `spec.menus` | `source.inline.frontend.menus` |
+| `pages` | `spec.pages` | `source.inline.frontend.pages` |
+
+Supported renderer aliases: `v1`, `v1alpha1`, `1`, `1.0`; missing or empty
+version resolves to `v1`.
+
+## Output Shape
+
+Status: Implemented
 
 ```typescript
-export type RouteMeta = {
-  path: string;
-  pageId: string;
-};
-
-export type MenuMeta = {
-  parent: string;
-  name: string;
-  title: string;
-  icon?: string;
-  order?: number;
-  clusterModule?: string;
-};
-
-export type LocaleMeta = {
-  lang: string;
-  messages: Record<string, string>;
-};
-
-export type ManifestPageMeta = {
-  id: string;
-  entryComponent: string;
-  componentsTree: PageConfig;
-};
-
 export type ExtensionManifest = {
   version: "1.0";
   name: string;
-  displayName?: string;
+  displayName: string;
   description?: string;
-  routes: RouteMeta[];
-  menus: MenuMeta[];
-  locales: LocaleMeta[];
-  pages: ManifestPageMeta[];
-  build?: {
+  routes: { path: string; pageId: string }[];
+  menus: {
+    parent: string;
+    name: string;
+    title: string;
+    icon: string;
+    order: 999;
+  }[];
+  locales: { lang: string; messages: Record<string, string> }[];
+  pages: {
+    id: string;
+    entryComponent: string;
+    componentsTree: Record<string, unknown>;
+  }[];
+  build: {
     target: "kubesphere-extension";
-    moduleName?: string;
-    namespace?: string;
-    cluster?: string;
-    systemjs?: boolean;
+    moduleName: string;
+    systemjs: true;
   };
 };
-
-export interface PageConfig {
-  meta: PageConfigMeta;
-  dataSources?: DataSourceNode[];
-  root: ComponentNode;
-  context: Record<string, any>;
-}
-
-export interface PageConfigMeta {
-  id: string;
-  name: string;
-  title?: string;
-  description?: string;
-  path?: string;
-}
-
-export interface DataSourceNode {
-  id: string;
-  type: string;
-  config: Record<string, any>;
-  args?: PropValue[];
-  autoLoad?: boolean;
-  polling?: {
-    enabled: boolean;
-    interval?: number;
-  };
-}
-
-export interface ComponentNode {
-  id: string;
-  type: string;
-  props?: Record<string, PropValue>;
-  meta?: {
-    scope: boolean;
-    title?: string;
-  };
-  children?: ComponentNode[];
-}
-
-export type PropValue =
-  | string
-  | number
-  | boolean
-  | object
-  | BindingValue
-  | ExpressionValue;
-
-export interface BindingValue {
-  type: "binding";
-  source?: string;
-  bind?: string;
-  target?: "context" | "dataSource" | "runtime";
-  path?: string;
-  defaultValue?: any;
-}
-
-export interface ExpressionValue {
-  type: "expression";
-  code: string;
-  deps?: ExpressionDeps;
-}
-
-export interface ExpressionDeps {
-  dataSources?: string[];
-  runtime?: true;
-  capabilities?: string[];
-}
 ```
 
-## 1. 输入 CR 示例
+`manifest_content_and_hash` canonicalizes JSON object keys before hashing.
+
+## Menu And Route Rules
+
+Status: Implemented
+
+| Input | Route suffix | Menu `name` | Menu `parent` | Route path |
+| --- | --- | --- | --- | --- |
+| Top-level `type=page` | `<key>` | `<route_namespace>/<name>/<key>` | `<placement>` | `<placement prefix>/<route_namespace>/<name>/<key>` |
+| Top-level `type=organization` | none | `<route_namespace>/<name>/<key>` | `<placement>` | none |
+| Child page under organization | `<parent-key>/<child-key>` | `<route_namespace>/<name>/<parent-key>/<child-key>` | `<placement>.<org menu name>` | `<placement prefix>/<route_namespace>/<name>/<parent-key>/<child-key>` |
+
+Placement prefixes:
+
+| Placement | Prefix |
+| --- | --- |
+| `cluster` | `/clusters/:cluster` |
+| `workspace` | `/workspaces/:workspace` |
+| `global` | empty string |
+
+Menu icon behavior:
+
+- `icon` is copied when present.
+- Missing icon renders as `GridDuotone`.
+- `order` is always `999`.
+
+## Page ID Rules
+
+Status: Implemented
+
+```text
+<name>-<placement>-<route-suffix-with-slashes-replaced-by-underscores>
+```
+
+Examples:
+
+| Source | Page ID |
+| --- | --- |
+| FI `demo-fi`, cluster `overview` | `demo-fi-cluster-overview` |
+| FI `demo-fi`, workspace `ops/inspecttasks` | `demo-fi-workspace-ops_inspecttasks` |
+| FE package `inspecttask`, cluster `inspecttasks` | `inspecttask-cluster-inspecttasks` |
+
+## Validation Rules
+
+Status: Implemented
+
+| Error | Trigger |
+| --- | --- |
+| `DuplicateTopLevelMenuKey` | Duplicate primary `menus[].key`. |
+| `DuplicatePageKey` | Duplicate `pages[].key` or duplicate page menu binding for `(placement,key)`. |
+| `MissingPageForMenuKey` | Page menu key has no matching `pages[].key`. |
+| `OrphanPageConfig` | Page config is not bound by any page menu. |
+| `InvalidMenuShape` | `page` menu has children; `organization` has no children; organization binds page config. |
+| `InvalidMenuKey` | Menu key is empty, starts/ends with `-`, or contains chars outside `[a-z0-9-]`. |
+| `InvalidPageShape` | Page key invalid; page type config missing; page defines config for the wrong type. |
+| `MissingCrdColumns` | `crdTable.columns` is empty. |
+| `UnsupportedEngineVersion` | FI `builder.engineVersion` is not a v1 alias. |
+| `UnsupportedSchemaVersion` | FE `source.inline.schemaVersion` is not a v1 alias. |
+
+Page key format implemented by code:
+
+```text
+non-empty; no leading/trailing "-"; only ASCII lowercase letters, digits, "-"
+```
+
+## Iframe Page Output
+
+Status: Implemented
+
+| Output field | Value |
+| --- | --- |
+| `id` / `entryComponent` | Page ID. |
+| `componentsTree.meta.id` / `name` | Page ID. |
+| `componentsTree.meta.title` | Bound menu display name. |
+| `componentsTree.meta.path` | `/<pageId>`. |
+| `root.type` | `Iframe`. |
+| `root.props.FRAME_URL` | `iframe.src`. |
+
+## CRD Table Page Output
+
+Status: Implemented
+
+| Output field | Value |
+| --- | --- |
+| `root.type` | `CrdTable`. |
+| `root.props.TABLE_KEY` | Page ID. |
+| `root.props.TITLE` | Bound menu display name. |
+| `root.props.AUTH_KEY` | `crdTable.authKey` or empty string. |
+| `dataSources[0].type` | `crd-columns`. |
+| `dataSources[1].type` | `workspace-crd-page-state` for `workspace`; otherwise `crd-page-state`. |
+| `dataSources[1].config.CRD_CONFIG.apiVersion` | `crdTable.version`. |
+| `dataSources[1].config.CRD_CONFIG.group` | `crdTable.group`. |
+| `dataSources[1].config.CRD_CONFIG.plural` | `crdTable.names.plural`. |
+| `dataSources[1].config.CRD_CONFIG.kind` | Present only when `crdTable.names.kind` is present. |
+| `dataSources[1].config.SCOPE` | `namespace` / `cluster`, omitted for `workspace` placement. |
+| `CREATE_INITIAL_VALUE.kind` | Present only when `crdTable.names.kind` is present. |
+| `CREATE_INITIAL_VALUE.metadata.namespace` | Present only when `crdTable.scope=Namespaced`. |
+
+Column transform:
+
+| Input | Output |
+| --- | --- |
+| `key` | `key` |
+| `title` | `title` |
+| `render.type` | `render.type` as `text`, `time`, or `link` |
+| `render.path` | `render.path` |
+| `render.payload` | Base `render.payload`, default `{}` |
+| `render.format` / `pattern` / `link` | Added into `render.payload` when present |
+| `enableSorting` / `enableHiding` | Added only when present |
+
+## Minimal FI Example
+
+Status: Implemented
 
 ```yaml
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendIntegration
 metadata:
   name: demo-fi
-  annotations:
-    kubesphere.io/description: Demo multi-page integration
 spec:
   displayName: Demo FI
-  enabled: true
   menus:
-    - displayName: Overview
-      key: overview
-      placement: cluster
+    - displayName: Demo
+      key: demo
+      placement: global
       type: page
-    - displayName: Ops
-      key: ops
-      placement: workspace
-      type: organization
-      children:
-        - displayName: Inspect Tasks
-          key: inspecttasks
   pages:
-    - key: overview
+    - key: demo
       type: iframe
       iframe:
         src: http://example.test/frontend
-    - key: inspecttasks
-      type: crdTable
-      crdTable:
-        names:
-          plural: inspecttasks
-          kind: InspectTask
-        version: v1alpha2
-        group: kubeeye.kubesphere.io
-        scope: Cluster
-        columns:
-          - key: name
-            title: NAME
-            render:
-              type: text
-              path: metadata.name
+  builder:
+    engineVersion: v1
 ```
 
-## 2. 渲染规则
-
-### 2.1 菜单
-
-- 一级 `page` 菜单直接生成叶子菜单
-- 一级 `organization` 菜单先生成一个分组菜单
-- 一级 `organization` 菜单的 `name` 仍然使用菜单生成规则
-- 二级页面菜单的 `parent` 指向一级组织菜单的 `name`
-- 二级页面菜单的 `parent` 生成值为 `<placement>.<一级菜单 name>`
-
-### 2.2 路由
-
-- 一级页面后缀：`<first-key>`
-- 二级页面后缀：`<first-key>/<second-key>`
-
-最终路径：
-
-- `cluster`: `/clusters/:cluster/frontendintegrations/<fi-name>/<suffix>`
-- `workspace`: `/workspaces/:workspace/frontendintegrations/<fi-name>/<suffix>`
-- `global`: `/frontendintegrations/<fi-name>/<suffix>`
-
-### 2.3 pageId
-
-规则：
-
-```text
-<fi-name>-<placement>-<suffix-slug>
-```
-
-示例：
-
-- `demo-fi-cluster-overview`
-- `demo-fi-workspace-ops-inspecttasks`
-
-## 3. 输出 Manifest 示例
+Rendered route:
 
 ```json
 {
-  "version": "1.0",
-  "name": "demo-fi",
-  "displayName": "Demo FI",
-  "description": "Demo multi-page integration",
-  "routes": [
-    {
-      "path": "/clusters/:cluster/frontendintegrations/demo-fi/overview",
-      "pageId": "demo-fi-cluster-overview"
-    },
-    {
-      "path": "/workspaces/:workspace/frontendintegrations/demo-fi/ops/inspecttasks",
-      "pageId": "demo-fi-workspace-ops-inspecttasks"
-    }
-  ],
-  "menus": [
-    {
-      "parent": "cluster",
-      "name": "frontendintegrations/demo-fi/overview",
-      "title": "Overview",
-      "icon": "GridDuotone",
-      "order": 999
-    },
-    {
-      "parent": "workspace",
-      "name": "frontendintegrations/demo-fi/ops",
-      "title": "Ops",
-      "icon": "GridDuotone",
-      "order": 999
-    },
-    {
-      "parent": "workspace.frontendintegrations/demo-fi/ops",
-      "name": "frontendintegrations/demo-fi/ops/inspecttasks",
-      "title": "Inspect Tasks",
-      "icon": "GridDuotone",
-      "order": 999
-    }
-  ],
-  "locales": [
-    {
-      "lang": "en",
-      "messages": { "xx": "English", "yy": "English 2" }
-    },
-    {
-      "lang": "tc",
-      "messages": { "xx": "Traditional Chinese" }
-    },
-    {
-      "lang": "zh",
-      "messages": { "xx": "Chinese", "yy": "Chinese 2" }
-    }
-  ],
-  "pages": [
-    {
-      "id": "demo-fi-cluster-overview",
-      "entryComponent": "demo-fi-cluster-overview",
-      "componentsTree": {
-        "meta": {
-          "id": "demo-fi-cluster-overview",
-          "name": "demo-fi-cluster-overview",
-          "title": "Overview",
-          "path": "/demo-fi-cluster-overview"
-        },
-        "context": {},
-        "root": {
-          "id": "demo-fi-cluster-overview-root",
-          "type": "Iframe",
-          "props": {
-            "FRAME_URL": "http://example.test/frontend"
-          },
-          "meta": { "title": "Iframe", "scope": true }
-        }
-      }
-    },
-    {
-      "id": "demo-fi-workspace-ops-inspecttasks",
-      "entryComponent": "demo-fi-workspace-ops-inspecttasks",
-      "componentsTree": {
-        "meta": {
-          "id": "demo-fi-workspace-ops-inspecttasks",
-          "name": "demo-fi-workspace-ops-inspecttasks",
-          "title": "Inspect Tasks",
-          "path": "/demo-fi-workspace-ops-inspecttasks"
-        },
-        "context": {},
-        "dataSources": [
-          {
-            "id": "columns",
-            "type": "crd-columns",
-            "config": {
-              "COLUMNS_CONFIG": [
-                {
-                  "key": "name",
-                  "title": "NAME",
-                  "render": {
-                    "type": "text",
-                    "path": "metadata.name",
-                    "payload": {}
-                  }
-                }
-              ],
-              "HOOK_NAME": "useCrdColumns"
-            }
-          },
-          {
-            "id": "pageState",
-            "type": "workspace-crd-page-state",
-            "args": [
-              { "type": "binding", "source": "columns", "bind": "columns" }
-            ],
-            "config": {
-              "PAGE_ID": "demo-fi-workspace-ops-inspecttasks",
-              "CRD_CONFIG": {
-                "apiVersion": "v1alpha2",
-                "kind": "InspectTask",
-                "plural": "inspecttasks",
-                "group": "kubeeye.kubesphere.io",
-                "kapi": true
-              },
-              "HOOK_NAME": "useCrdPageState"
-            }
-          }
-        ],
-        "root": {
-          "id": "demo-fi-workspace-ops-inspecttasks-root",
-          "type": "CrdTable",
-          "props": {
-            "TABLE_KEY": "demo-fi-workspace-ops-inspecttasks",
-            "TITLE": "Inspect Tasks"
-          },
-          "meta": { "title": "CrdTable", "scope": true }
-        }
-      }
-    }
-  ],
-  "build": {
-    "target": "kubesphere-extension",
-    "moduleName": "demo-fi",
-    "systemjs": true
-  }
+  "path": "/frontendintegrations/demo-fi/demo",
+  "pageId": "demo-fi-global-demo"
 }
 ```
 
-## 4. 说明
+## Minimal FE Example
 
-- 顶层 `displayName` 取 `spec.displayName`，缺省回退 `metadata.name`
-- 页面标题来自绑定菜单节点的 `displayName`
-- `global` 在产品语义中对应“扩展坞”
-- `crdTable` 页面在 `workspace` placement 下继续使用 `workspace-crd-page-state`
+Status: Implemented
+
+```yaml
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: inspecttask
+spec:
+  package:
+    name: inspecttask
+    version: 0.1.0
+    displayName:
+      en: Inspect Task
+    description:
+      en: InspectTask extension package
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Inspect Tasks
+            key: inspecttasks
+            placement: cluster
+            type: page
+        pages:
+          - key: inspecttasks
+            type: iframe
+            iframe:
+              src: http://example.test
+```
+
+Rendered route:
+
+```json
+{
+  "path": "/clusters/:cluster/frontendextensions/inspecttask/inspecttasks",
+  "pageId": "inspecttask-cluster-inspecttasks"
+}
+```
+
+## TODO / Open Question
+
+Status: Planned / TODO
+
+- Renderer versions beyond v1 are not implemented.
+- Renderer validation is semantic; Rust CRD structs still allow some invalid shapes until the shared validator runs.

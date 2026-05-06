@@ -1,330 +1,226 @@
-# FrontendIntegration CRD 定义
-
-## 1. 设计目标
-
-`FrontendIntegration` CRD 用于声明前端扩展的用户意图。
-
-当前版本的 `spec` 被拆成两个区块：
-
-1. `menus`：两级菜单树
-2. `pages`：页面配置列表
-
-一个 FI 可以声明多个页面入口，并通过菜单 `key` 和页面 `key` 建立 1:1 绑定。
-
-## 2. 基本信息
-
-```yaml
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: frontendintegrations.frontend-forge.kubesphere.io
-spec:
-  group: frontend-forge.kubesphere.io
-  scope: Cluster
-  names:
-    plural: frontendintegrations
-    singular: frontendintegration
-    kind: FrontendIntegration
-    shortNames:
-      - fi
-```
-
-## 3. Spec 结构
-
-### 3.1 顶层结构
-
-```yaml
-spec:
-  displayName: Demo FI
-  locales:
-    zh:
-      xx: Chinese
-      yy: Chinese 2
-    en:
-      xx: English
-      yy: English 2
-  enabled: true
-  menus: []
-  pages: []
-  builder:
-    engineVersion: v1
-```
-
-字段说明：
-
-- `displayName`：扩展显示名称，可选
-- `locales`：多语言文案映射，可选，格式为 `<lang> -> <key, message>`
-- `enabled`：是否启用，可选，默认 `true`
-- `menus`：菜单树，必填
-- `pages`：页面配置，必填
-- `builder.engineVersion`：runner 使用的 manifest 渲染版本，可选
-
-## 4. 菜单区块
-
-### 4.1 一级菜单
-
-```yaml
-menus:
-  - displayName: 概览
-    key: overview
-    placement: cluster
-    type: page
-
-  - displayName: 运维
-    key: ops
-    placement: workspace
-    type: organization
-    children:
-      - displayName: 检查任务
-        key: inspecttasks
-      - displayName: 检查规则
-        key: inspectrules
-```
-
-一级菜单字段：
-
-- `displayName`
-- `key`
-- `placement`
-- `type`
-- `children`，仅 `organization` 使用
-
-`placement` 枚举：
-
-- `cluster`
-- `workspace`
-- `global`
-
-说明：
-
-- `global` 对应产品语义中的“扩展坞”
-- 一级菜单 `placement` 是单值，不再支持旧的多 placement 数组
-
-### 4.2 二级菜单
-
-二级菜单字段只有：
-
-- `displayName`
-- `key`
-
-二级菜单默认是页面节点，并继承所属一级菜单的 `placement`。
-
-### 4.3 菜单约束
-
-- 菜单只支持两级
-- `type=page` 时，`children` 必须为空
-- `type=organization` 时，`children` 必须非空
-- 一级组织菜单自身不能绑定页面配置
-
-## 5. 页面区块
-
-### 5.1 页面列表
-
-```yaml
-pages:
-  - key: overview
-    type: iframe
-    iframe:
-      src: http://example.test/frontend
-
-  - key: inspecttasks
-    type: crdTable
-    crdTable:
-      names:
-        kind: InspectTask
-        plural: inspecttasks
-      group: kubeeye.kubesphere.io
-      version: v1alpha2
-      scope: Cluster
-      columns:
-        - key: name
-          title: NAME
-          render:
-            type: text
-            path: metadata.name
-```
-
-公共字段：
-
-- `key`
-- `type`
-
-页面类型：
-
-- `iframe`
-- `crdTable`
-
-### 5.2 iframe 页面
-
-```yaml
-pages:
-  - key: overview
-    type: iframe
-    iframe:
-      src: http://example.test/frontend
-```
-
-字段说明：
-
-- `iframe.src`：页面地址
-- 兼容 `url` 作为 `src` 的别名
-
-### 5.3 crdTable 页面
-
-```yaml
-pages:
-  - key: inspecttasks
-    type: crdTable
-    crdTable:
-      names:
-        kind: InspectTask
-        plural: inspecttasks
-      group: kubeeye.kubesphere.io
-      version: v1alpha2
-      authKey: kubeeye-auth
-      scope: Cluster
-      columns:
-        - key: name
-          title: NAME
-          render:
-            type: text
-            path: metadata.name
-```
-
-字段说明：
-
-- `names.kind`
-- `names.plural`
-- `group`
-- `version`
-- `authKey`
-- `scope`
-- `columns`
-
-其中：
-
-- `scope` 枚举值：`Namespaced | Cluster`
-- `columns` 是唯一列配置来源
-
-## 6. key 与绑定规则
-
-### 6.1 key 格式
-
-所有菜单 key 和页面 key 均使用 kebab-case 路由片段：
-
-```text
-^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
-```
-
-### 6.2 唯一性
-
-- 一级菜单 `key` 在一级菜单范围内唯一
-- 所有页面型菜单 key 全局唯一
-- `pages[].key` 在页面列表内唯一
-
-### 6.3 绑定
-
-- 一级 `type=page` 菜单，必须绑定同名 `pages[].key`
-- 一级 `type=organization` 菜单的每个二级菜单，必须绑定同名 `pages[].key`
-- 每个 `pages[].key` 必须且只能被一个菜单节点引用
-
-## 7. 路由、菜单名与页面 ID 派生
-
-### 7.1 路由后缀
-
-- 一级页面：`<first-key>`
-- 二级页面：`<first-key>/<second-key>`
-
-### 7.2 菜单 name
-
-- 一级页面：`frontendintegrations/<fi-name>/<first-key>`
-- 一级组织：`frontendintegrations/<fi-name>/<org-key>`
-- 二级页面：`frontendintegrations/<fi-name>/<first-key>/<second-key>`
-
-### 7.3 路由 path
-
-- `cluster`: `/clusters/:cluster/frontendintegrations/<fi-name>/<suffix>`
-- `workspace`: `/workspaces/:workspace/frontendintegrations/<fi-name>/<suffix>`
-- `global`: `/frontendintegrations/<fi-name>/<suffix>`
-
-### 7.4 pageId
-
-```text
-<fi-name>-<placement>-<suffix-slug>
-```
-
-其中 `suffix-slug` 为路由后缀中的 `/` 替换成 `-`。
-
-## 8. 示例 CR
-
-```yaml
-apiVersion: frontend-forge.kubesphere.io/v1alpha1
-kind: FrontendIntegration
-metadata:
-  name: demo-fi
-  annotations:
-    kubesphere.io/description: Demo multi-page integration
-spec:
-  displayName: Demo FI
-  enabled: true
-  menus:
-    - displayName: Overview
-      key: overview
-      placement: global
-      type: page
-    - displayName: Ops
-      key: ops
-      placement: workspace
-      type: organization
-      children:
-        - displayName: Inspect Tasks
-          key: inspecttasks
-  pages:
-    - key: overview
-      type: iframe
-      iframe:
-        src: http://example.test/frontend
-    - key: inspecttasks
-      type: crdTable
-      crdTable:
-        names:
-          kind: InspectTask
-          plural: inspecttasks
-        group: kubeeye.kubesphere.io
-        version: v1alpha2
-        scope: Cluster
-        columns:
-          - key: name
-            title: NAME
-            render:
-              type: text
-              path: metadata.name
-  builder:
-    engineVersion: v1
-```
-
-## 9. 总结
-
-新的 `FrontendIntegration.spec` 不再表达“单个集成 + 单条路由 + 单个菜单入口”，而是表达：
-
-- 一个菜单树
-- 一组页面定义
-- 菜单与页面之间明确的 key 绑定关系
-
-## 10. 迁移到 FrontendExtension
-
-新版本通过 Helm hook Job 将 FI 自动迁移为 FE。FI 和 FE 都是 cluster-scoped CRD，迁移后的 FE 继续使用 `frontend-forge.kubesphere.io/v1alpha1` API group。
-
-迁移时：
-
-- FE 名称固定为 `fi-<fi.metadata.name>`，例如 `demo-fi -> fi-demo-fi`。
-- 如果 FI 名称本身已有 `fi-` 前缀，仍会继续添加前缀，例如 `fi-demo -> fi-fi-demo`。
-- 迁移后的 FE 带 `frontend-forge.io/managed-by=frontend-forge-fi-migrator` 标记。
-- `spec.displayName/locales/menus/pages` 会复制到 FE inline frontend source。
-- `spec.builder.engineVersion` 会映射为 FE inline source `schemaVersion`，缺省为 `v1`。
-- `metadata.annotations["kubesphere.io/description"]` 会作为 FE package description。
-- `metadata.annotations["kubesphere.io/creator"]` 会作为 FE package provider name，缺省为 `Fi Migration Bot`。
-- 迁移生成的 FE package 默认包含 `icon=./static/favicon.svg` 和 `category=dev-tools`。
-- 原 FI `enabled` 缺省按 `true` 处理；启用的 FI 在 FE Ready 且 FI 删除成功后会触发 FE publish。
-
-完整流程、Helm values、publish API 和失败处理见 [`fi-to-fe-migration.md`](fi-to-fe-migration.md)。
+# CRD Types
+
+Code owner: `crates/api`
+
+Source of truth: `crates/api/src/fi.rs`, `crates/api/src/fe.rs`,
+`crates/api/src/lib.rs`
+
+## Resource Summary
+
+| Resource | Status | Scope | Group / Version | Short name | CRD path |
+| --- | --- | --- | --- | --- | --- |
+| `FrontendIntegration` | Implemented | Cluster | `frontend-forge.kubesphere.io/v1alpha1` | `fi` | `config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendintegrations.yaml` |
+| `FrontendExtension` | Implemented | Cluster | `frontend-forge.kubesphere.io/v1alpha1` | `fe` | `config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendextensions.yaml` |
+| `JSBundle` | Partially implemented in this repo | Cluster | `extensions.kubesphere.io/v1alpha1` | none | Optional chart template `templates/jsbundle-crd.yaml` |
+
+FI and FE CRDs are generated from Rust structs and labeled
+`kubesphere.io/resource-served: "true"`. `JSBundle` is an external KubeSphere
+resource; this repo only carries Rust types and an optional local/e2e CRD.
+
+## FrontendIntegration
+
+Status: Implemented
+
+`FrontendIntegration` is the FI runtime source object. The runtime controller is
+implemented but Helm disables it by default with `controller.enabled=false`.
+
+### Spec Fields
+
+| Field | Type | Required by Rust type | Default / compatibility | Behavior |
+| --- | --- | --- | --- | --- |
+| `displayName` | string | no | omitted | Manifest `displayName`; renderer falls back to `metadata.name`. |
+| `locales` | map `<lang, map<string,string>>` | no | `{}` | Rendered to manifest `locales`. |
+| `enabled` | boolean | no | `true` | Runtime switch. Excluded from `spec_hash`. |
+| `menus` | `PrimaryMenuSpec[]` | yes | none | Two-level menu source. |
+| `pages` | `PageSpec[]` | yes | none | Page config list bound by `key`. |
+| `builder.engineVersion` | string | no | renderer treats missing/empty as `v1` | Supported values: `v1`, `v1alpha1`, `1`, `1.0`. |
+
+### Menu Fields
+
+| Field | Type | Applies to | Behavior |
+| --- | --- | --- | --- |
+| `displayName` | string | primary and secondary | Menu title and page title source. |
+| `key` | string | primary and secondary | Kebab-case route fragment; validated by renderer. |
+| `icon` | string | primary and secondary | Optional; renderer falls back to `GridDuotone`. |
+| `placement` | `global` / `workspace` / `cluster` | primary | Route prefix and menu parent. |
+| `type` | `page` / `organization` | primary | `page` binds directly; `organization` groups secondary pages. |
+| `children` | `SecondaryMenuSpec[]` | primary `organization` | Required for `organization`, forbidden for `page`. |
+
+Implemented validation in `crates/manifest`:
+
+- Top-level menu keys are unique among top-level menus.
+- Page menu bindings are unique by `(placement, key)`.
+- `type=page` cannot define `children`.
+- `type=organization` must define at least one child.
+- `type=organization` cannot bind to a page config with the same key.
+- Only two menu levels are implemented.
+
+### Page Fields
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `key` | string | Binds one page config to one page menu key. |
+| `type` | `iframe` / `crdTable` | Selects the required page config field. |
+| `iframe.src` | string | Iframe URL. `url` is accepted as a serde alias. |
+| `crdTable.names.kind` | string | Optional; used in CRD config and create initial value when present. |
+| `crdTable.names.plural` | string | Required CRD plural. |
+| `crdTable.group` | string | Required API group. |
+| `crdTable.version` | string | Required API version. |
+| `crdTable.authKey` | string | Optional permission action key. |
+| `crdTable.scope` | `Namespaced` / `Cluster` | CRD object scope for page state and generated permissions. |
+| `crdTable.columns` | `ColumnSpec[]` | Required non-empty list for `crdTable`. |
+
+Column fields:
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `key` | string | Column key. |
+| `title` | string | Column title. |
+| `enableSorting` | boolean | Optional, forwarded to manifest column config. |
+| `enableHiding` | boolean | Optional, forwarded to manifest column config. |
+| `render.type` | `text` / `time` / `link` | Renderer type. |
+| `render.path` | string | Source path. |
+| `render.format` | string | Optional payload entry. |
+| `render.pattern` | string | Optional payload entry. |
+| `render.link` | string | Optional payload entry. |
+| `render.payload` | object | Optional payload base object. |
+
+### Status Fields
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `phase` | `Pending` / `Building` / `Succeeded` / `Failed` | Runtime build phase. Disabled FI is patched to `Pending` with message `Disabled`. |
+| `observed_spec_hash` | string | Hash of `spec.without_enabled()`. |
+| `observed_manifest_hash` | string | Deprecated compatibility field retained by controller and runner. |
+| `observed_generation` | integer | Source generation observed by controller/runner. |
+| `last_build.job_ref` | `ResourceRef` | Last selected build Job. |
+| `last_build.started_at` | timestamp | Build start timestamp tracked by controller. |
+| `bundle_ref` | `ResourceRef` | Desired or observed `JSBundle` reference. |
+| `last_error` | `LastBuildError` | Runner or Job failure details. |
+| `message` | string | Human-readable controller state. |
+| `conditions` | `SimpleCondition[]` | Type exists; FI controller currently writes an empty list. |
+
+## FrontendExtension
+
+Status: Implemented
+
+`FrontendExtension` is the package/download/publish source object. Helm installs
+the FE controller and FE HTTP API by default.
+
+### Spec Fields
+
+| Field | Type | Required by Rust type | Behavior |
+| --- | --- | --- | --- |
+| `package` | `FrontendExtensionPackageSpec` | yes | Extension package metadata and chart values. |
+| `source.type` | `Inline` | yes | Only `Inline` is implemented. |
+| `source.inline.schemaVersion` | string | yes | Renderer schema version; supported values match FI v1 renderer aliases. |
+| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | Menu/page/locales source shared with FI schema. |
+| `source.inline.extensionResources.jsBundle.name` | string | no | Type exists for compatibility; current package renderer does not use it. |
+| `publishPolicy` | `PublishPolicySpec` | no | Manual publish target defaults. |
+
+### Package Fields
+
+| Field | Type | Required by Rust type | Behavior |
+| --- | --- | --- | --- |
+| `name` | string | no | Package name; defaults to FE `metadata.name`. |
+| `version` | string | yes | Package version and archive filename suffix. |
+| `displayName` | map `<lang,string>` | yes | Package display name; renderer uses `en`, then `zh`, then first value for manifest fallback. |
+| `description` | map `<lang,string>` | yes | Package description and manifest description fallback. |
+| `category` | string | no | Written to generated `extension.yaml` when present. |
+| `keywords` | string[] | no | Written to package metadata. |
+| `sources` | string[] | no | Written to package metadata and frontend chart. |
+| `kubeVersion` | string | no | Written to package metadata. |
+| `ksVersion` | string | no | Written to package metadata. |
+| `maintainers` | list | no | Written to package metadata. |
+| `home` | string | no | Written to package metadata and frontend chart. |
+| `provider` | map `<lang, provider>` | no | Written to package metadata. |
+| `icon` | string | no | Written to package metadata. |
+| `staticFileDirectory` | string | no | Written to package metadata. |
+| `dependencies` | list | no | Defaults to `<package>-helper` with tag `agent` and `frontend` with tag `extension`. |
+| `installationMode` | string | no | Written to package metadata. |
+| `images` | string[] | no | Written to package metadata. |
+| `charts.values` | object | no | Root `values.yaml`; helper `roleTemplate.enabled` defaults to `true`. |
+
+### Publish Policy
+
+Status: Implemented
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `mode` | `Manual` | Only `Manual` is implemented. |
+| `defaultTargetKind` | `ConfigMap` / `Secret` | Defaults to `ConfigMap` in controller/API behavior when no annotation override exists. |
+| `defaultTargetRef.namespace` | string | Target namespace. |
+| `defaultTargetRef.name` | string | Target object name. |
+| `defaultTargetRef.uid` | string | Optional, not required by publish controller. |
+
+Publish request annotations override spec target fields:
+
+| Annotation | Behavior |
+| --- | --- |
+| `frontend-forge.io/publish-request-id` | Triggers publish reconciliation. |
+| `frontend-forge.io/publish-artifact-digest` | Required requested artifact digest. |
+| `frontend-forge.io/publish-target-kind` | Optional target kind override. |
+| `frontend-forge.io/publish-target-namespace` | Optional target namespace override. |
+| `frontend-forge.io/publish-target-name` | Optional target name override. |
+
+### Status Fields
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `phase` | `Pending` / `Packaging` / `Ready` / `Failed` | Package source and artifact phase. |
+| `observedGeneration` | integer | Observed FE generation. |
+| `observedSourceHash` | string | Normalized package/source hash. |
+| `observedRebuildToken` | string | Current `frontend-forge.kubesphere.io/rebuild-token` annotation value. |
+| `artifact.storage.kind` | `ConfigMap` | Only ConfigMap artifact storage is implemented. |
+| `artifact.storage.ref` | `NamespacedResourceRef` | Artifact ConfigMap reference. |
+| `artifact.storage.key` | string | Binary package key, currently `package.tgz`. |
+| `artifact.digest` | string | Package tarball digest, `sha256:<hex>`. |
+| `artifact.sizeBytes` | integer | Package byte size. |
+| `artifact.mediaType` | string | `application/gzip`. |
+| `artifact.filename` | string | `<package-name>-<version>.tgz`. |
+| `artifact.generatedAt` | timestamp | Package generation time. |
+| `artifact.sourceHash` | string | Source hash used for this artifact. |
+| `artifact.artifactKey` | string | Hash of source hash plus rebuild token. |
+| `download.ready` | boolean | HTTP download readiness. |
+| `download.filename` | string | Download filename. |
+| `download.mediaType` | string | Download media type. |
+| `packageJob` | `PackageJobStatus` | Current or last package Job status. |
+| `publish` | `PublishStatus` | Current publish request status for current artifact key. |
+| `conditions` | `ExtensionCondition[]` | Controller writes `SourceValid`, `ArtifactReady`, `DownloadReady`, `PublishSucceeded`. |
+
+`PublishStatus` fields:
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `phase` | `NotRequested` / `Pending` / `Running` / `Succeeded` / `Failed` | Publish Job phase or default. |
+| `requestId` | string | Publish request id. |
+| `artifactDigest` | string | Requested artifact digest. |
+| `jobRef` | `NamespacedResourceRef` | Publisher Job reference. |
+| `startedAt` | timestamp | Job start time. |
+| `finishedAt` | timestamp | Job completion time. |
+| `lastError` | string | Job failure message. |
+
+## JSBundle
+
+Status: Partially implemented
+
+`JSBundle` Rust types are used by the FI runtime controller and runner. The CRD
+is normally provided by KubeSphere. The chart can install a local/e2e CRD with
+`crds.installJsBundle=true`.
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `spec.raw` | string | Inline bundle content; not written by FI runner. |
+| `spec.rawFrom.configMapKeyRef` | namespaced key ref | FI runner writes this reference. |
+| `spec.rawFrom.secretKeyRef` | namespaced key ref | Type exists; not written by FI runner. |
+| `spec.rawFrom.url` | string | Type exists; not written by FI runner. |
+| `status.state` | string | Runner/controller set `Available`; controller sets `Disabled` when FI is disabled. |
+| `status.link` | string | Runner writes `/dist/<jsbundle>/<key>`. |
+| `status.conditions` | array | Type exists; runner writes an empty list. |
+
+## TODO / Open Question
+
+Status: Planned / TODO
+
+- The external production owner of the `JSBundle` CRD is outside this repository.
+- Rust types do not enforce semantic validation such as key format or page binding; those rules live in `crates/manifest`.

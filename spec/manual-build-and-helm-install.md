@@ -1,296 +1,139 @@
-# 本地手动构建镜像与 Helm 安装
+# Manual Build And Helm Install
 
-本文档记录本地手动构建镜像、推送到镜像仓库、加载到远端 kind 集群，并通过 Helm 安装或更新 `frontend-forge` 的流程。
+Code owners: `scripts/manual-build-kind-helm-install.sh`,
+`scripts/fe-full-regression.sh`, Dockerfiles under `crates/*`
 
-## 前提
+## Status
 
-本地需要：
+| Workflow | Status | Entry point |
+| --- | --- | --- |
+| Build FE controller/packager/publisher images | Implemented | `scripts/manual-build-kind-helm-install.sh` |
+| Build full runtime/API image set | Implemented | `INSTALL_PROFILE=full` |
+| Load images into local or remote kind | Implemented | `KIND_LOAD_IMAGES=true` |
+| Helm upgrade/install with image overrides | Implemented | `HELM_INSTALL=true` |
+| FE package/download regression | Implemented | `scripts/fe-full-regression.sh` |
+| Publish smoke test | Partially implemented | Manual target + API call |
 
-```bash
-docker buildx ls
-kubectl version --client
-helm version
-```
+## Scripted Image Build And Install
 
-远端 kind 集群需要可访问。当前常用 kubeconfig 是：
+Status: Implemented
 
-```bash
-export KUBECONFIG_PATH="$HOME/.kube/kind-remote"
-export KUBECONFIG="$KUBECONFIG_PATH"
-```
-
-如果 kubeconfig 指向本地转发端口，例如 `https://127.0.0.1:33631`，先启动 SSH 隧道：
-
-```bash
-ssh -N -L 33631:127.0.0.1:33631 root@172.31.19.2
-```
-
-常用变量：
-
-```bash
-export REGISTRY="docker.io/kubesphere"
-export TAG="dev-$(date +%m%d%H%M)"
-export KIND_CLUSTER="fe"
-export NAMESPACE="extension-frontend-forge"
-export RELEASE="frontend-forge"
-export REMOTE="root@172.31.19.2"
-export BUILDER="mybuilder"
-```
-
-## 脚本化执行
-
-仓库内提供了脚本封装本文档的构建、远端 kind load 和 Helm 安装流程：
+Default profile:
 
 ```bash
 scripts/manual-build-kind-helm-install.sh
 ```
 
-默认 `INSTALL_PROFILE=extension`，会构建并推送：
+Profiles:
 
-- `frontend-extension-controller`
-- `frontend-forge-extension-packager`
-- `frontend-forge-extension-publisher`
+| `INSTALL_PROFILE` | Images | Helm scope |
+| --- | --- | --- |
+| `extension` | FE controller, packager, publisher | Updates FE package/publish path. |
+| `full` | Extension images plus FI controller, runner, extension API | Installs runtime, FE path, API, optional build-service. |
 
-然后把镜像加载到远端 kind，并通过 Helm 更新 `frontend-forge-extension-controller` 使用的 controller、packager、publisher 镜像。
+Important env:
 
-完整安装 runtime controller、runner、extension API 时：
+| Env | Default | Behavior |
+| --- | --- | --- |
+| `REGISTRY` | `docker.io/kubesphere` | Image registry prefix. |
+| `TAG` | `dev-<timestamp>` | Image tag. |
+| `BUILDER` | `mybuilder` | Docker buildx builder. |
+| `PLATFORM` | `linux/amd64` | Build platform. |
+| `KIND_CLUSTER` | `fe` | kind cluster name. |
+| `NAMESPACE` | `extension-frontend-forge` | Helm release namespace. |
+| `RELEASE` | `frontend-forge` | Helm release name. |
+| `REMOTE` | `root@172.31.19.2` | Remote host. Set empty for local kind. |
+| `KUBECONFIG_PATH` | `$KUBECONFIG` or `~/.kube/kind-remote` | kubectl/helm kubeconfig. |
+| `BUILD_IMAGES` | `true` | Build images. |
+| `PUSH_IMAGES` | `true` | Push images; `false` uses local Docker load. |
+| `KIND_LOAD_IMAGES` | `true` | Load images into kind. |
+| `HELM_INSTALL` | `true` | Run Helm upgrade/install. |
+| `HELM_REUSE_VALUES` | `auto` | `true` for extension profile, `false` for full profile. |
+| `KSBUILDER_VERSION` | empty | Optional publisher Docker build arg. |
+| `FRONTEND_FORGE_IMAGE` | empty | Enables chart build-service when set. |
 
-```bash
-INSTALL_PROFILE=full scripts/manual-build-kind-helm-install.sh
-```
+Image override envs:
 
-常用跳过开关：
+| Env | Default pattern |
+| --- | --- |
+| `EXTENSION_CONTROLLER_IMAGE` | `${REGISTRY}/frontend-extension-controller:${TAG}` |
+| `EXTENSION_PACKAGER_IMAGE` | `${REGISTRY}/frontend-forge-extension-packager:${TAG}` |
+| `EXTENSION_PUBLISHER_IMAGE` | `${REGISTRY}/frontend-forge-extension-publisher:${TAG}` |
+| `RUNTIME_CONTROLLER_IMAGE` | `${REGISTRY}/frontend-forge-controller:${TAG}` |
+| `RUNNER_IMAGE` | `${REGISTRY}/frontend-forge-runner:${TAG}` |
+| `EXTENSION_API_IMAGE` | `${REGISTRY}/frontend-forge-extension-api:${TAG}` |
 
-```bash
-BUILD_IMAGES=false KIND_LOAD_IMAGES=false scripts/manual-build-kind-helm-install.sh
-HELM_INSTALL=false scripts/manual-build-kind-helm-install.sh
-```
-
-只构建本地镜像、不推送 DockerHub：
-
-```bash
-PUSH_IMAGES=false scripts/manual-build-kind-helm-install.sh
-```
-
-此模式使用 `docker buildx build --load`。如果 `REMOTE` 非空，脚本会通过 `docker save | ssh docker load` 把本地镜像传到远端 Docker，再执行远端 `kind load docker-image`；如果 `REMOTE=""`，则直接加载到本地 kind。
-
-如果 Helm upgrade 因为之前手工执行过 `kubectl set image`、`kubectl set env` 或 `kubectl scale` 出现 server-side apply field manager 冲突，脚本默认会用 `--force-conflicts` 自动重试一次。需要关闭时：
-
-```bash
-HELM_FORCE_CONFLICTS_ON_RETRY=false scripts/manual-build-kind-helm-install.sh
-```
-
-本地 kind 而不是远端 kind 时：
-
-```bash
-REMOTE="" KIND_CLUSTER=fe scripts/manual-build-kind-helm-install.sh
-```
-
-如果要测试 publish，还需要一个 publish target。`FrontendExtension.spec.publishPolicy.defaultTargetKind/defaultTargetRef` 默认指向：
+Full install with local/e2e build-service image:
 
 ```bash
-export PUBLISH_TARGET_KIND="ConfigMap"
-export PUBLISH_TARGET_NAMESPACE="$NAMESPACE"
-export PUBLISH_TARGET_NAME="ksbuilder-publish-config"
+INSTALL_PROFILE=full \
+FRONTEND_FORGE_IMAGE="${REGISTRY}/frontend-forge:${TAG}" \
+scripts/manual-build-kind-helm-install.sh
 ```
 
-## 构建并推送镜像
+## Direct Docker Builds
 
-### FrontendExtension controller 和 packager Job
+Status: Implemented
 
-`FrontendExtension` package 链路至少需要这两张镜像版本一致：
-
-- `frontend-extension-controller`
-- `frontend-forge-extension-packager`
+FE package/publish path:
 
 ```bash
-export EXTENSION_CONTROLLER_IMAGE="${REGISTRY}/frontend-extension-controller:${TAG}"
-export EXTENSION_PACKAGER_IMAGE="${REGISTRY}/frontend-forge-extension-packager:${TAG}"
+docker buildx build -f crates/frontend-extension-controller/Dockerfile \
+  -t "$EXTENSION_CONTROLLER_IMAGE" --push .
 
-docker buildx use "$BUILDER"
+docker buildx build -f crates/extension-packager/Dockerfile \
+  -t "$EXTENSION_PACKAGER_IMAGE" --push .
 
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/frontend-extension-controller/Dockerfile \
-  -t "$EXTENSION_CONTROLLER_IMAGE" \
-  --push \
-  .
-
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/extension-packager/Dockerfile \
-  -t "$EXTENSION_PACKAGER_IMAGE" \
-  --push \
-  .
+docker buildx build -f crates/extension-publisher/Dockerfile \
+  -t "$EXTENSION_PUBLISHER_IMAGE" --push .
 ```
 
-注意：这两个 Dockerfile 必须复制 `template` 目录，否则 `include_dir!` 会在镜像构建时找不到 `template/test-fe-demo`：
-
-```dockerfile
-COPY template ./template
-```
-
-### Publisher Job
-
-如果要测试 `FrontendExtension` 的 publish 链路，还需要构建 publisher Job 镜像：
+Publisher with explicit `ksbuilder` version:
 
 ```bash
-export EXTENSION_PUBLISHER_IMAGE="${REGISTRY}/frontend-forge-extension-publisher:${TAG}"
-
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/extension-publisher/Dockerfile \
-  -t "$EXTENSION_PUBLISHER_IMAGE" \
-  --push \
-  .
+docker buildx build -f crates/extension-publisher/Dockerfile \
+  --build-arg "KSBUILDER_VERSION=$KSBUILDER_VERSION" \
+  -t "$EXTENSION_PUBLISHER_IMAGE" --push .
 ```
 
-publisher 镜像内包含：
-
-- `frontend-forge-extension-publisher` binary
-- `ksbuilder` binary
-
-默认 `ksbuilder` 版本在 `crates/extension-publisher/Dockerfile` 的 `KSBUILDER_VERSION` 中定义。需要覆盖时：
+FI runtime/API path:
 
 ```bash
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/extension-publisher/Dockerfile \
-  --build-arg KSBUILDER_VERSION=0.4.7 \
-  -t "$EXTENSION_PUBLISHER_IMAGE" \
-  --push \
-  .
+docker buildx build -f crates/frontend-forge-controller/Dockerfile \
+  -t "$RUNTIME_CONTROLLER_IMAGE" --push .
+
+docker buildx build -f crates/frontend-forge-runner/Dockerfile \
+  -t "$RUNNER_IMAGE" --push .
+
+docker buildx build -f crates/frontend-forge-extension-api/Dockerfile \
+  -t "$EXTENSION_API_IMAGE" --push .
 ```
 
-### FrontendIntegration controller 和 runner Job
+## Helm Image Overrides
 
-如果要测试 `FrontendIntegration` 链路，需要构建 runtime controller 和 runner：
+Status: Implemented
 
-```bash
-export RUNTIME_CONTROLLER_IMAGE="${REGISTRY}/frontend-forge-controller:${TAG}"
-export RUNNER_IMAGE="${REGISTRY}/frontend-forge-runner:${TAG}"
-
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/frontend-forge-controller/Dockerfile \
-  -t "$RUNTIME_CONTROLLER_IMAGE" \
-  --push \
-  .
-
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/frontend-forge-runner/Dockerfile \
-  -t "$RUNNER_IMAGE" \
-  --push \
-  .
-```
-
-### Extension API
-
-如果希望通过 Helm 部署集群内 extension API，而不是本地 debug 进程：
+Extension-only update:
 
 ```bash
-export EXTENSION_API_IMAGE="${REGISTRY}/frontend-forge-extension-api:${TAG}"
-
-docker buildx build \
-  --builder "$BUILDER" \
-  --platform linux/amd64 \
-  -f crates/frontend-forge-extension-api/Dockerfile \
-  -t "$EXTENSION_API_IMAGE" \
-  --push \
-  .
-```
-
-## 加载镜像到远端 kind
-
-远端机器上需要能访问 Docker 和 kind。当前远端 `kind` 常见路径是 `/root/go/bin/kind`。
-
-```bash
-ssh "$REMOTE" "
-  set -euo pipefail
-  docker pull '$EXTENSION_CONTROLLER_IMAGE'
-  docker pull '$EXTENSION_PACKAGER_IMAGE'
-  docker pull '$EXTENSION_PUBLISHER_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$EXTENSION_CONTROLLER_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$EXTENSION_PACKAGER_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$EXTENSION_PUBLISHER_IMAGE'
-"
-```
-
-如需加载 runtime、runner、extension API：
-
-```bash
-ssh "$REMOTE" "
-  set -euo pipefail
-  docker pull '$RUNTIME_CONTROLLER_IMAGE'
-  docker pull '$RUNNER_IMAGE'
-  docker pull '$EXTENSION_API_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$RUNTIME_CONTROLLER_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$RUNNER_IMAGE'
-  /root/go/bin/kind load docker-image --name '$KIND_CLUSTER' '$EXTENSION_API_IMAGE'
-"
-```
-
-## Helm 安装或更新
-
-### 只更新 FrontendExtension controller、packager Job 和 publisher Job
-
-适用于集群已经安装 `frontend-forge`，只需要切换 FE controller、packager Job 和 publisher Job 镜像：
-
-```bash
-helm upgrade --install "$RELEASE" config/charts/frontend-forge \
-  --namespace "$NAMESPACE" \
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
   --create-namespace \
-  --set crds.installJsBundle=true \
-  --set extensionController.enabled=true \
+  --reuse-values \
   --set extensionController.image.registry="" \
   --set extensionController.image.repository="$EXTENSION_CONTROLLER_IMAGE" \
   --set extensionController.image.tag="" \
   --set extensionController.packagerImage="$EXTENSION_PACKAGER_IMAGE" \
-  --set extensionController.publisherImage="$EXTENSION_PUBLISHER_IMAGE" \
-  --set extensionPackager.image.registry="" \
-  --set extensionPackager.image.repository="$EXTENSION_PACKAGER_IMAGE" \
-  --set extensionPackager.image.tag="" \
-  --set extensionPublisher.image.registry="" \
-  --set extensionPublisher.image.repository="$EXTENSION_PUBLISHER_IMAGE" \
-  --set extensionPublisher.image.tag=""
+  --set extensionController.publisherImage="$EXTENSION_PUBLISHER_IMAGE"
 ```
 
-验证 rollout：
+Full runtime/API install:
 
 ```bash
-kubectl -n "$NAMESPACE" rollout status deploy/frontend-forge-extension-controller --timeout=180s
-kubectl -n "$NAMESPACE" get deploy frontend-forge-extension-controller \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}{.spec.template.spec.containers[0].env[?(@.name=="PACKAGER_IMAGE")].value}{"\n"}{.spec.template.spec.containers[0].env[?(@.name=="PUBLISHER_IMAGE")].value}{"\n"}'
-```
-
-也可以直接用 `kubectl` 快速更新现有部署：
-
-```bash
-kubectl -n "$NAMESPACE" set image deploy/frontend-forge-extension-controller \
-  frontend-extension-controller="$EXTENSION_CONTROLLER_IMAGE"
-
-kubectl -n "$NAMESPACE" set env deploy/frontend-forge-extension-controller \
-  PACKAGER_IMAGE="$EXTENSION_PACKAGER_IMAGE" \
-  PUBLISHER_IMAGE="$EXTENSION_PUBLISHER_IMAGE"
-
-kubectl -n "$NAMESPACE" rollout status deploy/frontend-forge-extension-controller --timeout=180s
-```
-
-### 完整安装 runtime、runner、FE controller、packager、extension API
-
-适用于干净集群或希望把所有组件都切到本地构建镜像：
-
-```bash
-helm upgrade --install "$RELEASE" config/charts/frontend-forge \
-  --namespace "$NAMESPACE" \
+helm upgrade --install frontend-forge config/charts/frontend-forge \
+  --namespace extension-frontend-forge \
   --create-namespace \
+  --set controller.enabled=true \
   --set crds.installJsBundle=true \
   --set image.registry="" \
   --set image.repository="$RUNTIME_CONTROLLER_IMAGE" \
@@ -298,25 +141,17 @@ helm upgrade --install "$RELEASE" config/charts/frontend-forge \
   --set runner.image.registry="" \
   --set runner.image.repository="$RUNNER_IMAGE" \
   --set runner.image.tag="" \
-  --set extensionController.enabled=true \
   --set extensionController.image.registry="" \
   --set extensionController.image.repository="$EXTENSION_CONTROLLER_IMAGE" \
   --set extensionController.image.tag="" \
   --set extensionController.packagerImage="$EXTENSION_PACKAGER_IMAGE" \
   --set extensionController.publisherImage="$EXTENSION_PUBLISHER_IMAGE" \
-  --set extensionPackager.image.registry="" \
-  --set extensionPackager.image.repository="$EXTENSION_PACKAGER_IMAGE" \
-  --set extensionPackager.image.tag="" \
-  --set extensionPublisher.image.registry="" \
-  --set extensionPublisher.image.repository="$EXTENSION_PUBLISHER_IMAGE" \
-  --set extensionPublisher.image.tag="" \
-  --set extensionApi.enabled=true \
   --set extensionApi.image.registry="" \
   --set extensionApi.image.repository="$EXTENSION_API_IMAGE" \
   --set extensionApi.image.tag=""
 ```
 
-如果要用 chart 内置 build-service，还需要设置 build-service 镜像：
+Enable chart build-service stub:
 
 ```bash
 --set buildService.enabled=true \
@@ -325,227 +160,147 @@ helm upgrade --install "$RELEASE" config/charts/frontend-forge \
 --set buildService.image.tag=""
 ```
 
-## Extension API 访问方式
+## Extension API Access
 
-完整回归脚本默认访问本地：
+Status: Implemented
 
-```bash
-http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions
-```
-
-如果使用集群内 extension API，可以 port-forward：
+Cluster API port-forward:
 
 ```bash
-kubectl -n "$NAMESPACE" port-forward svc/frontend-forge-extension-api \
-  --address 127.0.0.1 18080:80
+kubectl -n extension-frontend-forge port-forward \
+  svc/frontend-forge-extension-api 18080:80
 ```
 
-如果使用本地 debug API：
+Local debug process:
 
 ```bash
 EXTENSION_API_BIND_ADDR=127.0.0.1:18080 \
-KUBECONFIG="$KUBECONFIG_PATH" \
-RUST_LOG=info,frontend_forge_extension_api=debug \
-target/debug/frontend-forge-extension-api
+cargo run -p frontend-forge-extension-api
 ```
 
-## 完整回归测试
+Default FE API base for scripts:
 
-`scripts/fe-full-regression.sh` 会执行：
+```text
+http://127.0.0.1:18080/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions
+```
 
-1. 如果 `FrontendExtension/inspecttask` 已存在，删除 CR。
-2. 验证关联 Job 和 ConfigMap 已删除。
-3. 使用 `config/samples/frontendextension-inspecttask.yaml` 创建 CR。
-4. 等待 `status.phase=Ready` 且 `status.packageJob.phase=Succeeded`。
-5. 校验 packager Job 镜像。
-6. 校验 artifact ConfigMap 和 HTTP 下载 sha256。
-7. 默认生成修改版 CR 并 apply。
-8. 验证修改后 source hash、Job、ConfigMap、digest 都发生变化，并再次下载校验。
+## FE Regression Script
 
-当前脚本覆盖 package/download，不触发 publish。publish 需要单独准备 publish target 和调用 publish API。
+Status: Implemented
 
-执行：
+Entry point:
 
 ```bash
-KUBECONFIG_PATH="$KUBECONFIG_PATH" \
-FRONTEND_FORGE_NAMESPACE="$NAMESPACE" \
-SAMPLE_FILE="$(pwd)/config/samples/frontendextension-inspecttask.yaml" \
+DOWNLOAD_API_BASE_URL="http://127.0.0.1:18080/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions" \
 EXPECTED_PACKAGER_IMAGE="$EXTENSION_PACKAGER_IMAGE" \
-DOWNLOAD_API_BASE_URL="http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions" \
 scripts/fe-full-regression.sh
 ```
 
-只测创建，不测修改：
+Main env:
 
-```bash
-RUN_UPDATE_TEST=false scripts/fe-full-regression.sh
+| Env | Default | Behavior |
+| --- | --- | --- |
+| `FE_NAME` | `inspecttask` | FE sample object name. |
+| `SAMPLE_FILE` | `config/samples/frontendextension-inspecttask.yaml` | FE sample path. |
+| `FRONTEND_FORGE_NAMESPACE` | `extension-frontend-forge` | Job/ConfigMap namespace. |
+| `DOWNLOAD_API_BASE_URL` | local FE API `/kapis/...` path | Download endpoint base. |
+| `EXPECTED_PACKAGER_IMAGE` | empty | Optional package Job image assertion. |
+| `RUN_UPDATE_TEST` | `true` | Applies modified FE after create succeeds. |
+| `RUN_REBUILD_TEST` | `true` | Patches rebuild token and verifies rebuild. |
+| `APPLY_CRD` | `true` | Applies FE CRD before testing. |
+
+Checks performed:
+
+- Deletes existing FE and related owned Jobs/ConfigMaps.
+- Applies FE sample.
+- Waits for `status.phase=Ready` and `status.packageJob.phase=Succeeded`.
+- Verifies package Job image when `EXPECTED_PACKAGER_IMAGE` is set.
+- Downloads artifact through FE API.
+- Verifies downloaded package digest against `status.artifact.digest`.
+- Optionally applies source update and rebuild-token update.
+
+Artifacts are written under:
+
+```text
+artifacts/fe-full-regression/<timestamp>/
 ```
 
-成功后 artifacts 默认在：
+## Publish Smoke Test
 
-```bash
-artifacts/fe-full-regression/<timestamp>
-```
+Status: Partially implemented
 
-关键文件：
+The controller/API/publisher path is implemented. A working target requires
+external `ksbuilder publish` configuration.
 
-- `pre-delete/`：删除前现场
-- `delete-existing.log`：CR 删除记录
-- `create-frontendextension.yaml`
-- `create-package-job.yaml`
-- `create-artifact-configmap.yaml`
-- `create-download-sha256.txt`
-- `frontendextension-update.yaml`
-- `update-frontendextension.yaml`
-- `update-package-job.yaml`
-- `update-artifact-configmap.yaml`
-- `update-download-sha256.txt`
-- `update-summary.txt`
-
-## Publish Job 手动测试
-
-### 准备 publish target
-
-`FrontendExtension` 示例默认 publish target 是：
+Sample target shape:
 
 ```yaml
-publishPolicy:
-  mode: Manual
-  defaultTargetKind: ConfigMap
-  defaultTargetRef:
-    namespace: extension-frontend-forge
-    name: ksbuilder-publish-config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ksbuilder-publish-config
+  namespace: extension-frontend-forge
+data:
+  args: ""
+  env.EXAMPLE: "value"
 ```
 
-publisher Job 支持 `ConfigMap` 或 `Secret` target。target 数据处理规则：
+Publisher target data handling:
 
-- `env.<NAME>`：注入为 `ksbuilder publish` 进程环境变量 `<NAME>`。
-- `args`：按空白字符切分后追加到 `ksbuilder publish <package-dir>` 参数后面。
-- 其他 key：写入工作目录下的 `.frontend-forge-publish-target/<key>` 文件。
+| Target key | Behavior |
+| --- | --- |
+| `env.<NAME>` | Passed as environment variable `<NAME>` to `ksbuilder publish`. |
+| `args` | Split by whitespace and appended to `ksbuilder publish <package-dir>`. |
+| other key | Written under `<workdir>/.frontend-forge-publish-target/<key>`. |
 
-用于 smoke test 时，可以先创建一个 ConfigMap。下面只是占位示例，真实 key 需要按当前 `ksbuilder publish` 使用的 registry 配置调整：
-
-```bash
-kubectl -n "$NAMESPACE" create configmap "$PUBLISH_TARGET_NAME" \
-  --from-literal=env.REGISTRY=docker.io \
-  --from-literal=env.REPOSITORY=kubesphere/inspecttask \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-实际发布所需 key 取决于当前 `ksbuilder publish` 版本和 registry 配置要求。凭据类数据应使用 `Secret`，并在 `FrontendExtension.spec.publishPolicy.defaultTargetKind` 中指定 `Secret`。
-
-### 触发 publish
-
-先确保 package 已 Ready：
+Trigger publish:
 
 ```bash
-kubectl get frontendextension inspecttask \
-  -o jsonpath='{.status.phase}{"\n"}{.status.artifact.digest}{"\n"}'
-```
+artifact_digest="$(kubectl get frontendextension inspecttask \
+  -o jsonpath='{.status.artifact.digest}')"
 
-通过 extension API 触发 publish：
-
-```bash
-artifact_digest="$(kubectl get frontendextension inspecttask -o jsonpath='{.status.artifact.digest}')"
-request_id="manual-$(date +%Y%m%d%H%M%S)"
-
-curl -fsS -X POST \
+curl -sS -X POST \
   "http://127.0.0.1:18080/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish" \
   -H 'Content-Type: application/json' \
   -d "{
-    \"requestId\": \"${request_id}\",
+    \"requestId\": \"manual-$(date +%s)\",
     \"expectedArtifactDigest\": \"${artifact_digest}\"
   }"
 ```
 
-查询 publish 状态：
+Inspect publish:
 
 ```bash
-curl -fsS \
-  "http://127.0.0.1:18080/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/inspecttask/publish"
-
 kubectl get frontendextension inspecttask \
   -o jsonpath='{.status.publish.phase}{"\n"}{.status.publish.jobRef.name}{"\n"}{.status.publish.lastError}{"\n"}'
+
+publish_job="$(kubectl get frontendextension inspecttask \
+  -o jsonpath='{.status.publish.jobRef.name}')"
+
+kubectl -n extension-frontend-forge get job "$publish_job" -o yaml
+kubectl -n extension-frontend-forge logs "job/$publish_job"
 ```
 
-### 查看 publisher Job
+## Troubleshooting Commands
 
-```bash
-publish_job="$(kubectl get frontendextension inspecttask -o jsonpath='{.status.publish.jobRef.name}')"
-
-kubectl -n "$NAMESPACE" get job "$publish_job" -o yaml
-kubectl -n "$NAMESPACE" logs "job/$publish_job"
-```
-
-验证 publisher Job 镜像：
-
-```bash
-kubectl -n "$NAMESPACE" get job "$publish_job" \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
-```
-
-publisher Job 的关键环境变量由 controller 注入：
-
-- `PUBLISH_REQUEST_ID`
-- `ARTIFACT_DIGEST`
-- `ARTIFACT_CONFIGMAP_NAMESPACE`
-- `ARTIFACT_CONFIGMAP_NAME`
-- `ARTIFACT_CONFIGMAP_KEY`
-- `ARTIFACT_FILENAME`
-- `PUBLISH_TARGET_KIND`
-- `PUBLISH_TARGET_NAMESPACE`
-- `PUBLISH_TARGET_NAME`
-
-publisher binary 支持 `KSBUILDER_PUBLISH_ARGS` 环境变量，但当前 controller 没有把它注入 publisher Job。如需传额外参数，优先在 publish target 里使用 `args` key；如果要从 controller 统一注入，则需要扩展 controller 的 publisher Job env。
-
-publisher 会先把 artifact tgz 写入工作目录并解压到 `package/` 子目录，然后执行：
-
-```bash
-ksbuilder publish <workdir>/package
-```
-
-## 常用排查命令
-
-查看当前镜像：
-
-```bash
-kubectl -n "$NAMESPACE" get deploy frontend-forge-extension-controller \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}{.spec.template.spec.containers[0].env[?(@.name=="PACKAGER_IMAGE")].value}{"\n"}{.spec.template.spec.containers[0].env[?(@.name=="PUBLISHER_IMAGE")].value}{"\n"}'
-```
-
-查看 FE 状态：
+Status: Implemented
 
 ```bash
 kubectl get frontendextension inspecttask -o yaml
+
+job_name="$(kubectl get frontendextension inspecttask \
+  -o jsonpath='{.status.packageJob.name}')"
+kubectl -n extension-frontend-forge get job "$job_name" -o yaml
+kubectl -n extension-frontend-forge logs "job/$job_name"
+
+cm_name="$(kubectl get frontendextension inspecttask \
+  -o jsonpath='{.status.artifact.storage.ref.name}')"
+kubectl -n extension-frontend-forge get configmap "$cm_name" -o yaml
 ```
 
-查看 package Job：
+## TODO / Open Question
 
-```bash
-job_name="$(kubectl get frontendextension inspecttask -o jsonpath='{.status.packageJob.name}')"
-kubectl -n "$NAMESPACE" get job "$job_name" -o yaml
-kubectl -n "$NAMESPACE" logs "job/$job_name"
-```
+Status: Planned / TODO
 
-查看 publish Job：
-
-```bash
-publish_job="$(kubectl get frontendextension inspecttask -o jsonpath='{.status.publish.jobRef.name}')"
-kubectl -n "$NAMESPACE" get job "$publish_job" -o yaml
-kubectl -n "$NAMESPACE" logs "job/$publish_job"
-```
-
-查看 artifact ConfigMap：
-
-```bash
-cm_name="$(kubectl get frontendextension inspecttask -o jsonpath='{.status.artifact.storage.ref.name}')"
-kubectl -n "$NAMESPACE" get cm "$cm_name" -o yaml
-```
-
-下载产物并校验：
-
-```bash
-curl -fL "http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions/inspecttask/download" \
-  -o /tmp/inspecttask.tgz
-shasum -a 256 /tmp/inspecttask.tgz
-```
+- Publish target key names beyond `env.*` and `args` depend on external `ksbuilder` configuration.
+- The script defaults target a specific remote host; override `REMOTE` for other environments.

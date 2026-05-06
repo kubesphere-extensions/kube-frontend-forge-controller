@@ -1,44 +1,25 @@
-# Helm Chart 交付资源
+# Kubernetes Resources
 
-本文记录 frontend-forge 当前的 Kubernetes 交付面。仓库不再维护逐个 `kubectl apply` 的安装清单；安装入口统一为 Helm chart：
+Code owner: `config/charts/frontend-forge`
 
-```text
-config/charts/frontend-forge
-```
+Source of truth: Helm templates under `config/charts/frontend-forge`
 
-示例 CR 仍保留在 `config/samples/`，用于开发、文档和 e2e。
+## Status
 
-Helm chart 的设计细节见 [`helm-chart.md`](helm-chart.md)。
+| Resource group | Status | Default render state |
+| --- | --- | --- |
+| FI/FE CRDs | Implemented | Always installed from `crds/`. |
+| FE package/publish resources | Implemented | Rendered by default. |
+| FE HTTP API resources | Implemented | Rendered by default. |
+| FI runtime resources | Implemented | Not rendered by default. |
+| FI-to-FE migrator | Implemented | Rendered by default as Helm hook. |
+| FI webhook resources | Implemented | Not rendered by default. |
+| Local/e2e `JSBundle` CRD | Implemented | Not rendered by default. |
+| Local/e2e build-service stub | Implemented | Not rendered by default. |
 
-## 1. 安装方式
+## Chart Paths
 
-默认安装 runtime 与发布态组件：
-
-```bash
-helm upgrade --install frontend-forge config/charts/frontend-forge \
-  --namespace extension-frontend-forge \
-  --create-namespace
-```
-
-本地或 e2e 集群如果没有 KubeSphere 提供的 `JSBundle` CRD，可以显式开启：
-
-```bash
-helm upgrade --install frontend-forge config/charts/frontend-forge \
-  --namespace extension-frontend-forge \
-  --create-namespace \
-  --set crds.installJsBundle=true
-```
-
-启用 admission webhook：
-
-```bash
-helm upgrade --install frontend-forge config/charts/frontend-forge \
-  --namespace extension-frontend-forge \
-  --create-namespace \
-  --set webhook.enabled=true
-```
-
-## 2. Chart 结构
+Status: Implemented
 
 ```text
 config/charts/frontend-forge/
@@ -49,77 +30,115 @@ config/charts/frontend-forge/
     frontend-forge.kubesphere.io_frontendintegrations.yaml
     frontend-forge.kubesphere.io_frontendextensions.yaml
   templates/
-    _helpers.tpl
-    frontend-forge-controller-deployment.yaml
-    frontend-extension-controller-deployment.yaml
-    frontend-forge-extension-api-deployment.yaml
+    build-service.yaml
     fi-to-fe-migration-job.yaml
-    rbac-runtime.yaml
+    frontend-extension-controller-deployment.yaml
+    frontend-forge-controller-deployment.yaml
+    frontend-forge-extension-api-apiservice.yaml
+    frontend-forge-extension-api-deployment.yaml
+    jsbundle-crd.yaml
     rbac-extension.yaml
+    rbac-runtime.yaml
     serviceaccounts.yaml
     webhook.yaml
     webhook-certgen.yaml
-    jsbundle-crd.yaml
-    build-service.yaml
 ```
 
-## 3. Chart 管理的资源
+## Chart-Managed Resources
 
-| 资源 | 默认 | 来源 | 说明 |
-| --- | --- | --- | --- |
-| `FrontendIntegration` CRD | 是 | `crds/` | FI runtime 主 CRD。 |
-| `FrontendExtension` CRD | 是 | `crds/` | FE package/publish 主 CRD。 |
-| `JSBundle` CRD | 否 | `templates/jsbundle-crd.yaml` | KubeSphere 通常外部提供；本地/e2e 用 `crds.installJsBundle=true` 开启。 |
-| `Deployment/frontend-forge-controller` | 是 | `templates/frontend-forge-controller-deployment.yaml` | FI runtime controller 和可选 webhook server。 |
-| `Deployment/frontend-extension-controller` | 是 | `templates/frontend-extension-controller-deployment.yaml` | FE package/publish controller。 |
-| `Deployment/frontend-forge-extension-api` | 是 | `templates/frontend-forge-extension-api-deployment.yaml` | 前端访问 FE 列表、详情、下载、publish 的 HTTP API。 |
-| `Service/frontend-forge-extension-api` | 是 | 同上 | 暴露 extension API。 |
-| `Job/<release-name>-fi-to-fe-migrator` | 是 | `templates/fi-to-fe-migration-job.yaml` | Helm hook Job，用于把 FI 自动迁移为 FE。 |
-| Runtime RBAC | 是 | `templates/rbac-runtime.yaml` | controller 与 runner 所需权限。 |
-| Extension RBAC | 是 | `templates/rbac-extension.yaml` | FE controller、packager、publisher、extension API 所需权限。 |
-| FI to FE migrator RBAC | 是 | `templates/fi-to-fe-migration-job.yaml` | migrator 读取 CRD、读删 FI、创建/更新 FE 所需权限。 |
-| Webhook Service / VWC | 否 | `templates/webhook.yaml` | `webhook.enabled=true` 时安装。 |
-| Webhook certgen RBAC / Job | 否 | `templates/webhook-certgen.yaml` | `webhook.enabled=true` 时安装。 |
-| Dev/e2e build-service | 否 | `templates/build-service.yaml` | `buildService.enabled=true` 时安装。 |
+Status: Implemented
 
-## 4. 运行时直接使用的资源
-
-| Group / Version | Kind | 作用域 | 使用方 | 说明 |
-| --- | --- | --- | --- | --- |
-| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | `frontend-forge-controller`、`frontend-forge-runner`、FI webhook、`fi-to-fe-migrator` | runtime 生效入口；迁移时作为源资源，migrator 在 FE Ready 后删除。 |
-| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendExtension` | Cluster | `frontend-extension-controller`、`frontend-forge-extension-api`、packager Job、`fi-to-fe-migrator` | package/publish 发布态入口。 |
-| `extensions.kubesphere.io/v1alpha1` | `JSBundle` | Cluster | FI controller、runner | 安装后 runtime 前端 bundle CR。 |
-| `batch/v1` | `Job` | Namespaced | FI controller、FE controller | runtime build、package、publish 都通过独立 Job 执行。 |
-| `v1` | `ConfigMap` | Namespaced | runner、packager、extension API | runtime bundle 或 FE package artifact 存储。 |
-| `v1` | `Secret` | Namespaced | webhook certgen、publisher Job | webhook TLS；publish target 凭据。 |
-| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | Cluster | webhook certgen、apiserver | 可选 FI admission 校验。 |
-
-## 5. 关键 values
-
-| values 路径 | 默认 | 说明 |
+| Resource | Render condition | Template |
 | --- | --- | --- |
-| `crds.installJsBundle` | `false` | 是否安装本地/e2e 用 `JSBundle` CRD。 |
-| `image.repository` | `kubesphere/frontend-forge-controller` | FI runtime controller 镜像。 |
-| `runner.image.repository` | `kubesphere/frontend-forge-runner` | FI build Job 使用的 runner 镜像。 |
-| `controller.buildServiceBaseUrl` | `http://<release-name>.<release-namespace>.svc` | runner 调用的外部 build-service；空值时由 chart 按 release namespace 派生。 |
-| `extensionController.enabled` | `true` | 是否安装 FE package/publish controller。 |
-| `extensionPackager.image.repository` | `kubesphere/frontend-forge-extension-packager` | package Job 镜像。 |
-| `extensionPublisher.image.repository` | `kubesphere/frontend-forge-extension-publisher` | 独立 `ksbuilder publish` Job 镜像。 |
-| `extensionApi.enabled` | `true` | 是否安装 FE HTTP API。 |
-| `migration.fiToFe.enabled` | `true` | 是否安装并运行 FI 到 FE 迁移 Helm hook Job。 |
-| `migration.fiToFe.backoffLimit` | `0` | 迁移 Job 的 Kubernetes backoffLimit；失败 Job 默认保留日志。 |
-| `migration.fiToFe.feApiBaseUrl` | `http://<extension-api-service>.<release-namespace>.svc:<port>` | migrator direct 调用 FE API 的 base URL；空值时由 chart 派生。 |
-| `migration.fiToFe.publishTarget.*` | `ConfigMap/<release-namespace>/ksbuilder-publish-config` | 迁移生成 FE 的默认 publish target。 |
-| `webhook.enabled` | `false` | 是否安装并启用 FI admission webhook。 |
-| `buildService.enabled` | `false` | 是否安装本地/e2e build-service stub。 |
+| `CustomResourceDefinition/frontendintegrations.frontend-forge.kubesphere.io` | Always from `crds/` | `crds/frontend-forge.kubesphere.io_frontendintegrations.yaml` |
+| `CustomResourceDefinition/frontendextensions.frontend-forge.kubesphere.io` | Always from `crds/` | `crds/frontend-forge.kubesphere.io_frontendextensions.yaml` |
+| `CustomResourceDefinition/jsbundles.extensions.kubesphere.io` | `crds.installJsBundle=true` | `templates/jsbundle-crd.yaml` |
+| `Deployment/<fullname>-controller` | `controller.enabled=true` | `templates/frontend-forge-controller-deployment.yaml` |
+| Runtime controller ServiceAccount | `controller.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Runtime runner ServiceAccount | `controller.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Runtime ClusterRole / ClusterRoleBinding | `rbac.create=true` and `controller.enabled=true` | `templates/rbac-runtime.yaml` |
+| Runner ConfigMap writer Role / RoleBinding | `rbac.create=true` and `controller.enabled=true` | `templates/rbac-runtime.yaml` |
+| `Deployment/<fullname>-extension-controller` | `extensionController.enabled=true` | `templates/frontend-extension-controller-deployment.yaml` |
+| Extension controller ServiceAccount | `extensionController.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Extension packager ServiceAccount | `extensionController.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Extension publisher ServiceAccount | `extensionController.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Extension controller/packager/publisher RBAC | `rbac.create=true` and `extensionController.enabled=true` | `templates/rbac-extension.yaml` |
+| `Deployment/<fullname>-extension-api` | `extensionApi.enabled=true` | `templates/frontend-forge-extension-api-deployment.yaml` |
+| `Service/<fullname>-extension-api` | `extensionApi.enabled=true` | `templates/frontend-forge-extension-api-deployment.yaml` |
+| Extension API ServiceAccount | `extensionApi.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Extension API RBAC | `rbac.create=true` and `extensionApi.enabled=true` | `templates/rbac-extension.yaml` |
+| KubeSphere `APIService` | APIService render guard passes | `templates/frontend-forge-extension-api-apiservice.yaml` |
+| Migrator ServiceAccount | `migration.fiToFe.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
+| Migrator ClusterRole / ClusterRoleBinding | `migration.fiToFe.enabled=true` | `templates/fi-to-fe-migration-job.yaml` |
+| `Job/<fullname>-fi-to-fe-migrator` | `migration.fiToFe.enabled=true` | `templates/fi-to-fe-migration-job.yaml` |
+| Webhook Service | `controller.enabled=true` and `webhook.enabled=true` | `templates/webhook.yaml` |
+| `ValidatingWebhookConfiguration` | `controller.enabled=true` and `webhook.enabled=true` | `templates/webhook.yaml` |
+| Webhook certgen RBAC / Jobs | `controller.enabled=true` and `webhook.enabled=true` | `templates/webhook-certgen.yaml` |
+| Build-service Deployment / Service | `buildService.enabled=true` | `templates/build-service.yaml` |
 
-## 6. 设计约束
+`<fullname>` is derived by the Helm helper `frontend-forge.fullname`.
 
-- Chart 是唯一安装入口，文档和 CI 不再要求用户逐个 `kubectl apply` 安装 manager/RBAC/webhook 清单。
-- `crds/` 下的 FI/FE CRD 由 `cargo xtask gen-crd` 生成并提交。
-- `JSBundle` CRD 默认视为外部依赖；只有本地/e2e 场景才由 chart 条件安装。
-- `ksbuilder publish` 只允许在 `frontend-forge-extension-publisher` Job 中执行，不能进入 controller 或 API Deployment。
-- FI 到 FE migrator 不直接创建 publish Job，也不 patch publish annotations；它只调用 direct FE API，由 FE controller 负责创建 publish Job。
-- FI/FE CRD 是 cluster-scoped；migrator 访问 FI/FE 使用 cluster-scoped API。Job、ConfigMap、Secret 等 artifact/publish 资源仍是 namespaced。
+## Runtime Resource Use
 
-FI 到 FE 迁移细节见 [`fi-to-fe-migration.md`](fi-to-fe-migration.md)。
+Status: Implemented
+
+| API | Kind | Scope | Used by | Behavior |
+| --- | --- | --- | --- | --- |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendIntegration` | Cluster | FI controller, runner, webhook, migrator | Runtime source; migrator reads and deletes after FE Ready. |
+| `frontend-forge.kubesphere.io/v1alpha1` | `FrontendExtension` | Cluster | FE controller, API, packager, migrator | Package/publish source and status object. |
+| `extensions.kubesphere.io/v1alpha1` | `JSBundle` | Cluster | FI controller, runner | Runtime bundle CR. |
+| `batch/v1` | `Job` | Namespaced | FI controller, FE controller | Build, package, publish jobs. |
+| `v1` | `ConfigMap` | Namespaced | FI runner, FE packager, FE API, publisher | Bundle content, package artifact, publish target. |
+| `v1` | `Secret` | Namespaced | Webhook certgen, publisher | Webhook TLS, publish target. |
+| `admissionregistration.k8s.io/v1` | `ValidatingWebhookConfiguration` | Cluster | API server, certgen | FI admission validation. |
+| `extensions.kubesphere.io/v1alpha1` | `APIService` | Cluster | KubeSphere API aggregation | Optional FE API registration. |
+
+## Namespaces
+
+Status: Implemented
+
+| Resource | Namespace source |
+| --- | --- |
+| Runtime controller Deployment | Helm release namespace. |
+| Runtime runner Jobs | `controller.workNamespace`, default release namespace. |
+| Runner bundle ConfigMaps | `controller.jsbundleConfigmapNamespace`, default FI work namespace. |
+| FE controller Deployment | Helm release namespace. |
+| FE package/publish Jobs | `WORK_NAMESPACE`, default release namespace. |
+| FE artifact ConfigMaps | `extensionController.artifactConfigmapNamespace`, default release namespace. |
+| FE API Deployment/Service | Helm release namespace. |
+| Migrator Job | Helm release namespace. |
+| Migrated FE publish target namespace | `migration.fiToFe.publishTarget.namespace`, default release namespace. |
+
+## Labels And Ownership
+
+Status: Implemented
+
+| Label / owner | Behavior |
+| --- | --- |
+| Helm labels | All chart resources use chart helper labels. |
+| Component label | Templates add `app.kubernetes.io/component` per component. |
+| FI runner Jobs | Owner reference points to FI when available. |
+| FI bundle ConfigMaps | Owner reference points to FI when available. |
+| FI `JSBundle` | Runner writes owner reference; controller patches owner reference if missing. |
+| FE package Jobs | Owner reference points to FE. |
+| FE publish Jobs | Owner reference points to FE. |
+| FE artifact ConfigMaps | Owner reference points to FE. |
+| Migrated FE | Labeled `frontend-forge.io/managed-by=frontend-forge-fi-migrator`. |
+
+## Constraints
+
+Status: Implemented
+
+- Chart is the install path in this repository; no `config/manager` or Kustomize install path is maintained.
+- FI/FE CRDs in `crds/` are generated by `cargo xtask gen-crd`.
+- `JSBundle` CRD is treated as external unless `crds.installJsBundle=true`.
+- `ksbuilder publish` runs only in publisher Jobs.
+- Migrator calls FE API to request publish; it does not create publish Jobs directly.
+- Jobs, ConfigMaps, Secrets, and Deployments are namespaced even when FI/FE are cluster-scoped.
+
+## TODO / Open Question
+
+Status: Planned / TODO
+
+- Production build-service deployment ownership is outside current chart defaults.
+- APIService behavior depends on KubeSphere APIService CRD availability in the target cluster.

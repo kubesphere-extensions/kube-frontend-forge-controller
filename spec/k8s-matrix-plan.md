@@ -1,101 +1,114 @@
-# K8s 多版本构建与测试流程
+# Kubernetes Version Matrix
 
-## 背景
+Code owners: `scripts/k8s-matrix-step1-install-ks.sh`,
+`scripts/k8s-matrix-step2-install-frontend-forge.sh`,
+`scripts/k8s-matrix-step3-fi-test.sh`
 
-原先的一体化方案假设“安装 KS 后会自动安装 frontend-forge”，在新建测试集群上不稳定成立。当前统一采用 3 步流程：
+## Status
 
-1. Step1：安装 K8s + KS（脚本）
-2. Step2：apply `InstallPlan/frontend-forge`（脚本）
-3. Step3：执行 FrontendIntegration 生命周期自动化测试（脚本）
+| Step | Status | Script |
+| --- | --- | --- |
+| Create remote kind cluster and install KubeSphere | Implemented | `k8s-matrix-step1-install-ks.sh` |
+| Apply frontend-forge `InstallPlan` | Implemented | `k8s-matrix-step2-install-frontend-forge.sh` |
+| Run FI lifecycle smoke test | Implemented | `k8s-matrix-step3-fi-test.sh` |
+| Webhook coverage | Planned / TODO | Step3 does not enable webhook. |
+| FE package/publish matrix coverage | Planned / TODO | Matrix currently targets FI lifecycle. |
 
-兼容入口：
+## Supported Versions
 
-- `scripts/k8s-matrix-remote.sh` 仅保留迁移提示，不再执行旧一体化流程
+Status: Implemented
 
-## 目标
+| Kubernetes version | kind node image |
+| --- | --- |
+| `1.23` | `kindest/node:v1.23.17` |
+| `1.26` | `kindest/node:v1.26.15` |
+| `1.28` | `kindest/node:v1.28.15` |
+| `1.30` | `kindest/node:v1.30.13` |
+| `1.32` | `kindest/node:v1.32.11` |
+| `1.34` | `kindest/node:v1.34.3` |
 
-在远程主机 `root@<remote-host>` 上按版本重建 kind 集群，并验证 `FrontendIntegration` 的完整生命周期：
+Cluster name format:
 
-- 创建
-- 修改
-- 禁用
-- 启用
-- 删除
-
-## 固定约束
-
-- 单版本单次执行，避免多套 KS 同时占用远程资源
-- Step2 通过脚本 apply 固定的 `InstallPlan/frontend-forge`
-- `frontend-forge` webhook 当前跳过
-- 不接管默认 `kind-kind` 集群
-- 远端示例统一使用 `root@<remote-host>` 占位
-
-## 远程依赖
-
-- 远程 kind 路径：`/root/go/bin/kind`
-- 远程 kubeconfig 目录：`/root/.kube/frontend-forge-matrix`
-- 远程工作目录：`/root/.frontend-forge-matrix`
-
-## 版本映射
-
-- `1.23` -> `kindest/node:v1.23.17`
-- `1.26` -> `kindest/node:v1.26.15`
-- `1.28` -> `kindest/node:v1.28.15`
-- `1.30` -> `kindest/node:v1.30.13`
-- `1.32` -> `kindest/node:v1.32.11`
-- `1.34` -> `kindest/node:v1.34.3`
-
-## Step1：安装 K8s + KS
-
-入口：
-
-```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step1-install-ks.sh <version>
+```text
+ff-k<version-without-dot>
 ```
 
-示例：
+Example: `1.32` -> `ff-k132`.
+
+## Shared Environment
+
+Status: Implemented
+
+| Env | Default | Used by |
+| --- | --- | --- |
+| `REMOTE_SSH_TARGET` | required | All steps |
+| `REMOTE_KIND_BIN` | `/root/go/bin/kind` | All steps |
+| `REMOTE_KUBECONFIG_ROOT` | `/root/.kube/frontend-forge-matrix` | All steps |
+| `REMOTE_WORK_ROOT` | `/root/.frontend-forge-matrix` | All steps |
+| `ARTIFACT_ROOT` | `artifacts/k8s-matrix` | All steps |
+| `POLL_INTERVAL_SECONDS` | `5` | Step2, Step3 |
+
+Constraints:
+
+- Single version per run.
+- The scripts manage only the derived `ff-k*` cluster.
+- The default `kind-kind` cluster is not managed.
+- Remote host is represented in docs as `root@<remote-host>`.
+
+## Step1: Install Kubernetes And KubeSphere
+
+Status: Implemented
+
+Command:
 
 ```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step1-install-ks.sh 1.32
+REMOTE_SSH_TARGET=root@<remote-host> \
+./scripts/k8s-matrix-step1-install-ks.sh 1.32
 ```
 
-行为：
+Additional env:
 
-- 清理同名历史测试集群，仅处理当前版本对应 cluster
-- 创建 kind 集群
-- 安装 KS
-- patch `extensions-museum` 触发同步
+| Env | Default | Behavior |
+| --- | --- | --- |
+| `KS_CHART` | `oci://hub.kubesphere.com.cn/kse/ks-core` | KubeSphere chart. |
+| `KS_VERSION` | `1.2.4` | KubeSphere chart version. |
+| `KS_HELM_TIMEOUT` | `30m` | Helm install timeout. |
+| `KUBESPHERE_NAMESPACE` | `kubesphere-system` | KubeSphere namespace. |
+| `KIND_WAIT` | `5m` | kind create wait. |
+| `MIN_FREE_GB` | `20` | Remote disk guard. |
+| `MIN_MEM_AVAILABLE_GB` | `8` | Remote memory guard. |
+| `KIND_EXPOSE_30880_HOST_PORT` | `30880` | Host port mapped to node port `30880`. |
 
-端口暴露：
+Behavior:
 
-- kind 创建时会把节点 `30880` 映射到远程主机端口
-- 默认映射：`host:30880 -> control-plane:30880`
-- 可通过环境变量覆盖：`KIND_EXPOSE_30880_HOST_PORT`
+- Verifies remote Docker, kubectl, Helm, kind, disk, and memory.
+- Deletes existing derived test cluster.
+- Creates a kind cluster for the requested Kubernetes version.
+- Writes remote kubeconfig under `REMOTE_KUBECONFIG_ROOT`.
+- Installs KubeSphere.
+- Patches `extensions-museum` to trigger sync.
 
-示例：
+## Step2: Apply InstallPlan
+
+Status: Implemented
+
+Command:
 
 ```bash
-REMOTE_SSH_TARGET=root@<remote-host> KIND_EXPOSE_30880_HOST_PORT=38080 ./scripts/k8s-matrix-step1-install-ks.sh 1.32
+REMOTE_SSH_TARGET=root@<remote-host> \
+./scripts/k8s-matrix-step2-install-frontend-forge.sh 1.32
 ```
 
-## Step2：安装 frontend-forge
+Additional env:
 
-入口：
+| Env | Default |
+| --- | --- |
+| `INSTALLPLAN_NAME` | `frontend-forge` |
+| `INSTALLPLAN_CREATOR` | `admin` |
+| `FRONTEND_FORGE_VERSION` | `1.0.0-rc.1` |
+| `INSTALLPLAN_WAIT_TIMEOUT_SECONDS` | `600` |
 
-```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh <version>
-```
-
-示例：
-
-```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step2-install-frontend-forge.sh 1.32
-```
-
-行为：
-
-- 向当前测试集群 apply 固定的 `InstallPlan/frontend-forge`
-- 默认内容如下：
+Applied object:
 
 ```yaml
 apiVersion: kubesphere.io/v1alpha1
@@ -111,73 +124,83 @@ spec:
     version: 1.0.0-rc.1
 ```
 
-说明：
+Behavior:
 
-- Step2 只负责 apply `InstallPlan`
-- Step3 负责等待 frontend-forge Ready 并继续生命周期测试
+- Verifies derived cluster and kubeconfig.
+- Waits for `installplans.kubesphere.io` CRD.
+- Writes InstallPlan YAML into remote work dir.
+- Applies and records the InstallPlan.
 
-## Step3：执行生命周期自动化测试
+## Step3: FI Lifecycle Test
 
-入口：
+Status: Implemented
+
+Command:
 
 ```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step3-fi-test.sh <version>
+REMOTE_SSH_TARGET=root@<remote-host> \
+./scripts/k8s-matrix-step3-fi-test.sh 1.32
 ```
 
-示例：
+Additional env:
 
-```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/k8s-matrix-step3-fi-test.sh 1.32
-```
+| Env | Default | Behavior |
+| --- | --- | --- |
+| `FRONTEND_FORGE_NAMESPACE` | `extension-frontend-forge` | Namespace checked for readiness. |
+| `SAMPLE_FILE` | `config/samples/fi-lifecycle-smoke.yaml` | FI sample applied during lifecycle test. |
+| `READINESS_TIMEOUT_SECONDS` | `1800` | frontend-forge readiness timeout. |
+| `LIFECYCLE_TIMEOUT_SECONDS` | `600` | Create/update/disable/enable wait timeout. |
+| `DELETE_TIMEOUT_SECONDS` | `300` | FI deletion wait timeout. |
+| `CLEANUP_ON_SUCCESS` | `false` | Deletes test cluster after success when true. |
 
-行为：
+Readiness checks:
 
-- 检查目标 cluster 和 kubeconfig 是否存在
-- 等待 frontend-forge Ready：
-  - `extension-frontend-forge` namespace 存在
-  - `frontendintegrations.frontend-forge.kubesphere.io` CRD 存在
-  - `jsbundles.extensions.kubesphere.io` CRD 存在
-  - `deployment/frontend-forge` Ready
-  - `deployment/frontend-forge-controller` Ready
-- 执行 FI 生命周期测试：
-  - 创建
-  - 修改
-  - 禁用
-  - 启用
-  - 删除
+- Namespace `extension-frontend-forge` exists.
+- `frontendintegrations.frontend-forge.kubesphere.io` CRD exists.
+- `jsbundles.extensions.kubesphere.io` CRD exists.
+- `deployment/frontend-forge` is ready.
+- `deployment/frontend-forge-controller` is ready.
 
-可选参数：
+Lifecycle actions:
 
-- `CLEANUP_ON_SUCCESS=true` 时，Step3 成功后删除该测试集群
+| Action | Expected behavior |
+| --- | --- |
+| Create FI | FI reaches `Succeeded`; JSBundle exists. |
+| Modify FI | New observed hash and bundle update. |
+| Disable FI | FI status message `Disabled`; JSBundle state `Disabled`. |
+| Enable FI | FI returns to `Succeeded`; JSBundle state `Available`. |
+| Delete FI | FI is removed; related checks are recorded. |
 
-## 产物目录
+Fixed object names:
 
-默认产物目录：
+| Name | Value |
+| --- | --- |
+| FI | `fi-lifecycle-smoke` |
+| JSBundle | `fi-fi-lifecycle-smoke` |
+| ConfigMap | `fi-fi-lifecycle-smoke-config` |
 
-```bash
+## Artifacts
+
+Status: Implemented
+
+Default directory:
+
+```text
 artifacts/k8s-matrix/<version>/
 ```
 
-主要文件：
+Common files:
 
-- Step1：
-  - `step1-install.log`
-  - `step1-summary.md`
-- Step2：
-  - `step2-install.log`
-  - `step2-summary.md`
-- Step3：
-  - `step3-readiness.log`
-  - `fi-*.yaml`
-  - `fi-*.apply.log`
-  - `fi-*.result.yaml`
-  - `step3-summary.json`
+| Step | Files |
+| --- | --- |
+| Step1 | `step1-install.log`, `step1-summary.md` |
+| Step2 | `step2-install.log`, `step2-summary.md` |
+| Step3 | `step3-readiness.log`, `fi-*.yaml`, `fi-*.apply.log`, `fi-*.result.yaml`, `step3-summary.json` |
+| Failure collection | `kubectl-get-all-wide.txt`, `kubectl-get-fi-jsbundle.yaml`, controller describe/log files, `kind-export/` |
 
-失败时额外收集：
+## TODO / Open Question
 
-- `kubectl-get-all-wide.txt`
-- `kubectl-get-fi-jsbundle.yaml`
-- `describe-frontend-forge-controller.txt`
-- `frontend-forge-controller.log`
-- `frontend-forge.log`
-- `kind-export/`
+Status: Planned / TODO
+
+- Matrix workflow does not enable or validate FI admission webhook.
+- Matrix workflow does not cover FE package/download/publish.

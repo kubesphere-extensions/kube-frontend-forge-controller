@@ -1,228 +1,223 @@
-# FI 到 FE 迁移 Job
+# FI To FE Migration
 
-本文记录 `FrontendIntegration` 到 `FrontendExtension` 的自动迁移行为。迁移入口是 Helm chart 渲染的 `fi-to-fe-migrator` Job，对应二进制为：
+Code owner: `crates/frontend-forge-controller/src/bin/fi_to_fe_migrator.rs`
 
-```text
-/usr/local/bin/fi-to-fe-migrator
-```
+Helm template: `config/charts/frontend-forge/templates/fi-to-fe-migration-job.yaml`
 
-## 1. 目标
+## Status
 
-新版本停用 FI runtime controller，使用 FE package/publish 链路承载原 FI 功能。迁移 Job 负责把现有 cluster-scoped `FrontendIntegration` 资源转换为 cluster-scoped `FrontendExtension` 资源，并在原 FI 启用时触发 FE publish。
+| Capability | Status | Default Helm state |
+| --- | --- | --- |
+| Helm hook migrator Job | Implemented | Enabled by `migration.fiToFe.enabled=true` |
+| FI list/read/delete | Implemented | Cluster-scoped API |
+| FE create/patch | Implemented | Cluster-scoped API |
+| Wait for FE Ready | Implemented | Polls FE status |
+| Publish enabled FI through FE API | Implemented | Direct HTTP call to FE API |
+| Compensation after FI deleted and publish failed | Planned / TODO | Not implemented |
 
-迁移流程是：
+## Job Configuration
 
-```text
-扫描所有 FI
-  -> 为每个 FI 创建或更新 migrator 管理的 FE
-  -> 等 FE package Ready
-  -> 删除原 FI 并确认不存在
-  -> 如果原 FI spec.enabled 缺省或为 true，通过 direct fe-api 触发 publish
-```
+Status: Implemented
 
-单个 FI 失败不会阻断后续 FI。全部扫描完成后，只要存在失败项，Job 会以非零状态退出，失败 Job 会保留日志。
+| Env | Helm value | Binary default | Behavior |
+| --- | --- | --- | --- |
+| `PACKAGE_VERSION` | `migration.fiToFe.packageVersion` | `0.1.0` | Migrated FE package version. |
+| `SCHEMA_VERSION` | `migration.fiToFe.schemaVersion` | `v1` | Fallback FE inline schema version. |
+| `READY_TIMEOUT_SECONDS` | `migration.fiToFe.readyTimeoutSeconds` | `600` | CRD readiness, FE Ready, FI deletion timeout. |
+| `POLL_INTERVAL_SECONDS` | `migration.fiToFe.pollIntervalSeconds` | `5` | Poll interval. |
+| `FE_API_BASE_URL` | `migration.fiToFe.feApiBaseUrl` | chart service URL | Base URL for publish request. |
+| `FE_API_INSECURE_SKIP_TLS_VERIFY` | `migration.fiToFe.feApiInsecureSkipTlsVerify` | `false` | HTTP TLS verification option. |
+| `FE_API_CA_CERT_PATH` | `migration.fiToFe.feApiCaCertPath` | empty | Optional custom CA path. Missing configured file fails startup. |
+| `FE_API_GROUP` | `extensionApi.apiService.group` | `frontend-forge-api.kubesphere.io` | Publish API group. |
+| `FE_API_VERSION` | `extensionApi.apiService.version` | `v1alpha1` | Publish API version. |
+| `PUBLISH_TARGET_KIND` | `migration.fiToFe.publishTarget.kind` | `ConfigMap` | FE `publishPolicy.defaultTargetKind`. |
+| `PUBLISH_TARGET_NAMESPACE` | `migration.fiToFe.publishTarget.namespace` or release namespace | required after chart render | FE `publishPolicy.defaultTargetRef.namespace`. |
+| `PUBLISH_TARGET_NAME` | `migration.fiToFe.publishTarget.name` | `ksbuilder-publish-config` | FE `publishPolicy.defaultTargetRef.name`. |
 
-## 2. 资源作用域
+Helm hook:
 
-FI 和 FE 都是 cluster-scoped CRD：
-
-- `frontendintegrations.frontend-forge.kubesphere.io`
-- `frontendextensions.frontend-forge.kubesphere.io`
-
-因此 migrator 使用 cluster-scoped Kubernetes API 操作 FI/FE。package artifact、package Job、publish Job 和 publish target 是 namespaced 资源，默认 namespace 来自 Helm release namespace。
-
-## 3. FE 命名
-
-FE 名称固定由 FI 名称派生：
-
-```text
-fi-<fi.metadata.name>
-```
-
-不会去重已有 `fi-` 前缀：
-
-```text
-foo    -> fi-foo
-fi-foo -> fi-fi-foo
-```
-
-如果组合后的名称超过 DNS label 63 字符限制，使用稳定的 slice-hash 形式：
-
-```text
-fi-<slice>-<12-char-sha256>
-```
-
-## 4. 管理标记
-
-migrator 创建或更新的 FE 必须带管理标记：
-
-```yaml
-metadata:
-  labels:
-    frontend-forge.io/managed-by: frontend-forge-fi-migrator
-  annotations:
-    frontend-forge.io/source-fi-name: <fi name>
-    frontend-forge.io/source-fi-uid: <fi uid>
-```
-
-如果目标 FE 已存在但没有 `frontend-forge.io/managed-by=frontend-forge-fi-migrator`，migrator 会跳过该 FI 并记录失败，避免覆盖用户已有 FE。
-
-如果目标 FE 是 migrator 管理的，但 `source-fi-name` 指向其他 FI，也会记录失败。
-
-## 5. 字段映射
-
-FI 到 FE 的主要字段映射如下：
-
-| FI | FE |
+| Property | Value |
 | --- | --- |
-| `metadata.name` | `metadata.name=fi-<fi name>` |
-| `metadata.annotations["kubesphere.io/description"]` | `spec.package.description.en` |
-| `metadata.annotations["kubesphere.io/creator"]` | `spec.package.provider.en.name`、`spec.package.provider.zh.name` |
-| `spec.displayName` | `spec.package.displayName.en`、`spec.source.inline.frontend.displayName` |
+| Job name | `<release-name>-fi-to-fe-migrator` |
+| Hook | `post-install,post-upgrade` |
+| Hook weight | `10` |
+| Default `backoffLimit` | `0` |
+| Default delete policy | `before-hook-creation` |
+
+## Prerequisites
+
+Status: Implemented
+
+Before scanning FI objects, migrator waits for:
+
+| Resource | Check |
+| --- | --- |
+| `frontendintegrations.frontend-forge.kubesphere.io` CRD | Established. |
+| `frontendextensions.frontend-forge.kubesphere.io` CRD | Established and v1alpha1 status subresource exists. |
+
+FE API Service availability is not preflighted; publish request errors are
+reported by the publish HTTP call.
+
+## Per-FI Flow
+
+Status: Implemented
+
+```text
+list all FrontendIntegration
+for each FI:
+  derive FE name
+  create or patch migrator-owned FE
+  wait for FE phase Ready and status.artifact.digest
+  delete FI and wait until it is gone
+  if original FI spec.enabled is missing or true:
+    POST FE publish API
+  else:
+    skip publish
+```
+
+Failure handling:
+
+- One FI failure is collected and does not stop the scan.
+- Job exits non-zero if any FI failed.
+- Failed hook Job is retained by default because `hook-failed` is not in
+  `hookDeletePolicy`.
+
+## FE Naming
+
+Status: Implemented
+
+| FI name | FE name |
+| --- | --- |
+| `demo` | `fi-demo` |
+| `fi-demo` | `fi-fi-demo` |
+| over 60 chars after prefix | `fi-<dns-label-prefix>-<12-char-sha256>` |
+
+Rules:
+
+- Prefix `fi-` is always added.
+- Existing `fi-` prefix is not deduplicated.
+- Long names use SHA-256 of the original FI name.
+- Non DNS-label chars in the sliced prefix become `-`; empty prefix becomes `x`.
+
+## Managed FE Guard
+
+Status: Implemented
+
+Migrator-created FE metadata:
+
+| Metadata | Value |
+| --- | --- |
+| Label `frontend-forge.io/managed-by` | `frontend-forge-fi-migrator` |
+| Annotation `frontend-forge.io/source-fi-name` | Source FI name |
+| Annotation `frontend-forge.io/source-fi-uid` | Source FI UID when present |
+
+Existing FE behavior:
+
+| Existing FE state | Behavior |
+| --- | --- |
+| Missing | Create desired FE. |
+| Managed by migrator and source FI name matches | Patch labels, annotations, and spec. |
+| Not migrator-owned | Record failure for this FI. |
+| Migrator-owned but source FI name differs | Record failure for this FI. |
+
+## Field Mapping
+
+Status: Implemented
+
+| FI source | FE target |
+| --- | --- |
+| Derived FE name | `metadata.name` |
+| Derived FE name | `spec.package.name` |
+| `PACKAGE_VERSION` | `spec.package.version` |
+| `spec.displayName` trimmed, fallback FI name | `spec.package.displayName.en` |
+| `metadata.annotations["kubesphere.io/description"]` trimmed, fallback display name | `spec.package.description.en` |
+| `metadata.annotations["kubesphere.io/creator"]` trimmed, fallback `Fi Migration Bot` | `spec.package.provider.en.name` and `spec.package.provider.zh.name` |
+| constant `dev-tools` | `spec.package.category` |
+| constant `./static/favicon.svg` | `spec.package.icon` |
+| empty list | `spec.package.keywords`, `sources`, `maintainers`, `images` |
+| null | `kubeVersion`, `ksVersion`, `home`, `staticFileDirectory`, `dependencies`, `installationMode`, `charts` |
+| constant `Inline` | `spec.source.type` |
+| `spec.builder.engineVersion` trimmed, fallback `SCHEMA_VERSION` | `spec.source.inline.schemaVersion` |
+| `spec.displayName` | `spec.source.inline.frontend.displayName` |
 | `spec.locales` | `spec.source.inline.frontend.locales` |
 | `spec.menus` | `spec.source.inline.frontend.menus` |
 | `spec.pages` | `spec.source.inline.frontend.pages` |
-| `spec.builder.engineVersion` | `spec.source.inline.schemaVersion` |
-| `spec.enabled` | 仅用于决定是否 publish，不写入 FE spec |
+| none | `spec.source.inline.extensionResources` is absent |
+| constant `Manual` | `spec.publishPolicy.mode` |
+| `PUBLISH_TARGET_KIND` | `spec.publishPolicy.defaultTargetKind` |
+| `PUBLISH_TARGET_NAMESPACE` / `PUBLISH_TARGET_NAME` | `spec.publishPolicy.defaultTargetRef` |
 
-默认值：
+`spec.enabled` is not copied into FE. It is only used to decide whether publish
+is requested after FI deletion.
 
-```yaml
-spec:
-  package:
-    version: "0.1.0"
-    icon: ./static/favicon.svg
-    category: dev-tools
-    provider:
-      en:
-        name: <FI creator or "Fi Migration Bot">
-      zh:
-        name: <FI creator or "Fi Migration Bot">
+## Publish Request
+
+Status: Implemented
+
+Migrator publish URL:
+
+```text
+POST <FE_API_BASE_URL>/apis/<FE_API_GROUP>/<FE_API_VERSION>/frontendextensions/<fe-name>/publish
 ```
 
-其中：
+Default path:
 
-- `package.version` 来自 Helm `migration.fiToFe.packageVersion`。
-- `displayName` 缺省时回退到 FI 名称。
-- `description` 缺省时回退到 displayName。
-- `schemaVersion` 缺省时回退到 Helm `migration.fiToFe.schemaVersion`，默认 `v1`。
-- `provider.*.name` 优先使用 FI annotation `kubesphere.io/creator`，为空时使用 `Fi Migration Bot`。
-
-FE publish policy 会写入为手动发布：
-
-```yaml
-spec:
-  publishPolicy:
-    mode: Manual
-    defaultTargetKind: ConfigMap
-    defaultTargetRef:
-      namespace: <migration.fiToFe.publishTarget.namespace or release namespace>
-      name: ksbuilder-publish-config
+```text
+/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/<fe-name>/publish
 ```
 
-## 6. Publish 行为
-
-migrator 不创建 publish Job，也不 patch publish annotations。publish 统一通过 FE API 触发：
-
-```http
-POST {FE_API_BASE_URL}/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/{feName}/publish
-```
-
-请求体：
+Request body:
 
 ```json
 {
-  "requestId": "fi-migration-<feName>-<digest-prefix>",
+  "requestId": "fi-migration-<fe-name>-<digest-prefix-12>",
   "expectedArtifactDigest": "<current FE artifact digest>"
 }
 ```
 
-默认 `FE_API_BASE_URL` 指向 chart 内 Service：
+Accepted status codes:
 
-```text
-http://<release-name>-extension-api.<release-namespace>.svc:<extensionApi.service.port>
-```
+- `200 OK`
+- `201 Created`
+- `202 Accepted`
 
-该调用不经过 ks-apiserver，也不需要 KubeSphere token。
+Other status codes fail this FI migration item.
 
-TLS 配置：
+## Finalizer And Retry Constraints
 
-- `FE_API_INSECURE_SKIP_TLS_VERIFY=true` 时跳过 TLS 校验。
-- `FE_API_CA_CERT_PATH` 为空时不加载自定义 CA。
-- `FE_API_CA_CERT_PATH` 显式设置且文件不存在时，migrator 会启动失败并保留错误日志。
+Status: Implemented
 
-## 7. Helm 接口
+- Migrator deletes the source FI after FE package is Ready.
+- It waits until FI no longer exists before publishing.
+- If FI deletion is blocked by a finalizer, migration for that FI times out.
+- The default Job `backoffLimit=0` avoids hiding partial failure with Job-level retries.
 
-默认 values：
+Status: Planned / TODO
 
-```yaml
-controller:
-  enabled: false
+- If FI deletion succeeds and publish fails, rerunning the Job will not see the
+  deleted FI and will not automatically retry publish.
 
-migration:
-  fiToFe:
-    enabled: true
-    packageVersion: "0.1.0"
-    schemaVersion: v1
-    readyTimeoutSeconds: 600
-    pollIntervalSeconds: 5
-    backoffLimit: 0
-    hookDeletePolicy: before-hook-creation
-    activeDeadlineSeconds: null
-    feApiBaseUrl: ""
-    feApiInsecureSkipTlsVerify: false
-    feApiCaCertPath: ""
-    publishTarget:
-      kind: ConfigMap
-      namespace: ""
-      name: ksbuilder-publish-config
-```
+## Local Verification
 
-`hookDeletePolicy` 默认只包含 `before-hook-creation`，不包含 `hook-failed`，这样失败 Job 会保留日志用于排障。
+Status: Implemented
 
-`backoffLimit` 默认是 `0`。migrator 本身大部分步骤是幂等的，但当前流程在删除 FI 后才触发 publish。如果 Job 级重试发生在 FI 删除成功但 publish 失败之后，重试时扫描不到原 FI，不能保证补 publish。因此默认不依赖 Job 级重试隐藏失败。
-
-## 8. 前置条件
-
-migrator 启动后会等待：
-
-- FI CRD Established。
-- FE CRD Established，并且 `v1alpha1` 提供 status subresource。
-
-direct fe-api Service 的可用性由 publish 请求本身验证。Helm 默认同时启用：
-
-```yaml
-extensionApi:
-  enabled: true
-
-extensionController:
-  enabled: true
-```
-
-## 9. 删除 FI 与 finalizer
-
-migrator 在 FE package Ready 后删除原 FI，并轮询确认 FI 已不存在。如果历史 FI 带有 finalizer，而负责清理 finalizer 的旧 controller 已关闭，删除可能卡住直到 `readyTimeoutSeconds` 超时。
-
-当前实现不会无条件移除 FI finalizers。这样可以避免绕过未知 controller 的清理语义。若集群中存在历史 finalizer，需要先确认 finalizer 的来源和清理策略，再决定是否引入显式的、可审计的 finalizer 清理逻辑。
-
-## 10. 验证
-
-常用本地验证命令：
+Run the migrator binary against the current kubeconfig:
 
 ```bash
-cargo test -p frontend-forge-controller --bin fi-to-fe-migrator
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-helm template frontend-forge config/charts/frontend-forge
-```
-
-本地调试 direct fe-api：
-
-```bash
-kubectl -n extension-frontend-forge port-forward svc/frontend-forge-extension-api 18080:80
-
-KUBECONFIG=/path/to/kubeconfig \
-FE_API_BASE_URL=http://127.0.0.1:18080 \
+PACKAGE_VERSION=0.1.0 \
+SCHEMA_VERSION=v1 \
+PUBLISH_TARGET_KIND=ConfigMap \
 PUBLISH_TARGET_NAMESPACE=extension-frontend-forge \
+PUBLISH_TARGET_NAME=ksbuilder-publish-config \
+FE_API_BASE_URL=http://127.0.0.1:18080 \
 cargo run -p frontend-forge-controller --bin fi-to-fe-migrator
 ```
+
+Use a local or port-forwarded FE API at `FE_API_BASE_URL`.
+
+## TODO / Open Question
+
+Status: Planned / TODO
+
+- Publish compensation after source FI deletion is not implemented.
+- The publish target contents depend on external `ksbuilder publish` requirements.
