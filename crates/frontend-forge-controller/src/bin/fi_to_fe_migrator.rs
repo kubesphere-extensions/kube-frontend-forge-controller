@@ -503,7 +503,6 @@ fn publish_http_client(cfg: &MigratorConfig) -> Result<reqwest::Client> {
                     })?;
                 builder = builder.add_root_certificate(cert);
             }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
             Err(source) => {
                 return Err(Error::ReadFile {
                     path: path.clone(),
@@ -988,6 +987,18 @@ mod tests {
         assert!(!request.to_ascii_lowercase().contains("authorization:"));
         assert!(request.contains("\"requestId\":\"fi-migration-fi-demo-abcdef123456\""));
         assert!(request.contains("\"expectedArtifactDigest\":\"sha256:abcdef1234567890\""));
+    }
+
+    #[test]
+    fn publish_http_client_rejects_missing_configured_ca_cert() {
+        let mut cfg = cfg();
+        cfg.fe_api_ca_cert_path = Some(format!(
+            "/tmp/frontend-forge-fi-migrator-missing-ca-{}",
+            std::process::id()
+        ));
+
+        let err = publish_http_client(&cfg).unwrap_err();
+        assert!(err.to_string().contains("failed to read file"));
     }
 
     #[test]
