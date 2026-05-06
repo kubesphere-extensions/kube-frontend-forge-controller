@@ -1,150 +1,59 @@
-# Frontend Forge Controller
+# Frontend Forge
 
-`Frontend Forge Controller` 是一个围绕 `FrontendIntegration` 自定义资源构建的 Kubernetes 控制器，用来把前端扩展的声明式配置收敛成可交付的 `JSBundle` 产物。
+Frontend Forge provides Kubernetes controllers and jobs for KubeSphere frontend
+extensions. It covers the `FrontendExtension` package/download/publish flow and
+the `FrontendIntegration` runtime flow that builds a `JSBundle` for the current
+cluster.
 
-项目当前的核心目标是：
+The default Helm installation is centered on `FrontendExtension`: package an
+extension artifact, expose it through the extension API, and optionally publish
+it through a publisher Job. The older FI runtime controller is still implemented,
+but it is disabled by default and existing FI objects are migrated to FE by the
+default Helm hook.
 
-- 让用户通过一个 cluster-scoped 的 `FrontendIntegration` CR 描述前端入口
-- 由 controller 负责幂等、状态维护和 Job 调度
-- 由 runner 负责把 `FrontendIntegration.spec` 渲染成 Manifest，并调用外部 build-service 构建前端产物
+## What It Does
 
-相关设计见 [`spec/design.md`](spec/design.md)。
+| Flow | Status | Default Helm behavior |
+| --- | --- | --- |
+| `FrontendExtension` package/download/publish | Implemented | Enabled |
+| `FrontendIntegration` runtime build to `JSBundle` | Implemented | Disabled with `controller.enabled=false` |
+| FI to FE `migrator` | Implemented | Enabled with `migration.fiToFe.enabled=true` |
+| FI admission webhook | Implemented | Disabled with `webhook.enabled=false` |
+| Local/e2e build-service stub | Implemented for local/e2e | Disabled with `buildService.enabled=false` |
 
-Kubernetes 交付面见 [`spec/k8s-resources.md`](spec/k8s-resources.md)，Helm chart 设计见 [`spec/helm-chart.md`](spec/helm-chart.md)。FI 到 FE 迁移 Job 见 [`spec/fi-to-fe-migration.md`](spec/fi-to-fe-migration.md)。
+Core objects:
 
-## Kubernetes 支持区间
+| Kind | Scope | Purpose |
+| --- | --- | --- |
+| `FrontendExtension` / `FE` | Cluster | Package source, artifact status, download and publish state. |
+| `FrontendIntegration` / `FI` | Cluster | Runtime source for building a current-cluster `JSBundle`. |
+| `JSBundle` | Cluster | Runtime frontend bundle consumed by the KubeSphere extension runtime. |
 
-- 声明支持区间：`1.23 ~ 1.34`
-- 当前已验证版本（`FrontendIntegration` 创建/修改/禁用/启用/删除全链路）：
-  - `1.23`
-  - `1.26`
-  - `1.28`
-  - `1.30`
-  - `1.34`
-  - `1.32`
+The extension API supports FE list, get, create, download, and publish
+operations. Route-level behavior is documented in
+[`spec/frontend-extension-design.md`](spec/frontend-extension-design.md).
 
-多版本测试流程见 [`spec/k8s 构建流程`](spec/k8s-matrix-plan.md)。
+## Default Helm Behavior
 
-## Project Skills
+Default values come from [`config/charts/frontend-forge/values.yaml`](config/charts/frontend-forge/values.yaml):
 
-仓库内置的 repo-local skills 放在 [`.codex/skills/`](.codex/skills/)。
+| Value | Default | Effect |
+| --- | --- | --- |
+| `extensionController.enabled` | `true` | Installs the FE package/publish controller. |
+| `extensionApi.enabled` | `true` | Installs the FE HTTP API Deployment and Service. |
+| `migration.fiToFe.enabled` | `true` | Runs the FI-to-FE migration hook after install/upgrade. |
+| `controller.enabled` | `false` | Does not install the FI runtime controller. |
+| `webhook.enabled` | `false` | Does not install the FI validating webhook. |
+| `crds.installJsBundle` | `false` | Does not install the external `JSBundle` CRD. |
+| `buildService.enabled` | `false` | Does not install the local/e2e build-service stub. |
 
-这些目录是版本化真相源；如果要让 Codex 自动发现它们，请手动复制或软链到 `${CODEX_HOME:-$HOME/.codex}/skills`。示例需要在仓库根目录执行：
+FE packaging and FI runtime builds both call `BUILD_SERVICE_BASE_URL`. With chart
+defaults, that URL is derived even when `buildService.enabled=false`; provide a
+service at that address, set an external URL, or enable the local/e2e stub.
 
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/.codex/skills/frontend-forge-fi-operations" "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
-```
+## Quick Install
 
-
-## 当前架构
-
-当前实现由以下部分组成：
-
-- `FrontendIntegration`：用户入口 CR，表达菜单、页面和构建引擎版本等意图
-- `FrontendExtension`：发布态 CR，表达 extension package、inline frontend source 和手动 publish policy
-- `frontend-forge-manifest`：共享 Manifest 渲染与语义校验逻辑，供 controller webhook 与 runner 复用
-- `frontend-forge-controller`：监听 `FrontendIntegration` 和 `Job`，负责状态流转、Job 创建、失败处理、`JSBundle` 关联，并可选承载 validating webhook
-- `frontend-forge-runner`：作为一次性 Job 运行，读取 `FrontendIntegration`，渲染 Manifest，调用 build-service，并写回产物与状态
-- `fi-to-fe-migrator`：Helm hook Job，用于把历史 FI 转换为 FE，并在原 FI 启用时通过 FE API 触发 publish
-
-资源关系大致如下：
-
-1. 用户提交 `FrontendIntegration`
-2. controller 基于 `spec_hash` 判断是否需要发起构建
-3. 若启用 admission webhook，API Server 先调用 controller 内 webhook 做前置语义校验
-4. controller 基于 `spec_hash` 判断是否需要发起构建并创建 runner Job
-5. runner 渲染 Manifest，并调用外部 build-service
-6. runner 更新 `JSBundle`、ConfigMap 以及 `FrontendIntegration.status`
-
-## 现有功能
-
-### FrontendIntegration 模型
-
-- 提供 `frontend-forge.kubesphere.io/v1alpha1` 的 `FrontendIntegration` CRD
-- `FrontendIntegration` 为 cluster-scoped 资源，短名为 `fi`
-- 当前 `spec` 支持：
-  - `displayName`
-  - `enabled`
-  - `menus`
-  - `pages`
-  - `builder.engineVersion`
-- `menus` 支持两级结构：
-  - 一级 `type=page`
-  - 一级 `type=organization` + 二级页面菜单
-- `placement` 支持 `global`、`workspace`、`cluster`
-
-### 页面与 Manifest 渲染
-
-- 支持两类页面：
-  - `iframe`
-  - `crdTable`
-- 支持 `menus[].key` 与 `pages[].key` 的 1:1 绑定
-- `frontend-forge-manifest` 会在渲染前执行语义校验，包括：
-  - 重复菜单 key
-  - 重复页面 key
-  - 页面配置缺失
-  - 孤儿页面配置
-  - 非法菜单结构
-  - 非法页面结构
-  - 不支持的 `builder.engineVersion`
-- 当前 Manifest 渲染器基于 `v1` 引擎实现
-- controller 可选提供 validating admission webhook：
-  - `GET /healthz`
-  - `POST /validate/frontendintegrations`
-- webhook 只校验 `CREATE` / `UPDATE`，失败时直接返回原始业务错误
-
-### 构建与状态管理
-
-- controller 基于 `spec_hash` 做幂等判断和 Job 复用
-- runner 基于渲染结果计算 `manifest_hash` 做构建追溯
-- `enabled` 不参与 `spec_hash`，支持停用/启用时复用同一份规格身份
-- controller 会维护 `FrontendIntegration.status`，包括：
-  - `phase`
-  - `last_build`
-  - `bundle_ref`
-  - `message`
-  - `last_error`
-- runner 失败时会把真实错误回写到 `status.message` 和 `status.last_error`
-- controller 会尽量保留 runner 写入的业务错误，而不是只显示 `Job has reached the specified backoff limit`
-
-### FI 到 FE 迁移
-
-- chart 默认启用 `migration.fiToFe.enabled=true`，安装或升级时通过 Helm hook Job 自动运行 migrator
-- chart 默认关闭旧 FI runtime controller：`controller.enabled=false`
-- migrator 扫描 cluster-scoped FI，并创建或更新对应 cluster-scoped FE
-- FE 名称固定为 `fi-<fi.metadata.name>`，不会去重已有 `fi-` 前缀；超长名称使用稳定 slice-hash
-- migrator 创建的 FE 带 `frontend-forge.io/managed-by=frontend-forge-fi-migrator` 以及 source FI name/uid annotations
-- FE package 默认补齐 `icon=./static/favicon.svg`、`category=dev-tools`、provider name。provider name 优先取 FI annotation `kubesphere.io/creator`，否则使用 `Fi Migration Bot`
-- 原 FI `enabled` 缺省按 `true` 处理；启用的 FI 会在 FE Ready 且 FI 删除成功后，通过 direct FE API 调用 publish
-- publish 调用 direct fe-api Service 的 `/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`，不走 ks-apiserver，也不需要 KubeSphere token
-- 详细映射、Helm values、失败和 finalizer 行为见 [`spec/fi-to-fe-migration.md`](spec/fi-to-fe-migration.md)
-
-### 运行与交付
-
-- 提供 controller、runner、extension controller、extension API、packager、publisher 的 Dockerfile
-- 提供完整 Helm chart：[`config/charts/frontend-forge`](config/charts/frontend-forge)
-- chart 内包含：
-  - `FrontendIntegration` / `FrontendExtension` CRD
-  - runtime controller / runner RBAC
-  - FrontendExtension controller / packager / publisher / API RBAC
-  - FI 到 FE 迁移 Job 及 RBAC
-  - 可选 admission webhook、webhook certgen、可选本地/e2e `JSBundle` CRD
-- 提供示例 `FrontendIntegration` 清单：
-  - [`config/samples/frontend-forge_v1alpha1_frontendintegration.yaml`](config/samples/frontend-forge_v1alpha1_frontendintegration.yaml)
-  - [`config/samples/fi-inspecttask.yaml`](config/samples/fi-inspecttask.yaml)
-  - [`config/samples/fi-nested-menu-demo.yaml`](config/samples/fi-nested-menu-demo.yaml)
-
-## 当前限制
-
-- 当前依赖外部 build-service，仓库本身不包含前端构建服务实现
-- Manifest 渲染引擎目前只有 `v1`
-- 部署方式以 Helm chart 为主，不再维护逐个 `kubectl apply` 的安装流程
-- admission webhook 默认关闭，通过 Helm values 开启
-
-## Helm 安装
-
-默认安装 runtime 与发布态组件：
+Default install:
 
 ```bash
 helm upgrade --install frontend-forge config/charts/frontend-forge \
@@ -152,7 +61,7 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
   --create-namespace
 ```
 
-如果当前集群没有 KubeSphere 提供的 `JSBundle` CRD，本地或 e2e 环境可以一并安装：
+Install the local/e2e `JSBundle` CRD when the cluster does not provide it:
 
 ```bash
 helm upgrade --install frontend-forge config/charts/frontend-forge \
@@ -161,95 +70,57 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
   --set crds.installJsBundle=true
 ```
 
-渲染检查：
-
-```bash
-helm template frontend-forge config/charts/frontend-forge \
-  --namespace extension-frontend-forge \
-  --include-crds
-```
-
-## Admission Webhook
-
-webhook 通过现有 controller Deployment 提供，默认配置如下：
-
-- `WEBHOOK_ENABLED=false`
-- `WEBHOOK_BIND_ADDR=0.0.0.0:9443`
-- `WEBHOOK_CERT_PATH=/tls/tls.crt`
-- `WEBHOOK_KEY_PATH=/tls/tls.key`
-
-启用方式：
+Enable FI runtime for local/e2e testing:
 
 ```bash
 helm upgrade --install frontend-forge config/charts/frontend-forge \
   --namespace extension-frontend-forge \
   --create-namespace \
-  --set webhook.enabled=true
+  --set controller.enabled=true \
+  --set crds.installJsBundle=true \
+  --set buildService.enabled=true
 ```
 
-chart 会渲染 webhook Service、`ValidatingWebhookConfiguration`、certgen RBAC 和 certgen Job。证书默认写入 `frontend-forge-controller-webhook-tls` Secret。
+## Basic Usage
 
-证书由 `kubespheredev/kube-webhook-certgen:v1.1.1` 生成并回填 `caBundle`。
-
-## Dev Webhook Debugging
-
-如果你要把远端集群的 admission webhook 临时转到本地开发机，可以使用：
+Create a `FrontendExtension` sample:
 
 ```bash
-ssh -N -L 44321:127.0.0.1:44321 root@<remote-host>
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh start
+kubectl apply -f config/samples/frontendextension-inspecttask.yaml
+kubectl get frontendextensions.frontend-forge.kubesphere.io inspecttask
 ```
 
-脚本会：
-
-- 拉取远端最小 kubeconfig 并改写到本地 `https://127.0.0.1:44321`
-- 启动本地 `frontend-forge-controller` webhook
-- 启动 `cloudflared` quick tunnel
-- 把远端 `ValidatingWebhookConfiguration` 临时切到 `clientConfig.url`
-
-常用命令：
+Create a `FrontendIntegration` sample when FI runtime is enabled:
 
 ```bash
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh status
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh logs controller
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh logs cloudflared
-REMOTE_SSH_TARGET=root@<remote-host> ./scripts/dev-webhook.sh stop
+kubectl apply -f config/samples/frontend-forge_v1alpha1_frontendintegration.yaml
+kubectl get frontendintegrations.frontend-forge.kubesphere.io demo-fi
 ```
 
-`stop` 会恢复远端 webhook 配置。
+Other useful samples:
 
-## 技术栈
+| File | Purpose |
+| --- | --- |
+| `config/samples/fi-crdtable.yaml` | FI `crdTable` page sample. |
+| `config/samples/fi-nested-menu-demo.yaml` | FI two-level menu sample. |
+| `config/samples/fi-lifecycle-smoke.yaml` | FI lifecycle smoke test sample. |
 
-- Rust 2024 edition
-- Tokio
-- `kube` / `kube-runtime`
-- `k8s-openapi`
-- Serde / `serde_json` / `serde_yaml`
-- Snafu
-- Tracing / `tracing-subscriber`
-- Reqwest
-- Docker 多阶段构建 + distroless runtime
+## Repository Layout
 
-## 仓库结构
+| Path | Responsibility |
+| --- | --- |
+| `crates/api` | Rust CRD types and CRD generation entrypoints. |
+| `crates/frontend-extension-controller` | FE package/publish reconciliation. |
+| `crates/frontend-forge-controller` | FI runtime controller, FI webhook, FI-to-FE migrator. |
+| `crates/frontend-forge-extension-api` | FE list/get/create/download/publish HTTP API. |
+| `config/charts/frontend-forge` | Helm chart, CRDs, Deployments, RBAC, hooks. |
+| `config/samples` | Example FI/FE manifests. |
+| `spec` | Implementation notes tied to Rust types, controllers, routes, and chart defaults. |
+| `skills/frontend-forge-fi-operations` | Repo-local Codex skill for FI operations. |
 
-- [`crates/api`](crates/api)：CRD 类型定义、状态结构、CRD 导出
-- [`crates/common`](crates/common)：通用常量、hash 和命名工具
-- [`crates/manifest`](crates/manifest)：共享 Manifest 渲染与语义校验
-- [`crates/frontend-forge-controller`](crates/frontend-forge-controller)：FrontendIntegration runtime controller 与 webhook
-- [`crates/frontend-extension-controller`](crates/frontend-extension-controller)：FrontendExtension package/publish controller
-- [`crates/frontend-forge-runner`](crates/frontend-forge-runner)：runtime runner Job 逻辑
-- [`crates/frontend-forge-extension-api`](crates/frontend-forge-extension-api)：FrontendExtension HTTP API
-- [`crates/extension-package-core`](crates/extension-package-core)：extension package artifact 生成核心
-- [`crates/extension-packager`](crates/extension-packager)：package Job binary
-- [`crates/extension-publisher`](crates/extension-publisher)：独立 `ksbuilder publish` Job binary
-- [`xtask`](xtask)：开发辅助命令，如生成 CRD
-- [`config/charts/frontend-forge`](config/charts/frontend-forge)：Helm chart 交付入口
-- [`config/samples`](config/samples)：样例清单
-- [`spec`](spec)：设计文档
+More detailed crate and Job behavior is documented under `spec/`.
 
-## 开发
-
-常用命令：
+## Development
 
 ```bash
 cargo fmt --all -- --check
@@ -258,7 +129,7 @@ cargo test --workspace
 cargo xtask gen-crd
 ```
 
-构建镜像对应的二进制：
+Build the main binaries:
 
 ```bash
 cargo build --release -p frontend-forge-controller
@@ -269,20 +140,41 @@ cargo build --release -p frontend-forge-extension-packager
 cargo build --release -p frontend-forge-extension-publisher
 ```
 
-Git hooks：
+Install git hooks:
 
-- `lefthook install`
-- `pre-commit` 会重新生成 CRD
-- `pre-push` 会校验 CRD 是否与代码一致
-
-## 外部依赖
-
-当前运行时默认依赖一个可访问的 build-service，controller 会把其地址通过 `BUILD_SERVICE_BASE_URL` 传递给 runner。
-
-默认值见 [`config/charts/frontend-forge/values.yaml`](config/charts/frontend-forge/values.yaml)：
-
-```yaml
-env:
-  - name: BUILD_SERVICE_BASE_URL
-    value: http://frontend-forge.<release-namespace>.svc
+```bash
+lefthook install
 ```
+
+Register the repo-local skill for Codex:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/frontend-forge-fi-operations" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
+```
+
+## Further Reading
+
+| Topic | Document |
+| --- | --- |
+| CRD fields and status | [`spec/crds.md`](spec/crds.md) |
+| Manifest renderer | [`spec/Manifest.md`](spec/Manifest.md) |
+| FI runtime controller, runner, webhook | [`spec/fi-runtime.md`](spec/fi-runtime.md) |
+| FE package/publish/API behavior | [`spec/frontend-extension-design.md`](spec/frontend-extension-design.md) |
+| Helm values and template conditions | [`spec/helm-chart.md`](spec/helm-chart.md) |
+| Kubernetes resources | [`spec/k8s-resources.md`](spec/k8s-resources.md) |
+| FI-to-FE migration | [`spec/fi-to-fe-migration.md`](spec/fi-to-fe-migration.md) |
+| Manual image build and install | [`spec/manual-build-and-helm-install.md`](spec/manual-build-and-helm-install.md) |
+| Kubernetes version matrix | [`spec/k8s-matrix-plan.md`](spec/k8s-matrix-plan.md) |
+
+Documentation details in `spec/` are checked against Rust API types, controller
+behavior, Helm defaults, and HTTP routes.
+
+## TODO / Open Questions
+
+- Production build-service deployment ownership is not defined in this
+  repository; current docs cover the chart stub and external URL configuration.
+- Concrete `ksbuilder publish` credential keys depend on the selected
+  `ksbuilder` and registry setup. The publisher defines how target data is
+  passed to the process.
