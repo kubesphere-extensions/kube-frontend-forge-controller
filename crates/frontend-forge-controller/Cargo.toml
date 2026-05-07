@@ -25,4 +25,4 @@ tracing-subscriber.workspace = true
 
 [[bin]]
 name = "fi-to-fe-migrator"
-path = "src/bin/fi_to_fe_migrator.rs"
+path = "src/bin/fi_to_fe_migrator/main.rs"
