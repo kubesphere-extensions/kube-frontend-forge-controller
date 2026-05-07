@@ -186,6 +186,7 @@ Publish request annotations override spec target fields:
 | `download.mediaType` | string | Download media type. |
 | `packageJob` | `PackageJobStatus` | Current or last package Job status. |
 | `publish` | `PublishStatus` | Current publish request status for current artifact key. |
+| `unpublish` | `UnpublishStatus` | Current unpublish request status. |
 | `conditions` | `ExtensionCondition[]` | Controller writes `SourceValid`, `ArtifactReady`, `DownloadReady`, `PublishSucceeded`. |
 
 `PublishStatus` fields:
@@ -193,9 +194,22 @@ Publish request annotations override spec target fields:
 | Field | Type | Behavior |
 | --- | --- | --- |
 | `phase` | `NotRequested` / `Pending` / `Running` / `Succeeded` / `Failed` | Publish Job phase or default. |
+| `active` | boolean | `true` after publish succeeds; `false` after unpublish succeeds. |
 | `requestId` | string | Publish request id. |
 | `artifactDigest` | string | Requested artifact digest. |
 | `jobRef` | `NamespacedResourceRef` | Publisher Job reference. |
+| `startedAt` | timestamp | Job start time. |
+| `finishedAt` | timestamp | Job completion time. |
+| `lastError` | string | Job failure message. |
+
+`UnpublishStatus` fields:
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `phase` | `NotRequested` / `Pending` / `Running` / `Succeeded` / `Failed` | Unpublish Job phase or default. |
+| `requestId` | string | Unpublish request id. |
+| `extensionName` | string | Effective extension/package name passed to `ksbuilder unpublish`. |
+| `jobRef` | `NamespacedResourceRef` | Unpublish Job reference. |
 | `startedAt` | timestamp | Job start time. |
 | `finishedAt` | timestamp | Job completion time. |
 | `lastError` | string | Job failure message. |

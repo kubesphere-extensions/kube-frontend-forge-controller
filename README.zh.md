@@ -1,7 +1,7 @@
 # Frontend Forge
 
 Frontend Forge 为 KubeSphere 前端扩展提供 Kubernetes controller 和 Job。它覆盖
-`FrontendExtension` 的 package/download/publish 流程，以及
+`FrontendExtension` 的 package/download/publish/unpublish 流程，以及
 `FrontendIntegration` 将当前集群前端入口构建为 `JSBundle` 的 runtime 流程。
 
 默认 Helm 安装主线是 `FrontendExtension`：生成 extension artifact，通过
@@ -12,7 +12,7 @@ controller 仍已实现，但默认关闭；已有 FI 对象会通过默认 Helm
 
 | 流程 | 状态 | 默认 Helm 行为 |
 | --- | --- | --- |
-| `FrontendExtension` package/download/publish | 已实现 | 启用 |
+| `FrontendExtension` package/download/publish/unpublish | 已实现 | 启用 |
 | `FrontendIntegration` runtime build to `JSBundle` | 已实现 | 通过 `controller.enabled=false` 关闭 |
 | FI to FE `migrator` | 已实现 | 通过 `migration.fiToFe.enabled=true` 启用 |
 | FI admission webhook | 已实现 | 通过 `webhook.enabled=false` 关闭 |
@@ -26,7 +26,7 @@ controller 仍已实现，但默认关闭；已有 FI 对象会通过默认 Helm
 | `FrontendIntegration` / `FI` | Cluster | 当前集群 `JSBundle` runtime 构建源。 |
 | `JSBundle` | Cluster | KubeSphere extension runtime 消费的前端 bundle。 |
 
-extension API 提供 FE list、get、create、download 和 publish 操作。路由级行为见
+extension API 提供 FE list、get、create、download、publish、unpublish 和 delete 操作。路由级行为见
 [`spec/frontend-extension-design.md`](spec/frontend-extension-design.md)。
 
 ## 默认 Helm 行为
@@ -106,9 +106,9 @@ kubectl get frontendintegrations.frontend-forge.kubesphere.io demo-fi
 | 路径 | 职责 |
 | --- | --- |
 | `crates/api` | Rust CRD 类型和 CRD 生成入口。 |
-| `crates/frontend-extension-controller` | FE package/publish reconcile。 |
+| `crates/frontend-extension-controller` | FE package/publish/unpublish reconcile。 |
 | `crates/frontend-forge-controller` | FI runtime controller、FI webhook、FI-to-FE migrator。 |
-| `crates/frontend-forge-extension-api` | FE list/get/create/download/publish HTTP API。 |
+| `crates/frontend-forge-extension-api` | FE list/get/create/download/publish/unpublish/delete HTTP API。 |
 | `config/charts/frontend-forge` | Helm chart、CRD、Deployment、RBAC、hook。 |
 | `config/samples` | FI/FE 示例 manifest。 |
 | `spec` | 与 Rust 类型、controller、route、chart 默认值对应的实现说明。 |

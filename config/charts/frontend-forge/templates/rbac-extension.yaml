@@ -9,7 +9,7 @@ metadata:
 rules:
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendextensions"]
-    verbs: ["get", "list", "watch", "patch", "update"]
+    verbs: ["delete", "get", "list", "watch", "patch", "update"]
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendextensions/status"]
     verbs: ["get", "patch", "update"]
@@ -101,19 +101,19 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "list", "watch", "create", "patch", "update"]
+    verbs: ["delete", "get", "list", "watch", "create", "patch", "update"]
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
   - apiGroups: ["kubesphere.io"]
-    resources: ["categories", "extensions", "extensionversions", "repositories"]
-    verbs: ["get", "list", "watch", "create", "patch", "update"]
+    resources: ["categories", "extensions", "extensionversions", "installplans", "repositories"]
+    verbs: ["delete", "get", "list", "watch", "create", "patch", "update"]
   - apiGroups: ["iam.kubesphere.io"]
     resources: ["categories", "roletemplates"]
-    verbs: ["get", "list", "watch", "create", "patch", "update"]
+    verbs: ["delete", "get", "list", "watch", "create", "patch", "update"]
   - apiGroups: ["extensions.kubesphere.io"]
     resources: ["apiservices", "extensionentries", "jsbundles", "reverseproxies"]
-    verbs: ["get", "list", "watch", "create", "patch", "update"]
+    verbs: ["delete", "get", "list", "watch", "create", "patch", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -141,7 +141,7 @@ metadata:
 rules:
   - apiGroups: ["frontend-forge.kubesphere.io"]
     resources: ["frontendextensions"]
-    verbs: ["create", "get", "list", "patch"]
+    verbs: ["create", "delete", "get", "list", "patch"]
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get"]
