@@ -106,7 +106,7 @@ rules:
     resources: ["secrets"]
     verbs: ["get"]
   - apiGroups: ["kubesphere.io"]
-    resources: ["categories", "extensions", "extensionversions", "repositories"]
+    resources: ["categories", "extensions", "extensionversions", "installplans", "repositories"]
     verbs: ["delete", "get", "list", "watch", "create", "patch", "update"]
   - apiGroups: ["iam.kubesphere.io"]
     resources: ["categories", "roletemplates"]
