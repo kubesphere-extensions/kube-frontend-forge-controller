@@ -1,7 +1,7 @@
 # Frontend Forge
 
 Frontend Forge provides Kubernetes controllers and jobs for KubeSphere frontend
-extensions. It covers the `FrontendExtension` package/download/publish flow and
+extensions. It covers the `FrontendExtension` package/download/publish/unpublish flow and
 the `FrontendIntegration` runtime flow that builds a `JSBundle` for the current
 cluster.
 
@@ -15,7 +15,7 @@ default Helm hook.
 
 | Flow | Status | Default Helm behavior |
 | --- | --- | --- |
-| `FrontendExtension` package/download/publish | Implemented | Enabled |
+| `FrontendExtension` package/download/publish/unpublish | Implemented | Enabled |
 | `FrontendIntegration` runtime build to `JSBundle` | Implemented | Disabled with `controller.enabled=false` |
 | FI to FE `migrator` | Implemented | Enabled with `migration.fiToFe.enabled=true` |
 | FI admission webhook | Implemented | Disabled with `webhook.enabled=false` |
@@ -29,7 +29,7 @@ Core objects:
 | `FrontendIntegration` / `FI` | Cluster | Runtime source for building a current-cluster `JSBundle`. |
 | `JSBundle` | Cluster | Runtime frontend bundle consumed by the KubeSphere extension runtime. |
 
-The extension API supports FE list, get, create, download, and publish
+The extension API supports FE list, get, create, download, publish, unpublish, and delete
 operations. Route-level behavior is documented in
 [`spec/frontend-extension-design.md`](spec/frontend-extension-design.md).
 
@@ -110,9 +110,9 @@ Other useful samples:
 | Path | Responsibility |
 | --- | --- |
 | `crates/api` | Rust CRD types and CRD generation entrypoints. |
-| `crates/frontend-extension-controller` | FE package/publish reconciliation. |
+| `crates/frontend-extension-controller` | FE package/publish/unpublish reconciliation. |
 | `crates/frontend-forge-controller` | FI runtime controller, FI webhook, FI-to-FE migrator. |
-| `crates/frontend-forge-extension-api` | FE list/get/create/download/publish HTTP API. |
+| `crates/frontend-forge-extension-api` | FE list/get/create/download/publish/unpublish/delete HTTP API. |
 | `config/charts/frontend-forge` | Helm chart, CRDs, Deployments, RBAC, hooks. |
 | `config/samples` | Example FI/FE manifests. |
 | `spec` | Implementation notes tied to Rust types, controllers, routes, and chart defaults. |

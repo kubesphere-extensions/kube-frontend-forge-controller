@@ -27,7 +27,9 @@ pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
 pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
 pub const LABEL_PUBLISH_KIND: &str = "frontend-forge.io/publish-kind";
+pub const LABEL_UNPUBLISH_KIND: &str = "frontend-forge.io/unpublish-kind";
 pub const LABEL_PUBLISH_REQUEST_HASH: &str = "frontend-forge.io/publish-request-hash";
+pub const LABEL_UNPUBLISH_REQUEST_HASH: &str = "frontend-forge.io/unpublish-request-hash";
 pub const ANNO_BUILD_JOB: &str = "frontend-forge.io/build-job";
 pub const ANNO_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const ANNO_MANIFEST_CONTENT: &str = "frontend-forge.io/manifest-content";
@@ -45,9 +47,14 @@ pub const ANNO_PUBLISH_ARTIFACT_DIGEST: &str = "frontend-forge.io/publish-artifa
 pub const ANNO_PUBLISH_TARGET_KIND: &str = "frontend-forge.io/publish-target-kind";
 pub const ANNO_PUBLISH_TARGET_NAMESPACE: &str = "frontend-forge.io/publish-target-namespace";
 pub const ANNO_PUBLISH_TARGET_NAME: &str = "frontend-forge.io/publish-target-name";
+pub const ANNO_UNPUBLISH_REQUEST_ID: &str = "frontend-forge.io/unpublish-request-id";
+pub const ANNO_UNPUBLISH_EXTENSION_NAME: &str = "frontend-forge.io/unpublish-extension-name";
+pub const ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID: &str =
+    "frontend-forge.io/delete-after-unpublish-request-id";
 pub const BUILD_KIND_VALUE: &str = "frontend-forge";
 pub const PACKAGE_KIND_VALUE: &str = "frontend-extension-package";
 pub const PUBLISH_KIND_VALUE: &str = "frontend-extension-publish";
+pub const UNPUBLISH_KIND_VALUE: &str = "frontend-extension-unpublish";
 pub const DEFAULT_MANIFEST_FILENAME: &str = "manifest.json";
 pub const DEFAULT_MANIFEST_MOUNT_PATH: &str = "/work/manifest/manifest.json";
 pub const MAX_SECRET_PAYLOAD_BYTES: usize = 1_000_000;
@@ -297,6 +304,15 @@ pub fn publish_job_name(fe_name: &str, request_id: &str) -> String {
     let request_hash = format!("sha256:{}", sha256_hex(request_id.as_bytes()));
     bounded_name(
         &format!("fe-{fe_name}-publish-{}", hash_short(&request_hash)),
+        63,
+    )
+}
+
+#[must_use]
+pub fn unpublish_job_name(fe_name: &str, request_id: &str) -> String {
+    let request_hash = format!("sha256:{}", sha256_hex(request_id.as_bytes()));
+    bounded_name(
+        &format!("fe-{fe_name}-unpublish-{}", hash_short(&request_hash)),
         63,
     )
 }

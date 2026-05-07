@@ -498,7 +498,54 @@ spec:
               publish:
                 nullable: true
                 properties:
+                  active:
+                    default: false
+                    type: boolean
                   artifactDigest:
+                    nullable: true
+                    type: string
+                  finishedAt:
+                    format: date-time
+                    nullable: true
+                    type: string
+                  jobRef:
+                    nullable: true
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                      uid:
+                        nullable: true
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                  lastError:
+                    nullable: true
+                    type: string
+                  phase:
+                    default: NotRequested
+                    enum:
+                    - NotRequested
+                    - Pending
+                    - Running
+                    - Succeeded
+                    - Failed
+                    type: string
+                  requestId:
+                    nullable: true
+                    type: string
+                  startedAt:
+                    format: date-time
+                    nullable: true
+                    type: string
+                type: object
+              unpublish:
+                nullable: true
+                properties:
+                  extensionName:
                     nullable: true
                     type: string
                   finishedAt:

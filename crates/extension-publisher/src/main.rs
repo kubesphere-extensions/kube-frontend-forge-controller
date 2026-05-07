@@ -101,14 +101,22 @@ enum Error {
 }
 
 #[derive(Clone, Debug)]
+enum PublisherAction {
+    Publish,
+    Unpublish,
+}
+
+#[derive(Clone, Debug)]
 struct PublisherConfig {
+    action: PublisherAction,
     fe_name: String,
     request_id: String,
-    artifact_digest: String,
+    artifact_digest: Option<String>,
     artifact_configmap_namespace: String,
-    artifact_configmap_name: String,
+    artifact_configmap_name: Option<String>,
     artifact_configmap_key: String,
     artifact_filename: String,
+    unpublish_extension_name: Option<String>,
     target_kind: Option<String>,
     target_namespace: Option<String>,
     target_name: Option<String>,
@@ -119,7 +127,14 @@ struct PublisherConfig {
 
 impl PublisherConfig {
     fn from_env() -> Result<Self, Error> {
-        let request_id = required_env("PUBLISH_REQUEST_ID")?;
+        let action = match env::var("PUBLISH_ACTION").ok().as_deref() {
+            Some("unpublish") => PublisherAction::Unpublish,
+            _ => PublisherAction::Publish,
+        };
+        let request_id = match action {
+            PublisherAction::Publish => required_env("PUBLISH_REQUEST_ID")?,
+            PublisherAction::Unpublish => required_env("UNPUBLISH_REQUEST_ID")?,
+        };
         let workdir = env::var("PUBLISH_WORKDIR").map_or_else(
             |_| {
                 PathBuf::from(format!(
@@ -131,18 +146,24 @@ impl PublisherConfig {
         );
 
         Ok(Self {
+            action,
             fe_name: required_env("FE_NAME")?,
             request_id,
-            artifact_digest: required_env("ARTIFACT_DIGEST")?,
+            artifact_digest: env::var("ARTIFACT_DIGEST").ok().filter(|v| !v.is_empty()),
             artifact_configmap_namespace: env::var("ARTIFACT_CONFIGMAP_NAMESPACE")
                 .unwrap_or_else(|_| "extension-frontend-forge".to_string()),
-            artifact_configmap_name: required_env("ARTIFACT_CONFIGMAP_NAME")?,
+            artifact_configmap_name: env::var("ARTIFACT_CONFIGMAP_NAME")
+                .ok()
+                .filter(|v| !v.is_empty()),
             artifact_configmap_key: env::var("ARTIFACT_CONFIGMAP_KEY")
                 .unwrap_or_else(|_| "package.tgz".to_string()),
             artifact_filename: env::var("ARTIFACT_FILENAME")
                 .ok()
                 .filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "package.tgz".to_string()),
+            unpublish_extension_name: env::var("UNPUBLISH_EXTENSION_NAME")
+                .ok()
+                .filter(|v| !v.is_empty()),
             target_kind: env::var("PUBLISH_TARGET_KIND")
                 .ok()
                 .filter(|v| !v.is_empty()),
@@ -178,35 +199,73 @@ async fn main() -> Result<(), Error> {
     let cfg = PublisherConfig::from_env()?;
     let client = Client::try_default().await.context(KubeClientInitSnafu)?;
 
-    let package = load_artifact_package(&client, &cfg).await?;
-    verify_artifact_digest(&package, &cfg.artifact_digest)?;
     prepare_workdir(&cfg.workdir)?;
-    let package_path = write_artifact_package(&package, &cfg.workdir, &cfg.artifact_filename)?;
-    let package_dir = unpack_artifact_package(&package_path, &cfg.workdir)?;
     let target_data = load_publish_target(&client, &cfg).await?;
     let target_env = write_publish_target_data(&cfg.workdir, target_data.as_ref())?;
     ensure_in_cluster_kubeconfig()?;
-    run_ksbuilder_publish(&cfg, &package_dir, target_data.as_ref(), target_env)?;
 
-    info!(
-        fe = %cfg.fe_name,
-        request_id = %cfg.request_id,
-        artifact_digest = %cfg.artifact_digest,
-        workdir = %cfg.workdir.display(),
-        "extension package published"
-    );
+    match cfg.action {
+        PublisherAction::Publish => {
+            let package = load_artifact_package(&client, &cfg).await?;
+            let artifact_digest =
+                cfg.artifact_digest
+                    .as_ref()
+                    .ok_or_else(|| Error::MissingEnv {
+                        key: "ARTIFACT_DIGEST",
+                        source: std::env::VarError::NotPresent,
+                    })?;
+            verify_artifact_digest(&package, artifact_digest)?;
+            let package_path =
+                write_artifact_package(&package, &cfg.workdir, &cfg.artifact_filename)?;
+            let package_dir = unpack_artifact_package(&package_path, &cfg.workdir)?;
+            run_ksbuilder_publish(&cfg, &package_dir, target_data.as_ref(), target_env)?;
+
+            info!(
+                fe = %cfg.fe_name,
+                request_id = %cfg.request_id,
+                artifact_digest = %artifact_digest,
+                workdir = %cfg.workdir.display(),
+                "extension package published"
+            );
+        }
+        PublisherAction::Unpublish => {
+            let extension_name =
+                cfg.unpublish_extension_name
+                    .as_ref()
+                    .ok_or_else(|| Error::MissingEnv {
+                        key: "UNPUBLISH_EXTENSION_NAME",
+                        source: std::env::VarError::NotPresent,
+                    })?;
+            run_ksbuilder_unpublish(&cfg, extension_name, target_data.as_ref(), target_env)?;
+
+            info!(
+                fe = %cfg.fe_name,
+                request_id = %cfg.request_id,
+                extension_name = %extension_name,
+                workdir = %cfg.workdir.display(),
+                "extension package unpublished"
+            );
+        }
+    }
 
     Ok(())
 }
 
 async fn load_artifact_package(client: &Client, cfg: &PublisherConfig) -> Result<Vec<u8>, Error> {
+    let artifact_configmap_name =
+        cfg.artifact_configmap_name
+            .as_ref()
+            .ok_or_else(|| Error::MissingEnv {
+                key: "ARTIFACT_CONFIGMAP_NAME",
+                source: std::env::VarError::NotPresent,
+            })?;
     let cm_api = Api::<ConfigMap>::namespaced(client.clone(), &cfg.artifact_configmap_namespace);
     let cm = cm_api
-        .get(&cfg.artifact_configmap_name)
+        .get(artifact_configmap_name)
         .await
         .with_context(|_| GetArtifactConfigMapSnafu {
             namespace: cfg.artifact_configmap_namespace.clone(),
-            name: cfg.artifact_configmap_name.clone(),
+            name: artifact_configmap_name.clone(),
         })?;
 
     cm.binary_data
@@ -215,7 +274,7 @@ async fn load_artifact_package(client: &Client, cfg: &PublisherConfig) -> Result
         .map(|bytes| bytes.0.clone())
         .ok_or_else(|| Error::MissingArtifactPackage {
             namespace: cfg.artifact_configmap_namespace.clone(),
-            name: cfg.artifact_configmap_name.clone(),
+            name: artifact_configmap_name.clone(),
             key: cfg.artifact_configmap_key.clone(),
         })
 }
@@ -536,12 +595,59 @@ fn run_ksbuilder_publish(
     }
 }
 
+fn run_ksbuilder_unpublish(
+    cfg: &PublisherConfig,
+    extension_name: &str,
+    target: Option<&TargetData>,
+    target_env: BTreeMap<String, OsString>,
+) -> Result<(), Error> {
+    let args = ksbuilder_unpublish_args(cfg, extension_name, target);
+
+    let output = Command::new(&cfg.ksbuilder_bin)
+        .args(args)
+        .current_dir(&cfg.workdir)
+        .envs(target_env)
+        .output()
+        .with_context(|_| RunKsbuilderSnafu {
+            bin: cfg.ksbuilder_bin.clone(),
+        })?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(Error::KsbuilderFailed {
+            status: output
+                .status
+                .code()
+                .map_or_else(|| "signal".to_string(), |code| code.to_string()),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+}
+
 fn ksbuilder_publish_args(
     cfg: &PublisherConfig,
     package_dir: &Path,
     target: Option<&TargetData>,
 ) -> Vec<String> {
     let mut args = vec!["publish".to_string(), package_dir.display().to_string()];
+    args.extend(cfg.publish_args.clone());
+    if let Some(target) = target
+        && let Some(target_args) = target.values.get("args")
+        && let Ok(raw) = std::str::from_utf8(target_args)
+    {
+        args.extend(split_args(raw));
+    }
+    args
+}
+
+fn ksbuilder_unpublish_args(
+    cfg: &PublisherConfig,
+    extension_name: &str,
+    target: Option<&TargetData>,
+) -> Vec<String> {
+    let mut args = vec!["unpublish".to_string(), extension_name.to_string()];
     args.extend(cfg.publish_args.clone());
     if let Some(target) = target
         && let Some(target_args) = target.values.get("args")
@@ -644,13 +750,15 @@ mod tests {
     #[test]
     fn builds_ksbuilder_publish_args_with_package_directory_first() {
         let cfg = PublisherConfig {
+            action: PublisherAction::Publish,
             fe_name: "inspecttask".to_string(),
             request_id: "request-1".to_string(),
-            artifact_digest: "sha256:artifact".to_string(),
+            artifact_digest: Some("sha256:artifact".to_string()),
             artifact_configmap_namespace: "extension-frontend-forge".to_string(),
-            artifact_configmap_name: "fe-inspecttask-a1b2c3d4".to_string(),
+            artifact_configmap_name: Some("fe-inspecttask-a1b2c3d4".to_string()),
             artifact_configmap_key: "package.tgz".to_string(),
             artifact_filename: "inspecttask-0.1.0.tgz".to_string(),
+            unpublish_extension_name: None,
             target_kind: None,
             target_namespace: None,
             target_name: None,
@@ -670,6 +778,47 @@ mod tests {
             vec![
                 "publish",
                 "/work/package",
+                "--kubeconfig",
+                "kubeconfig",
+                "--token",
+                "token-value",
+                "--endpoint",
+                "https://example.test",
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_ksbuilder_unpublish_args_with_extension_name_first() {
+        let cfg = PublisherConfig {
+            action: PublisherAction::Unpublish,
+            fe_name: "inspecttask".to_string(),
+            request_id: "request-1".to_string(),
+            artifact_digest: None,
+            artifact_configmap_namespace: "extension-frontend-forge".to_string(),
+            artifact_configmap_name: None,
+            artifact_configmap_key: "package.tgz".to_string(),
+            artifact_filename: "package.tgz".to_string(),
+            unpublish_extension_name: Some("inspecttask".to_string()),
+            target_kind: None,
+            target_namespace: None,
+            target_name: None,
+            workdir: PathBuf::from("/tmp/frontend-forge-publish-test"),
+            ksbuilder_bin: "ksbuilder".to_string(),
+            publish_args: vec!["--kubeconfig".to_string(), "kubeconfig".to_string()],
+        };
+        let target = TargetData {
+            values: BTreeMap::from([(
+                "args".to_string(),
+                b"--token token-value --endpoint https://example.test".to_vec(),
+            )]),
+        };
+
+        assert_eq!(
+            ksbuilder_unpublish_args(&cfg, "inspecttask", Some(&target)),
+            vec![
+                "unpublish",
+                "inspecttask",
                 "--kubeconfig",
                 "kubeconfig",
                 "--token",

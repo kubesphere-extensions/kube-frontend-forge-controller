@@ -64,7 +64,7 @@ Status: Implemented
 | `image` | FI runtime controller image and FI migrator image. |
 | `controller` | FI runtime controller, runner Job config, webhook env injection. |
 | `runner` | FI runner image and service account. |
-| `extensionController` | FE controller Deployment config and package/publish Job defaults. |
+| `extensionController` | FE controller Deployment config and package/publish/unpublish Job defaults. |
 | `extensionPackager` | Package Job image and service account defaults. |
 | `extensionPublisher` | Publish Job image and service account defaults. |
 | `extensionApi` | FE API Deployment, Service, and optional KubeSphere APIService. |

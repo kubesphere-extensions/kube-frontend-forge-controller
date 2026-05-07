@@ -36,7 +36,7 @@ Status: Implemented
 | `BUILD_SERVICE_TIMEOUT_SECONDS` | `extensionController.buildServiceTimeoutSeconds` | `240` | Package Job HTTP timeout. |
 | `JSBUNDLE_CONFIG_KEY` | `extensionController.jsbundleConfigKey` | `index.js` | Preferred frontend bundle artifact. |
 | `RECONCILE_REQUEUE_SECONDS` | `extensionController.reconcileRequeueSeconds` | `5` | Job polling delay. |
-| `JOB_ACTIVE_DEADLINE_SECONDS` | `extensionController.jobActiveDeadlineSeconds` | `300` | Package/publish Job active deadline. |
+| `JOB_ACTIVE_DEADLINE_SECONDS` | `extensionController.jobActiveDeadlineSeconds` | `300` | Package/publish/unpublish Job active deadline. |
 | `JOB_TTL_SECONDS_AFTER_FINISHED` | `extensionController.jobTtlSecondsAfterFinished` | `3600` | Package/publish Job TTL. |
 | `ARTIFACT_RETAIN_OLD_COUNT` | `extensionController.artifactRetainOldCount` | `1` | Stale artifact ConfigMap retention count. |
 | `PACKAGE_MAX_ATTEMPTS` | `extensionController.packageMaxAttempts` | `3` | Max package attempts per artifact key. |
@@ -256,6 +256,9 @@ API operations:
 | `GET` | `/frontendextensions/{name}/download` | Returns current ready `package.tgz`. |
 | `GET` | `/frontendextensions/{name}/publish` | Returns `status.publish` or default `NotRequested`. |
 | `POST` | `/frontendextensions/{name}/publish` | Patches publish request annotations and returns `202 Accepted`. |
+| `GET` | `/frontendextensions/{name}/unpublish` | Returns `status.unpublish` or default `NotRequested`. |
+| `POST` | `/frontendextensions/{name}/unpublish` | Patches unpublish request annotations and returns `202 Accepted`. |
+| `POST` | `/frontendextensions/{name}/delete` | Deletes FE directly, or triggers unpublish first when requested and currently published. |
 
 List summary fields:
 
@@ -279,6 +282,22 @@ Publish request body:
 }
 ```
 
+Unpublish request body:
+
+```json
+{
+  "requestId": "manual-1"
+}
+```
+
+Delete request body:
+
+```json
+{
+  "unpublish": true
+}
+```
+
 Publish API behavior:
 
 | Case | Status code | Behavior |
@@ -290,6 +309,19 @@ Publish API behavior:
 | Target kind not `ConfigMap` or `Secret` | `409` | No annotations patched. |
 | Existing same `requestId` and digest in status | `202` | Returns current publish status. |
 | Accepted new request | `202` | Patches publish annotations. |
+| Kubernetes API error | `500` | JSON error response. |
+
+Unpublish and delete API behavior:
+
+| Case | Status code | Behavior |
+| --- | --- | --- |
+| FE missing | `404` | JSON error response. |
+| Unpublish target ref missing | `409` | No annotations patched. |
+| Unpublish target kind invalid | `409` | No annotations patched. |
+| Accepted unpublish request | `202` | Patches unpublish annotations. |
+| `POST /delete` with `unpublish=false` | `200` | Deletes FE CR directly. |
+| `POST /delete` when not currently published | `200` | Deletes FE CR directly. |
+| `POST /delete` when `status.publish.phase=Succeeded` and `status.publish.active=true` | `202` | Patches unpublish annotations and `delete-after-unpublish-request-id`. |
 | Kubernetes API error | `500` | JSON error response. |
 
 Download API behavior:
@@ -321,11 +353,38 @@ FI-to-FE migrator through the API.
 | Job exists | Maps Job phase to publish status. |
 | Same request already terminal for current artifact key | Keeps existing terminal status. |
 | New request | Creates publisher Job. |
+| Publish Job succeeded | Writes `publish.phase=Succeeded` and `publish.active=true`. |
+
+Unpublish trigger source is FE annotations, normally patched by extension API.
+Unpublish success writes `status.unpublish.phase=Succeeded` and changes
+`status.publish.active` to `false`.
+
+Direct `kubectl delete fe <name>` does not automatically run unpublish. Use
+`POST /frontendextensions/{name}/delete` with `{"unpublish":true}` when the
+extension should be unpublished before the FE CR is removed.
+
+Unpublish reconcile:
+
+| Step | Behavior |
+| --- | --- |
+| No request id | Keeps current `status.unpublish`. |
+| Target ref missing | Writes `unpublish.phase=Failed`. |
+| Target kind invalid | Writes `unpublish.phase=Failed`. |
+| Job exists | Maps Job phase to unpublish status. |
+| Same request already terminal | Keeps existing terminal status. |
+| New request | Creates unpublish Job. |
+| Request succeeded and `delete-after-unpublish-request-id` matches | Deletes FE CR. |
 
 Publisher Job name:
 
 ```text
 fe-<fe-name>-publish-<request-id-hash-short>
+```
+
+Unpublish Job name:
+
+```text
+fe-<fe-name>-unpublish-<request-id-hash-short>
 ```
 
 Publisher Job environment:
@@ -339,6 +398,18 @@ Publisher Job environment:
 | `ARTIFACT_CONFIGMAP_NAME` | Artifact ConfigMap name |
 | `ARTIFACT_CONFIGMAP_KEY` | `package.tgz` |
 | `ARTIFACT_FILENAME` | Artifact filename |
+| `PUBLISH_TARGET_KIND` | `ConfigMap` or `Secret` |
+| `PUBLISH_TARGET_NAMESPACE` | Target namespace |
+| `PUBLISH_TARGET_NAME` | Target name |
+
+Unpublish Job environment:
+
+| Env | Source |
+| --- | --- |
+| `FE_NAME` | FE name |
+| `PUBLISH_ACTION` | `unpublish` |
+| `UNPUBLISH_REQUEST_ID` | Unpublish request id |
+| `UNPUBLISH_EXTENSION_NAME` | Effective package name, `spec.package.name` or FE name |
 | `PUBLISH_TARGET_KIND` | `ConfigMap` or `Secret` |
 | `PUBLISH_TARGET_NAMESPACE` | Target namespace |
 | `PUBLISH_TARGET_NAME` | Target name |
@@ -363,19 +434,23 @@ Flow:
 | Env target data | Keys `env.<NAME>` become process env `<NAME>`. |
 | Args target data | Key `args` is split by whitespace and appended to publish args. |
 | Kubeconfig | Writes in-cluster kubeconfig when no explicit kubeconfig is configured. |
-| Execute | Runs `ksbuilder publish <workdir>/package ...`. |
+| Execute publish | Runs `ksbuilder publish <workdir>/package ...`. |
+| Execute unpublish | With `PUBLISH_ACTION=unpublish`, runs `ksbuilder unpublish <extension-name> ...`. |
 
 Publisher environment:
 
 | Env | Default |
 | --- | --- |
 | `PUBLISH_WORKDIR` | `/tmp/frontend-extension-publish-<request-hash>` |
+| `PUBLISH_ACTION` | `publish` |
 | `ARTIFACT_CONFIGMAP_NAMESPACE` | `extension-frontend-forge` |
 | `ARTIFACT_CONFIGMAP_KEY` | `package.tgz` |
 | `ARTIFACT_FILENAME` | `package.tgz` |
 | `PUBLISH_TARGET_KIND` | Optional; target loading defaults to `ConfigMap` when target name is set. |
 | `PUBLISH_TARGET_NAMESPACE` | Optional; defaults to `extension-frontend-forge` when target name is set. |
 | `PUBLISH_TARGET_NAME` | Optional. |
+| `UNPUBLISH_REQUEST_ID` | Required when `PUBLISH_ACTION=unpublish`. |
+| `UNPUBLISH_EXTENSION_NAME` | Required when `PUBLISH_ACTION=unpublish`. |
 | `KSBUILDER_BIN` | `ksbuilder` |
 | `KSBUILDER_PUBLISH_ARGS` | empty |
 

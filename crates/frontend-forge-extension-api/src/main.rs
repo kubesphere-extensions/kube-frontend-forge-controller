@@ -14,22 +14,24 @@ use axum::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
     },
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
 };
 use chrono::Utc;
 use frontend_forge_api::{
     ArtifactStorageKind, ExtensionArtifactStatus, FrontendExtension, FrontendExtensionPhase,
-    NamespacedResourceRef, PublishStatus, PublishTargetKind,
+    NamespacedResourceRef, PublishPhase, PublishStatus, PublishTargetKind, UnpublishPhase,
+    UnpublishStatus,
 };
 use frontend_forge_common::{
-    ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND,
-    ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE, sha256_hex,
+    ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID, ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID,
+    ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE,
+    ANNO_UNPUBLISH_EXTENSION_NAME, ANNO_UNPUBLISH_REQUEST_ID, sha256_hex,
 };
-use frontend_forge_extension_package_core::PACKAGE_KEY;
+use frontend_forge_extension_package_core::{PACKAGE_KEY, frontend_extension_package_name};
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::{
     Api, Client, ResourceExt,
-    api::{ListParams, Patch, PatchParams, PostParams},
+    api::{DeleteParams, ListParams, Patch, PatchParams, PostParams},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -159,6 +161,37 @@ struct ResolvedPublishRequest {
     target_kind: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnpublishRequest {
+    #[serde(default, rename = "requestId")]
+    request_id: Option<String>,
+}
+
+#[derive(Debug)]
+struct ResolvedUnpublishRequest {
+    request_id: String,
+    extension_name: String,
+    target_ref: NamespacedResourceRef,
+    target_kind: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteRequest {
+    #[serde(default)]
+    unpublish: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteResponse {
+    deleted: bool,
+    #[serde(rename = "unpublishSkipped")]
+    unpublish_skipped: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unpublish: Option<UnpublishStatus>,
+}
+
 fn install_rustls_crypto_provider() {
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         rustls::crypto::ring::default_provider()
@@ -234,6 +267,14 @@ fn api_routes(prefix: &str, group: &str, version: &str) -> Router<Arc<AppState>>
             &format!("{resource_prefix}/{{name}}/publish"),
             get(get_publish_status).post(trigger_publish),
         )
+        .route(
+            &format!("{resource_prefix}/{{name}}/unpublish"),
+            get(get_unpublish_status).post(trigger_unpublish),
+        )
+        .route(
+            &format!("{resource_prefix}/{{name}}/delete"),
+            post(delete_extension),
+        )
 }
 
 async fn list_extensions(
@@ -282,6 +323,19 @@ async fn get_publish_status(
     ))
 }
 
+async fn get_unpublish_status(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> Result<Json<UnpublishStatus>, ApiError> {
+    let extension = get_fe(&state, &name).await?;
+    Ok(Json(
+        extension
+            .status
+            .and_then(|status| status.unpublish)
+            .unwrap_or_default(),
+    ))
+}
+
 async fn download_extension(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
@@ -313,6 +367,78 @@ async fn download_extension(
         )?,
     );
     Ok(response)
+}
+
+async fn trigger_unpublish(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(request): Json<UnpublishRequest>,
+) -> Result<(StatusCode, Json<UnpublishStatus>), ApiError> {
+    let extension = get_fe(&state, &name).await?;
+    let request = resolve_unpublish_request(&extension, &request)?;
+
+    if let Some(current) = extension
+        .status
+        .as_ref()
+        .and_then(|status| status.unpublish.as_ref())
+        && current.request_id.as_deref() == Some(request.request_id.as_str())
+        && current.extension_name.as_deref() == Some(request.extension_name.as_str())
+    {
+        return Ok((StatusCode::ACCEPTED, Json(current.clone())));
+    }
+
+    patch_unpublish_request(&state, &name, &request, None).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(UnpublishStatus {
+            phase: UnpublishPhase::Pending,
+            request_id: Some(request.request_id),
+            extension_name: Some(request.extension_name),
+            ..Default::default()
+        }),
+    ))
+}
+
+async fn delete_extension(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(request): Json<DeleteRequest>,
+) -> Result<(StatusCode, Json<DeleteResponse>), ApiError> {
+    let extension = get_fe(&state, &name).await?;
+    if request.unpublish && currently_published(&extension) {
+        let unpublish_request =
+            resolve_unpublish_request(&extension, &UnpublishRequest { request_id: None })?;
+        patch_unpublish_request(
+            &state,
+            &name,
+            &unpublish_request,
+            Some(unpublish_request.request_id.as_str()),
+        )
+        .await?;
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(DeleteResponse {
+                deleted: false,
+                unpublish_skipped: false,
+                unpublish: Some(UnpublishStatus {
+                    phase: UnpublishPhase::Pending,
+                    request_id: Some(unpublish_request.request_id),
+                    extension_name: Some(unpublish_request.extension_name),
+                    ..Default::default()
+                }),
+            }),
+        ));
+    }
+
+    delete_fe(&state, &name).await?;
+    Ok((
+        StatusCode::OK,
+        Json(DeleteResponse {
+            deleted: true,
+            unpublish_skipped: true,
+            unpublish: None,
+        }),
+    ))
 }
 
 async fn trigger_publish(
@@ -388,6 +514,39 @@ fn resolve_publish_request(
     })
 }
 
+fn resolve_unpublish_request(
+    fe: &FrontendExtension,
+    request: &UnpublishRequest,
+) -> Result<ResolvedUnpublishRequest, ApiError> {
+    let target_ref = publish_target_ref(fe)
+        .ok_or_else(|| ApiError::conflict("publish targetRef is required"))?;
+    if target_ref.namespace.is_empty() || target_ref.name.is_empty() {
+        return Err(ApiError::conflict(
+            "publish targetRef namespace and name are required",
+        ));
+    }
+    let target_kind = publish_target_kind(fe);
+    if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
+        return Err(ApiError::conflict(
+            "publish targetKind must be ConfigMap or Secret",
+        ));
+    }
+
+    let extension_name = frontend_extension_package_name(fe);
+    Ok(ResolvedUnpublishRequest {
+        request_id: request
+            .request_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|request_id| !request_id.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| generated_unpublish_request_id(&extension_name)),
+        extension_name,
+        target_ref,
+        target_kind,
+    })
+}
+
 fn publish_target_ref(fe: &FrontendExtension) -> Option<NamespacedResourceRef> {
     let annos = fe.metadata.annotations.as_ref();
     let target_name = annos
@@ -445,6 +604,18 @@ fn generated_publish_request_id(artifact_digest: &str) -> String {
     format!("api-{timestamp}-{digest_suffix}")
 }
 
+fn generated_unpublish_request_id(extension_name: &str) -> String {
+    let timestamp = Utc::now().timestamp_nanos_opt().map_or_else(
+        || Utc::now().timestamp_millis().to_string(),
+        |ts| ts.to_string(),
+    );
+    let name_hash = sha256_hex(extension_name.as_bytes())
+        .chars()
+        .take(12)
+        .collect::<String>();
+    format!("api-unpublish-{timestamp}-{name_hash}")
+}
+
 async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
     api.get(name).await.map_err(|err| match err {
@@ -453,6 +624,19 @@ async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiEr
         }
         err => ApiError::kube("failed to get FrontendExtension", &err),
     })
+}
+
+async fn delete_fe(state: &AppState, name: &str) -> Result<(), ApiError> {
+    let api = Api::<FrontendExtension>::all(state.client.clone());
+    api.delete(name, &DeleteParams::default())
+        .await
+        .map_err(|err| match err {
+            kube::Error::Api(ae) if ae.code == 404 => {
+                ApiError::not_found(format!("FrontendExtension {name} not found"))
+            }
+            err => ApiError::kube("failed to delete FrontendExtension", &err),
+        })?;
+    Ok(())
 }
 
 fn extension_summary(fe: &FrontendExtension) -> FrontendExtensionSummary {
@@ -475,6 +659,13 @@ fn extension_summary(fe: &FrontendExtension) -> FrontendExtensionSummary {
         }),
         publish: status.publish.unwrap_or_default(),
     }
+}
+
+fn currently_published(fe: &FrontendExtension) -> bool {
+    fe.status
+        .as_ref()
+        .and_then(|status| status.publish.as_ref())
+        .is_some_and(|publish| matches!(publish.phase, PublishPhase::Succeeded) && publish.active)
 }
 
 fn ready_artifact(fe: &FrontendExtension) -> Result<&ExtensionArtifactStatus, ApiError> {
@@ -559,20 +750,82 @@ async fn patch_publish_request(
     request: &ResolvedPublishRequest,
 ) -> Result<(), ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
+    let annotations = BTreeMap::from([
+        (
+            ANNO_PUBLISH_REQUEST_ID.to_string(),
+            request.request_id.clone(),
+        ),
+        (
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            request.artifact_digest.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_KIND.to_string(),
+            request.target_kind.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_NAMESPACE.to_string(),
+            request.target_ref.namespace.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_NAME.to_string(),
+            request.target_ref.name.clone(),
+        ),
+    ]);
     let patch = json!({
         "metadata": {
-            "annotations": {
-                ANNO_PUBLISH_REQUEST_ID: request.request_id.clone(),
-                ANNO_PUBLISH_ARTIFACT_DIGEST: request.artifact_digest.clone(),
-                ANNO_PUBLISH_TARGET_KIND: request.target_kind.clone(),
-                ANNO_PUBLISH_TARGET_NAMESPACE: request.target_ref.namespace.clone(),
-                ANNO_PUBLISH_TARGET_NAME: request.target_ref.name.clone(),
-            }
+            "annotations": annotations,
         }
     });
     api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
         .await
         .map_err(|err| ApiError::kube("failed to patch publish request", &err))?;
+    Ok(())
+}
+
+async fn patch_unpublish_request(
+    state: &AppState,
+    name: &str,
+    request: &ResolvedUnpublishRequest,
+    delete_after_request_id: Option<&str>,
+) -> Result<(), ApiError> {
+    let api = Api::<FrontendExtension>::all(state.client.clone());
+    let mut annotations = BTreeMap::from([
+        (
+            ANNO_UNPUBLISH_REQUEST_ID.to_string(),
+            request.request_id.clone(),
+        ),
+        (
+            ANNO_UNPUBLISH_EXTENSION_NAME.to_string(),
+            request.extension_name.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_KIND.to_string(),
+            request.target_kind.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_NAMESPACE.to_string(),
+            request.target_ref.namespace.clone(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_NAME.to_string(),
+            request.target_ref.name.clone(),
+        ),
+    ]);
+    if let Some(delete_after_request_id) = delete_after_request_id {
+        annotations.insert(
+            ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID.to_string(),
+            delete_after_request_id.to_string(),
+        );
+    }
+    let patch = json!({
+        "metadata": {
+            "annotations": annotations,
+        }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .map_err(|err| ApiError::kube("failed to patch unpublish request", &err))?;
     Ok(())
 }
 
@@ -690,6 +943,30 @@ spec:
         assert_eq!(resolved.artifact_digest, "sha256:artifact");
         assert_eq!(resolved.target_kind, "Secret");
         assert_eq!(resolved.target_ref.name, "ksbuilder-publish-config");
+    }
+
+    #[test]
+    fn currently_published_requires_succeeded_and_active() {
+        let mut fe = ready_fe();
+        fe.status = Some(FrontendExtensionStatus {
+            publish: Some(PublishStatus {
+                phase: PublishPhase::Succeeded,
+                active: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(currently_published(&fe));
+
+        fe.status = Some(FrontendExtensionStatus {
+            publish: Some(PublishStatus {
+                phase: PublishPhase::Succeeded,
+                active: false,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(!currently_published(&fe));
     }
 
     #[test]

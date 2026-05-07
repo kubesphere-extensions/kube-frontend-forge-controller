@@ -10,17 +10,19 @@ use frontend_forge_api::{
     ArtifactStorageKind, ArtifactStorageStatus, ExtensionArtifactStatus, ExtensionCondition,
     ExtensionDownloadStatus, FrontendExtension, FrontendExtensionPhase, FrontendExtensionStatus,
     NamespacedResourceRef, PackageJobPhase, PackageJobStatus, PublishPhase, PublishStatus,
-    PublishTargetKind,
+    PublishTargetKind, UnpublishPhase, UnpublishStatus,
 };
 use frontend_forge_common::{
-    ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_KEY, ANNO_OBSERVED_GENERATION,
-    ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_TARGET_KIND,
-    ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE, ANNO_REBUILD_TOKEN, ANNO_SOURCE_HASH,
+    ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_KEY, ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID,
+    ANNO_OBSERVED_GENERATION, ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID,
+    ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE,
+    ANNO_REBUILD_TOKEN, ANNO_SOURCE_HASH, ANNO_UNPUBLISH_EXTENSION_NAME, ANNO_UNPUBLISH_REQUEST_ID,
     LABEL_ARTIFACT_KEY_SHORT, LABEL_BUILD_KIND, LABEL_FE_NAME, LABEL_FE_UID, LABEL_MANAGED_BY,
     LABEL_PACKAGE_KIND, LABEL_PUBLISH_KIND, LABEL_PUBLISH_REQUEST_HASH, LABEL_SOURCE_HASH_SHORT,
-    MANAGED_BY_VALUE, ObservedJobPhase, PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE,
-    artifact_configmap_name, artifact_key, base_owner_ref, create_or_get_job, extract_job_message,
-    hash_label_value, observed_job_phase, package_job_name, publish_job_name, sha256_hex,
+    LABEL_UNPUBLISH_KIND, LABEL_UNPUBLISH_REQUEST_HASH, MANAGED_BY_VALUE, ObservedJobPhase,
+    PACKAGE_KIND_VALUE, PUBLISH_KIND_VALUE, UNPUBLISH_KIND_VALUE, artifact_configmap_name,
+    artifact_key, base_owner_ref, create_or_get_job, extract_job_message, hash_label_value,
+    observed_job_phase, package_job_name, publish_job_name, sha256_hex, unpublish_job_name,
 };
 use frontend_forge_extension_package_core::{
     ARTIFACT_METADATA_KEY, ExtensionPackageError, PACKAGE_KEY, PackageArtifactMetadata,
@@ -111,6 +113,19 @@ enum Error {
     #[snafu(display("failed to get publish Job {namespace}/{name}: {source}"))]
     GetPublishJob {
         namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+    #[snafu(display("failed to get unpublish Job {namespace}/{name}: {source}"))]
+    GetUnpublishJob {
+        namespace: String,
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
+    #[snafu(display("failed to delete FrontendExtension {name}: {source}"))]
+    DeleteFrontendExtension {
         name: String,
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
@@ -320,6 +335,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
             &cm,
         )
         .await?;
+        let unpublish = sync_unpublish(&fe, &job_api, &work_ns, &ctx.config).await?;
         let mut status = ready_fe_status(
             &fe,
             &source_hash,
@@ -330,7 +346,12 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
             current_or_existing_package_job(latest_attempt.as_ref().map(|a| &a.job), &fe),
         );
         apply_publish_sync(&mut status, &publish);
+        apply_unpublish_sync(&mut status, &unpublish);
         patch_fe_status(&fe_api, &fe, status).await?;
+        if should_delete_after_unpublish(&fe, &unpublish) {
+            delete_frontend_extension(&fe_api, &fe_name).await?;
+            return Ok(Action::await_change());
+        }
         gc_artifact_configmaps(
             &artifact_api,
             &artifact_ns,
@@ -339,8 +360,9 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
             ctx.config.artifact_retain_old_count,
         )
         .await?;
-        return Ok(requeue_if_publish_running(
+        return Ok(requeue_if_publish_or_unpublish_running(
             &publish,
+            &unpublish,
             ctx.config.reconcile_requeue_seconds,
         ));
     }
@@ -419,6 +441,7 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                         &cm,
                     )
                     .await?;
+                    let unpublish = sync_unpublish(&fe, &job_api, &work_ns, &ctx.config).await?;
                     let mut status = ready_fe_status(
                         &fe,
                         &source_hash,
@@ -429,7 +452,12 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                         Some(package_job_status(job)),
                     );
                     apply_publish_sync(&mut status, &publish);
+                    apply_unpublish_sync(&mut status, &unpublish);
                     patch_fe_status(&fe_api, &fe, status).await?;
+                    if should_delete_after_unpublish(&fe, &unpublish) {
+                        delete_frontend_extension(&fe_api, &fe_name).await?;
+                        return Ok(Action::await_change());
+                    }
                     gc_artifact_configmaps(
                         &artifact_api,
                         &artifact_ns,
@@ -438,8 +466,9 @@ async fn reconcile(fe: Arc<FrontendExtension>, ctx: Arc<ContextData>) -> Result<
                         ctx.config.artifact_retain_old_count,
                     )
                     .await?;
-                    return Ok(requeue_if_publish_running(
+                    return Ok(requeue_if_publish_or_unpublish_running(
                         &publish,
+                        &unpublish,
                         ctx.config.reconcile_requeue_seconds,
                     ));
                 }
@@ -796,6 +825,20 @@ struct PublishRequest {
 #[derive(Clone, Debug)]
 struct PublishSync {
     status: Option<PublishStatus>,
+    should_requeue: bool,
+}
+
+#[derive(Clone, Debug)]
+struct UnpublishRequest {
+    request_id: String,
+    extension_name: String,
+    target_ref: NamespacedResourceRef,
+    target_kind: String,
+}
+
+#[derive(Clone, Debug)]
+struct UnpublishSync {
+    status: Option<UnpublishStatus>,
     should_requeue: bool,
 }
 
@@ -1164,9 +1207,11 @@ fn publish_status_from_job(request: &PublishRequest, job: &Job) -> PublishStatus
     } else {
         None
     };
+    let active = matches!(phase, PublishPhase::Succeeded);
 
     PublishStatus {
         phase,
+        active,
         request_id: Some(request.request_id.clone()),
         artifact_digest: Some(request.artifact_digest.clone()),
         job_ref: Some(namespaced_ref(job)),
@@ -1196,8 +1241,331 @@ fn apply_publish_sync(status: &mut FrontendExtensionStatus, publish: &PublishSyn
     ));
 }
 
-fn requeue_if_publish_running(publish: &PublishSync, requeue_seconds: u64) -> Action {
-    if publish.should_requeue {
+async fn sync_unpublish(
+    fe: &FrontendExtension,
+    job_api: &Api<Job>,
+    namespace: &str,
+    config: &ControllerConfig,
+) -> Result<UnpublishSync, Error> {
+    let Some(request_id) = unpublish_request_id(fe) else {
+        return Ok(UnpublishSync {
+            status: fe
+                .status
+                .as_ref()
+                .and_then(|status| status.unpublish.clone()),
+            should_requeue: false,
+        });
+    };
+
+    let request = match unpublish_request(fe, request_id) {
+        Ok(request) => request,
+        Err(status) => {
+            return Ok(UnpublishSync {
+                status: Some(*status),
+                should_requeue: false,
+            });
+        }
+    };
+    let job_name = unpublish_job_name(&fe.name_any(), &request.request_id);
+    let job = if let Some(job) =
+        job_api
+            .get_opt(&job_name)
+            .await
+            .with_context(|_| GetUnpublishJobSnafu {
+                namespace: namespace.to_string(),
+                name: job_name.clone(),
+            })? {
+        job
+    } else {
+        if unpublish_already_finished(fe, &request) {
+            return Ok(UnpublishSync {
+                status: fe
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.unpublish.clone()),
+                should_requeue: false,
+            });
+        }
+        let desired_job = make_unpublish_job(fe, config, &job_name, &request);
+        create_or_get_job(job_api, namespace, desired_job, &job_name).await?
+    };
+
+    let status = unpublish_status_from_job(&request, &job);
+    let should_requeue = matches!(
+        status.phase,
+        UnpublishPhase::Pending | UnpublishPhase::Running
+    );
+
+    Ok(UnpublishSync {
+        status: Some(status),
+        should_requeue,
+    })
+}
+
+fn unpublish_request_id(fe: &FrontendExtension) -> Option<&str> {
+    fe.metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_UNPUBLISH_REQUEST_ID))
+        .map(String::as_str)
+        .filter(|request_id| !request_id.is_empty())
+}
+
+fn unpublish_request(
+    fe: &FrontendExtension,
+    request_id: &str,
+) -> Result<UnpublishRequest, Box<UnpublishStatus>> {
+    let annos = fe.metadata.annotations.as_ref();
+    let extension_name = annos
+        .and_then(|annos| annos.get(ANNO_UNPUBLISH_EXTENSION_NAME))
+        .filter(|name| !name.is_empty())
+        .cloned()
+        .unwrap_or_else(|| frontend_extension_package_name(fe));
+    let target_ref = publish_target_ref(fe).ok_or_else(|| {
+        Box::new(failed_unpublish_status(
+            request_id,
+            Some(extension_name.clone()),
+            "publish targetRef is required",
+        ))
+    })?;
+    let target_kind = publish_target_kind(fe);
+    if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
+        return Err(Box::new(failed_unpublish_status(
+            request_id,
+            Some(extension_name.clone()),
+            "publish targetKind must be ConfigMap or Secret",
+        )));
+    }
+
+    Ok(UnpublishRequest {
+        request_id: request_id.to_string(),
+        extension_name,
+        target_ref,
+        target_kind,
+    })
+}
+
+fn failed_unpublish_status(
+    request_id: &str,
+    extension_name: Option<String>,
+    message: &str,
+) -> UnpublishStatus {
+    UnpublishStatus {
+        phase: UnpublishPhase::Failed,
+        request_id: Some(request_id.to_string()),
+        extension_name,
+        last_error: Some(message.to_string()),
+        ..Default::default()
+    }
+}
+
+fn unpublish_already_finished(fe: &FrontendExtension, request: &UnpublishRequest) -> bool {
+    fe.status
+        .as_ref()
+        .and_then(|status| status.unpublish.as_ref())
+        .is_some_and(|unpublish| {
+            unpublish.request_id.as_deref() == Some(request.request_id.as_str())
+                && unpublish.extension_name.as_deref() == Some(request.extension_name.as_str())
+                && matches!(
+                    unpublish.phase,
+                    UnpublishPhase::Succeeded | UnpublishPhase::Failed
+                )
+        })
+}
+
+fn make_unpublish_job(
+    fe: &FrontendExtension,
+    config: &ControllerConfig,
+    job_name: &str,
+    request: &UnpublishRequest,
+) -> Job {
+    let fe_name = fe.name_any();
+    let request_hash = format!("sha256:{}", sha256_hex(request.request_id.as_bytes()));
+    let labels = BTreeMap::from([
+        (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
+        (LABEL_FE_NAME.to_string(), fe_name.clone()),
+        (
+            LABEL_UNPUBLISH_KIND.to_string(),
+            UNPUBLISH_KIND_VALUE.to_string(),
+        ),
+        (
+            LABEL_UNPUBLISH_REQUEST_HASH.to_string(),
+            hash_label_value(&request_hash),
+        ),
+    ]);
+
+    let mut annotations = BTreeMap::from([
+        (
+            ANNO_UNPUBLISH_REQUEST_ID.to_string(),
+            request.request_id.clone(),
+        ),
+        (
+            ANNO_UNPUBLISH_EXTENSION_NAME.to_string(),
+            request.extension_name.clone(),
+        ),
+    ]);
+    if let Some(generation) = fe.metadata.generation {
+        annotations.insert(ANNO_OBSERVED_GENERATION.to_string(), generation.to_string());
+    }
+
+    let env = vec![
+        EnvVar {
+            name: "FE_NAME".to_string(),
+            value: Some(fe_name),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_ACTION".to_string(),
+            value: Some("unpublish".to_string()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "UNPUBLISH_REQUEST_ID".to_string(),
+            value: Some(request.request_id.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "UNPUBLISH_EXTENSION_NAME".to_string(),
+            value: Some(request.extension_name.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_KIND".to_string(),
+            value: Some(request.target_kind.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_NAMESPACE".to_string(),
+            value: Some(request.target_ref.namespace.clone()),
+            ..Default::default()
+        },
+        EnvVar {
+            name: "PUBLISH_TARGET_NAME".to_string(),
+            value: Some(request.target_ref.name.clone()),
+            ..Default::default()
+        },
+    ];
+
+    let container = Container {
+        name: "publisher".to_string(),
+        image: Some(config.publisher_image.clone()),
+        env: Some(env),
+        ..Default::default()
+    };
+
+    Job {
+        metadata: ObjectMeta {
+            name: Some(job_name.to_string()),
+            namespace: Some(config.work_namespace.clone()),
+            labels: Some(labels),
+            annotations: Some(annotations),
+            owner_references: base_owner_ref(fe).map(|o| vec![o]),
+            ..Default::default()
+        },
+        spec: Some(JobSpec {
+            active_deadline_seconds: Some(config.job_active_deadline_seconds),
+            ttl_seconds_after_finished: config.job_ttl_seconds_after_finished,
+            template: PodTemplateSpec {
+                metadata: Some(ObjectMeta {
+                    labels: Some(BTreeMap::from([(
+                        "app.kubernetes.io/name".to_string(),
+                        "frontend-forge-extension-publisher".to_string(),
+                    )])),
+                    ..Default::default()
+                }),
+                spec: Some(PodSpec {
+                    restart_policy: Some("Never".to_string()),
+                    service_account_name: config.publisher_service_account.clone(),
+                    containers: vec![container],
+                    ..Default::default()
+                }),
+            },
+            backoff_limit: Some(0),
+            ..Default::default()
+        }),
+        status: None,
+    }
+}
+
+fn unpublish_status_from_job(request: &UnpublishRequest, job: &Job) -> UnpublishStatus {
+    let phase = match observed_job_phase(job.status.as_ref()) {
+        ObservedJobPhase::Pending => UnpublishPhase::Pending,
+        ObservedJobPhase::Running => UnpublishPhase::Running,
+        ObservedJobPhase::Succeeded => UnpublishPhase::Succeeded,
+        ObservedJobPhase::Failed => UnpublishPhase::Failed,
+    };
+    let last_error = if matches!(phase, UnpublishPhase::Failed) {
+        extract_job_message(job).or_else(|| Some("Unpublish job failed".to_string()))
+    } else {
+        None
+    };
+
+    UnpublishStatus {
+        phase,
+        request_id: Some(request.request_id.clone()),
+        extension_name: Some(request.extension_name.clone()),
+        job_ref: Some(namespaced_ref(job)),
+        started_at: job
+            .status
+            .as_ref()
+            .and_then(|status| status.start_time.as_ref())
+            .and_then(k8s_time_to_chrono),
+        finished_at: job
+            .status
+            .as_ref()
+            .and_then(|status| status.completion_time.as_ref())
+            .and_then(k8s_time_to_chrono),
+        last_error,
+    }
+}
+
+fn apply_unpublish_sync(status: &mut FrontendExtensionStatus, unpublish: &UnpublishSync) {
+    status.unpublish.clone_from(&unpublish.status);
+    if unpublish
+        .status
+        .as_ref()
+        .is_some_and(|status| matches!(status.phase, UnpublishPhase::Succeeded))
+        && let Some(publish) = status.publish.as_mut()
+    {
+        publish.active = false;
+    }
+}
+
+fn should_delete_after_unpublish(fe: &FrontendExtension, unpublish: &UnpublishSync) -> bool {
+    let Some(delete_after_request_id) = fe
+        .metadata
+        .annotations
+        .as_ref()
+        .and_then(|annos| annos.get(ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID))
+        .filter(|request_id| !request_id.is_empty())
+    else {
+        return false;
+    };
+    unpublish.status.as_ref().is_some_and(|status| {
+        matches!(status.phase, UnpublishPhase::Succeeded)
+            && status.request_id.as_deref() == Some(delete_after_request_id.as_str())
+    })
+}
+
+async fn delete_frontend_extension(
+    fe_api: &Api<FrontendExtension>,
+    name: &str,
+) -> Result<(), Error> {
+    fe_api
+        .delete(name, &DeleteParams::default())
+        .await
+        .with_context(|_| DeleteFrontendExtensionSnafu {
+            name: name.to_string(),
+        })?;
+    Ok(())
+}
+
+fn requeue_if_publish_or_unpublish_running(
+    publish: &PublishSync,
+    unpublish: &UnpublishSync,
+    requeue_seconds: u64,
+) -> Action {
+    if publish.should_requeue || unpublish.should_requeue {
         Action::requeue(Duration::from_secs(requeue_seconds))
     } else {
         Action::await_change()
@@ -1409,6 +1777,10 @@ fn packaging_fe_status(
         }),
         package_job: Some(package_job_status(job)),
         publish: publish.clone(),
+        unpublish: fe
+            .status
+            .as_ref()
+            .and_then(|status| status.unpublish.clone()),
         conditions: vec![
             fe_condition("SourceValid", "True", "Validated", "", generation),
             fe_condition("ArtifactReady", "False", "Packaging", message, generation),
@@ -1460,6 +1832,10 @@ fn ready_fe_status(
         }),
         package_job,
         publish: fe.status.as_ref().and_then(|status| status.publish.clone()),
+        unpublish: fe
+            .status
+            .as_ref()
+            .and_then(|status| status.unpublish.clone()),
         conditions: vec![
             fe_condition("SourceValid", "True", "Validated", "", generation),
             fe_condition("ArtifactReady", "True", "Generated", "", generation),
@@ -1493,6 +1869,10 @@ fn failed_fe_status(
         }),
         package_job: job.map(package_job_status),
         publish: publish.clone(),
+        unpublish: fe
+            .status
+            .as_ref()
+            .and_then(|status| status.unpublish.clone()),
         conditions: vec![
             fe_condition(
                 "SourceValid",
@@ -1674,6 +2054,18 @@ fn frontend_extension_status_patch(
             .and_then(serde_json::Value::as_object_mut)
     {
         publish.insert("lastError".to_string(), serde_json::Value::Null);
+    }
+    if status.unpublish.is_none() {
+        status_object.insert("unpublish".to_string(), serde_json::Value::Null);
+    } else if status
+        .unpublish
+        .as_ref()
+        .is_some_and(|unpublish| unpublish.last_error.is_none())
+        && let Some(unpublish) = status_object
+            .get_mut("unpublish")
+            .and_then(serde_json::Value::as_object_mut)
+    {
+        unpublish.insert("lastError".to_string(), serde_json::Value::Null);
     }
 
     Ok(json!({
@@ -1983,6 +2375,7 @@ mod tests {
             }),
             publish: Some(PublishStatus {
                 phase: PublishPhase::Succeeded,
+                active: true,
                 artifact_digest: Some("sha256:artifact".to_string()),
                 ..Default::default()
             }),
@@ -2150,6 +2543,7 @@ mod tests {
                 message: None,
             }),
             publish: None,
+            unpublish: None,
             conditions: vec![],
         };
 
@@ -2173,6 +2567,7 @@ mod tests {
             package_job: None,
             publish: Some(PublishStatus {
                 phase: PublishPhase::Succeeded,
+                active: true,
                 request_id: Some("request-1".to_string()),
                 artifact_digest: Some("sha256:artifact".to_string()),
                 job_ref: None,
@@ -2180,6 +2575,7 @@ mod tests {
                 finished_at: None,
                 last_error: None,
             }),
+            unpublish: None,
             conditions: vec![],
         };
 
@@ -2401,6 +2797,115 @@ mod tests {
         assert_eq!(env["PUBLISH_TARGET_KIND"], "Secret");
         assert_eq!(env["PUBLISH_TARGET_NAMESPACE"], "extension-frontend-forge");
         assert_eq!(env["PUBLISH_TARGET_NAME"], "ksbuilder-publish-config");
+    }
+
+    #[test]
+    fn unpublish_job_env_includes_action_extension_name_and_target_ref() {
+        let fe = sample_fe();
+        let config = test_config();
+        let request = UnpublishRequest {
+            request_id: "request-1".to_string(),
+            extension_name: "inspecttask".to_string(),
+            target_ref: NamespacedResourceRef {
+                namespace: "extension-frontend-forge".to_string(),
+                name: "ksbuilder-publish-config".to_string(),
+                uid: None,
+            },
+            target_kind: "Secret".to_string(),
+        };
+
+        let job = make_unpublish_job(&fe, &config, "fe-inspecttask-unpublish-request", &request);
+        let env = job.spec.unwrap().template.spec.unwrap().containers[0]
+            .env
+            .clone()
+            .unwrap()
+            .into_iter()
+            .map(|env| (env.name, env.value.unwrap_or_default()))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(env["FE_NAME"], "inspecttask");
+        assert_eq!(env["PUBLISH_ACTION"], "unpublish");
+        assert_eq!(env["UNPUBLISH_REQUEST_ID"], "request-1");
+        assert_eq!(env["UNPUBLISH_EXTENSION_NAME"], "inspecttask");
+        assert_eq!(env["PUBLISH_TARGET_KIND"], "Secret");
+        assert_eq!(env["PUBLISH_TARGET_NAMESPACE"], "extension-frontend-forge");
+        assert_eq!(env["PUBLISH_TARGET_NAME"], "ksbuilder-publish-config");
+    }
+
+    #[test]
+    fn publish_succeeded_status_is_active() {
+        let request = PublishRequest {
+            request_id: "request-1".to_string(),
+            artifact_digest: "sha256:artifact".to_string(),
+            target_ref: NamespacedResourceRef::default(),
+            target_kind: "ConfigMap".to_string(),
+        };
+        let job = Job {
+            status: Some(JobStatus {
+                succeeded: Some(1),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let status = publish_status_from_job(&request, &job);
+
+        assert_eq!(status.phase, PublishPhase::Succeeded);
+        assert!(status.active);
+    }
+
+    #[test]
+    fn unpublish_success_marks_publish_inactive() {
+        let mut status = FrontendExtensionStatus {
+            phase: FrontendExtensionPhase::Ready,
+            publish: Some(PublishStatus {
+                phase: PublishPhase::Succeeded,
+                active: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let unpublish = UnpublishSync {
+            status: Some(UnpublishStatus {
+                phase: UnpublishPhase::Succeeded,
+                request_id: Some("request-1".to_string()),
+                extension_name: Some("inspecttask".to_string()),
+                ..Default::default()
+            }),
+            should_requeue: false,
+        };
+
+        apply_unpublish_sync(&mut status, &unpublish);
+
+        assert!(!status.publish.unwrap().active);
+    }
+
+    #[test]
+    fn delete_after_unpublish_requires_matching_succeeded_request_id() {
+        let mut fe = sample_fe();
+        fe.metadata.annotations = Some(BTreeMap::from([(
+            ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID.to_string(),
+            "request-1".to_string(),
+        )]));
+        let matching = UnpublishSync {
+            status: Some(UnpublishStatus {
+                phase: UnpublishPhase::Succeeded,
+                request_id: Some("request-1".to_string()),
+                ..Default::default()
+            }),
+            should_requeue: false,
+        };
+        let mismatched = UnpublishSync {
+            status: Some(UnpublishStatus {
+                phase: UnpublishPhase::Succeeded,
+                request_id: Some("request-2".to_string()),
+                ..Default::default()
+            }),
+            should_requeue: false,
+        };
+
+        assert!(should_delete_after_unpublish(&fe, &matching));
+        assert!(!should_delete_after_unpublish(&fe, &mismatched));
     }
 
     #[test]

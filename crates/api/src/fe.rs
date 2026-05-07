@@ -229,6 +229,17 @@ pub enum PublishPhase {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum UnpublishPhase {
+    #[default]
+    NotRequested,
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 pub struct FrontendExtensionStatus {
     #[serde(default)]
     pub phase: FrontendExtensionPhase,
@@ -262,6 +273,8 @@ pub struct FrontendExtensionStatus {
     pub package_job: Option<PackageJobStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publish: Option<PublishStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unpublish: Option<UnpublishStatus>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<ExtensionCondition>,
 }
@@ -336,6 +349,8 @@ pub struct PackageJobStatus {
 pub struct PublishStatus {
     #[serde(default)]
     pub phase: PublishPhase,
+    #[serde(default)]
+    pub active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "requestId")]
     pub request_id: Option<String>,
     #[serde(
@@ -344,6 +359,32 @@ pub struct PublishStatus {
         rename = "artifactDigest"
     )]
     pub artifact_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "jobRef")]
+    pub job_ref: Option<NamespacedResourceRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "startedAt")]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "finishedAt"
+    )]
+    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastError")]
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
+pub struct UnpublishStatus {
+    #[serde(default)]
+    pub phase: UnpublishPhase,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "requestId")]
+    pub request_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "extensionName"
+    )]
+    pub extension_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "jobRef")]
     pub job_ref: Option<NamespacedResourceRef>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "startedAt")]
