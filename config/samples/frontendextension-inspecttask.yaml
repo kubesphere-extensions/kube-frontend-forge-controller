@@ -1,10 +1,10 @@
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendExtension
 metadata:
-  name: aaa
+  name: inspecttask
 spec:
   package:
-    name: aaa
+    name: inspecttask
     version: 0.1.0
     displayName:
       zh: 巡检任务
@@ -59,7 +59,7 @@ spec:
           - key: role-test
             type: crdTable
             crdTable:
-              authKey: aaa
+              authKey: inspecttask
               group: iam.kubesphere.io
               version: v1beta1
               scope: Namespaced
@@ -89,7 +89,7 @@ spec:
                   title: CREATION_TIME
       extensionResources:
         jsBundle:
-          name: aaa
+          name: inspecttask
   publishPolicy:
     mode: Manual
     defaultTargetRef:
