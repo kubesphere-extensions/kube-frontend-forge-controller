@@ -77,6 +77,37 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
   --set buildService.enabled=true
 ```
 
+## KubeSphere Extension 安装
+
+KubeSphere extension wrapper 位于 `config/frontend-forge`。chart 源文件位于
+`config/frontend-forge/charts/frontend-forge`，这样 `ksbuilder` 可以直接打包；
+`config/charts/frontend-forge` 作为兼容 symlink 保留给 Helm 直装和现有脚本使用。
+
+使用 `ksbuilder` 打包或发布 extension：
+
+```bash
+ksbuilder package config/frontend-forge
+ksbuilder publish config/frontend-forge
+```
+
+通过 KubeSphere 配置 extension 时，chart values 需要按 dependency name 包一层：
+
+```yaml
+frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
+  extensionController:
+    enabled: true
+  extensionApi:
+    enabled: true
+```
+
+extension wrapper 默认关闭 FI-to-FE migration hook，用于 KubeSphere extension
+fresh install。直接 Helm 安装仍保留 chart 默认行为。
+
+如果直接使用 Helm 安装，继续使用 `config/charts/frontend-forge`。
+
 ## 基本使用
 
 创建 `FrontendExtension` 示例：
@@ -109,7 +140,8 @@ kubectl get frontendintegrations.frontend-forge.kubesphere.io demo-fi
 | `crates/frontend-extension-controller` | FE package/publish/unpublish reconcile。 |
 | `crates/frontend-forge-controller` | FI runtime controller、FI webhook、FI-to-FE migrator。 |
 | `crates/frontend-forge-extension-api` | FE list/get/create/download/publish/unpublish/delete HTTP API。 |
-| `config/charts/frontend-forge` | Helm chart、CRD、Deployment、RBAC、hook。 |
+| `config/frontend-forge` | 用于 `ksbuilder package/publish` 的 KubeSphere extension wrapper 和被打包的 Helm chart。 |
+| `config/charts/frontend-forge` | 指向 Helm chart 的兼容 symlink，供 Helm 直装和脚本使用。 |
 | `config/samples` | FI/FE 示例 manifest。 |
 | `spec` | 与 Rust 类型、controller、route、chart 默认值对应的实现说明。 |
 | `skills/frontend-forge-fi-operations` | 仓库内置 FI 操作 Codex skill。 |

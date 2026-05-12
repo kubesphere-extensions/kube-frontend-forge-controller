@@ -7,8 +7,8 @@ spec:
     name: inspecttask
     version: 0.1.0
     displayName:
-      zh: 巡检任务。
-      en: Inspect Task.
+      zh: 巡检任务
+      en: Inspect Task
     description:
       zh: InspectTask extension package。
       en: InspectTask extension package.
@@ -47,30 +47,46 @@ spec:
       frontend:
         locales:
           zh:
-            title: 巡检任务xxxxx
+            title: 角色test
           en:
-            title: Inspect Tasks
+            title: Role Test
         menus:
-          - displayName: Inspect Tasks
-            key: inspecttasks
-            placement: cluster
+          - displayName: Role
+            key: role-test
+            placement: workspace
             type: page
         pages:
-          - key: inspecttasks
+          - key: role-test
             type: crdTable
             crdTable:
-              group: kubeeye.kubesphere.io
-              version: v1alpha2
-              scope: Cluster
+              authKey: inspecttask
+              group: iam.kubesphere.io
+              version: v1beta1
+              scope: Namespaced
               names:
-                kind: InspectTask
-                plural: inspecttasks
+                kind: Role
+                plural: roles
               columns:
-                - key: name
-                  title: NAME
+                - enableSorting: true
+                  key: name
                   render:
-                    type: text
                     path: metadata.name
+                    type: text
+                  title: NAME
+                - enableHiding: true
+                  key: namespace
+                  render:
+                    path: metadata.namespace
+                    type: text
+                  title: PROJECT
+                - enableHiding: true
+                  enableSorting: true
+                  key: updateTime
+                  render:
+                    format: local-datetime
+                    path: metadata.creationTimestamp
+                    type: time
+                  title: CREATION_TIME
       extensionResources:
         jsBundle:
           name: inspecttask

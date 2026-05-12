@@ -81,6 +81,39 @@ helm upgrade --install frontend-forge config/charts/frontend-forge \
   --set buildService.enabled=true
 ```
 
+## KubeSphere Extension Install
+
+The KubeSphere extension wrapper lives at `config/frontend-forge`. The chart
+source lives at `config/frontend-forge/charts/frontend-forge` so `ksbuilder` can
+package it, and `config/charts/frontend-forge` remains available as a
+compatibility symlink for direct Helm installs and existing scripts.
+
+Package or publish the extension with `ksbuilder`:
+
+```bash
+ksbuilder package config/frontend-forge
+ksbuilder publish config/frontend-forge
+```
+
+When configuring the extension through KubeSphere, nest chart values under the
+dependency name:
+
+```yaml
+frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
+  extensionController:
+    enabled: true
+  extensionApi:
+    enabled: true
+```
+
+The extension wrapper disables the FI-to-FE migration hook by default for
+KubeSphere extension fresh installs. Direct Helm installs keep the chart default.
+
+Direct Helm installs should continue to use `config/charts/frontend-forge`.
+
 ## Basic Usage
 
 Create a `FrontendExtension` sample:
@@ -113,7 +146,8 @@ Other useful samples:
 | `crates/frontend-extension-controller` | FE package/publish/unpublish reconciliation. |
 | `crates/frontend-forge-controller` | FI runtime controller, FI webhook, FI-to-FE migrator. |
 | `crates/frontend-forge-extension-api` | FE list/get/create/download/publish/unpublish/delete HTTP API. |
-| `config/charts/frontend-forge` | Helm chart, CRDs, Deployments, RBAC, hooks. |
+| `config/frontend-forge` | KubeSphere extension wrapper and packaged Helm chart for `ksbuilder package/publish`. |
+| `config/charts/frontend-forge` | Compatibility symlink to the Helm chart for direct Helm installs and scripts. |
 | `config/samples` | Example FI/FE manifests. |
 | `spec` | Implementation notes tied to Rust types, controllers, routes, and chart defaults. |
 | `skills/frontend-forge-fi-operations` | Repo-local Codex skill for FI operations. |

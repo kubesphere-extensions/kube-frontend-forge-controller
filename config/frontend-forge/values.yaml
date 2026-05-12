@@ -1,0 +1,4 @@
+frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
