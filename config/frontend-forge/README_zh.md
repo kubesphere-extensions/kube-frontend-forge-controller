@@ -20,10 +20,16 @@ extension 根目录的 values 需要按 dependency name 包一层：
 
 ```yaml
 frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
   extensionController:
     enabled: true
   extensionApi:
     enabled: true
 ```
+
+wrapper 默认关闭 FI-to-FE migration hook，用于 KubeSphere extension fresh install。
+直接 Helm 安装仍保留 chart 默认行为。
 
 如果直接使用 Helm 安装，继续使用 `config/charts/frontend-forge`。

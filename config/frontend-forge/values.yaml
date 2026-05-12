@@ -1,1 +1,4 @@
-frontend-forge: {}
+frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false

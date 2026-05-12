@@ -100,11 +100,17 @@ dependency name:
 
 ```yaml
 frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
   extensionController:
     enabled: true
   extensionApi:
     enabled: true
 ```
+
+The extension wrapper disables the FI-to-FE migration hook by default for
+KubeSphere extension fresh installs. Direct Helm installs keep the chart default.
 
 Direct Helm installs should continue to use `config/charts/frontend-forge`.
 

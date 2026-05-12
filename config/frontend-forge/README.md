@@ -20,10 +20,16 @@ The extension root values file wraps the reused chart by dependency name:
 
 ```yaml
 frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
   extensionController:
     enabled: true
   extensionApi:
     enabled: true
 ```
+
+The wrapper disables the FI-to-FE migration hook by default for KubeSphere
+extension installs. Direct Helm installs keep the chart default.
 
 For direct Helm installs, continue to use `config/charts/frontend-forge`.

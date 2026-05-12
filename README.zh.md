@@ -94,11 +94,17 @@ ksbuilder publish config/frontend-forge
 
 ```yaml
 frontend-forge:
+  migration:
+    fiToFe:
+      enabled: false
   extensionController:
     enabled: true
   extensionApi:
     enabled: true
 ```
+
+extension wrapper 默认关闭 FI-to-FE migration hook，用于 KubeSphere extension
+fresh install。直接 Helm 安装仍保留 chart 默认行为。
 
 如果直接使用 Helm 安装，继续使用 `config/charts/frontend-forge`。
 
