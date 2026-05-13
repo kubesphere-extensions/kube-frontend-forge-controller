@@ -42,6 +42,7 @@ Default values come from [`config/charts/frontend-forge/values.yaml`](config/cha
 | `extensionController.enabled` | `true` | Installs the FE package/publish controller. |
 | `extensionApi.enabled` | `true` | Installs the FE HTTP API Deployment and Service. |
 | `migration.fiToFe.enabled` | `true` | Runs the FI-to-FE migration hook after install/upgrade. |
+| `publishTargetConfig.enabled` | `true` | Creates the default `ksbuilder-publish-config` publish target ConfigMap. |
 | `controller.enabled` | `false` | Does not install the FI runtime controller. |
 | `webhook.enabled` | `false` | Does not install the FI validating webhook. |
 | `crds.installJsBundle` | `false` | Does not install the external `JSBundle` CRD. |
@@ -50,6 +51,10 @@ Default values come from [`config/charts/frontend-forge/values.yaml`](config/cha
 FE packaging and FI runtime builds both call `BUILD_SERVICE_BASE_URL`. With chart
 defaults, that URL is derived even when `buildService.enabled=false`; provide a
 service at that address, set an external URL, or enable the local/e2e stub.
+
+Publish Jobs read `FrontendExtension.spec.publishPolicy.defaultTargetRef`. The
+chart creates `ConfigMap/ksbuilder-publish-config` in the release namespace by
+default so FE publish has a target config available immediately after install.
 
 ## Quick Install
 

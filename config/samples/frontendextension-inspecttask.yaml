@@ -55,8 +55,43 @@ spec:
             key: role-test
             placement: workspace
             type: page
+          - displayName: Role
+            key: cluster-role-test
+            placement: cluster
+            type: page
         pages:
           - key: role-test
+            type: crdTable
+            crdTable:
+              authKey: inspecttask
+              group: iam.kubesphere.io
+              version: v1beta1
+              scope: Namespaced
+              names:
+                kind: Role
+                plural: roles
+              columns:
+                - enableSorting: true
+                  key: name
+                  render:
+                    path: metadata.name
+                    type: text
+                  title: NAME
+                - enableHiding: true
+                  key: namespace
+                  render:
+                    path: metadata.namespace
+                    type: text
+                  title: PROJECT
+                - enableHiding: true
+                  enableSorting: true
+                  key: updateTime
+                  render:
+                    format: local-datetime
+                    path: metadata.creationTimestamp
+                    type: time
+                  title: CREATION_TIME
+          - key: cluster-role-test
             type: crdTable
             crdTable:
               authKey: inspecttask

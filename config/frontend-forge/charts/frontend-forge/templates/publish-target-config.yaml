@@ -1,0 +1,19 @@
+{{- if .Values.publishTargetConfig.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.publishTargetConfig.name | quote }}
+  namespace: {{ default .Release.Namespace .Values.publishTargetConfig.namespace | quote }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "publish-target") | nindent 4 }}
+  {{- with .Values.publishTargetConfig.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- toYaml .Values.publishTargetConfig.data | nindent 2 }}
+{{- with .Values.publishTargetConfig.binaryData }}
+binaryData:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}

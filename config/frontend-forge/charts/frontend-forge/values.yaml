@@ -103,6 +103,15 @@ migration:
     tolerations: []
     affinity: {}
 
+publishTargetConfig:
+  enabled: true
+  name: ksbuilder-publish-config
+  namespace: ""
+  annotations: {}
+  data:
+    args: ""
+  binaryData: {}
+
 extensionController:
   enabled: true
   replicaCount: 1

@@ -44,6 +44,24 @@ through ks-apiserver. The group intentionally differs from the FrontendExtension
 CRD group `frontend-forge.kubesphere.io`, because KubeSphere serves CRDs with
 `kubesphere.io/resource-served: 'true'` through `/kapis/<crd-group>/<version>/...`.
 
+## Publish target
+
+The chart creates `ConfigMap/ksbuilder-publish-config` in the release namespace
+by default. `FrontendExtension.spec.publishPolicy.defaultTargetRef` can point at
+this ConfigMap so publisher Jobs have a default `ksbuilder publish` target.
+
+```yaml
+publishTargetConfig:
+  enabled: true
+  name: ksbuilder-publish-config
+  namespace: ""
+  data:
+    args: ""
+```
+
+`args` is appended to `ksbuilder publish <package-dir>`. Keys named
+`env.<NAME>` are passed to the publisher process as environment variables.
+
 ## FI to FE migration
 
 The chart installs a Helm hook Job named

@@ -31,6 +31,7 @@ Status: Implemented
 | `extensionApi.apiService.enabled` | `true` | APIService is eligible to render. |
 | `extensionApi.apiService.onlyIfApiResourceExists` | `true` | APIService renders only if the cluster has `extensions.kubesphere.io/v1alpha1/APIService`. |
 | `migration.fiToFe.enabled` | `true` | Migration hook Job/RBAC/SA are rendered. |
+| `publishTargetConfig.enabled` | `true` | Default `ksbuilder-publish-config` ConfigMap is rendered. |
 | `crds.installJsBundle` | `false` | Optional local/e2e `JSBundle` CRD is not rendered. |
 | `webhook.enabled` | `false` | Webhook resources are not rendered. |
 | `buildService.enabled` | `false` | Build-service stub Deployment/Service are not rendered. |
@@ -69,6 +70,7 @@ Status: Implemented
 | `extensionPublisher` | Publish Job image and service account defaults. |
 | `extensionApi` | FE API Deployment, Service, and optional KubeSphere APIService. |
 | `migration.fiToFe` | FI-to-FE migrator hook and publish target defaults. |
+| `publishTargetConfig` | Chart-created default ConfigMap read by publisher Jobs. |
 | `webhook` | FI validating webhook, certgen jobs, TLS Secret names. |
 | `buildService` | Local/e2e build-service stub. |
 | `crds` | Optional external CRDs rendered from templates. |
@@ -85,6 +87,7 @@ Status: Implemented
 | `extensionController.enabled=true` | FE controller Deployment, FE controller RBAC, packager/publisher service accounts and RBAC. |
 | `extensionApi.enabled=true` | FE API Deployment, Service, service account, RBAC. |
 | `extensionApi.enabled=true` and APIService condition passes | KubeSphere `APIService`. |
+| `publishTargetConfig.enabled=true` | Default publish target ConfigMap. |
 | `migration.fiToFe.enabled=true` | Migrator hook Job, service account, ClusterRole, ClusterRoleBinding. |
 | `controller.enabled=true` and `webhook.enabled=true` | Webhook Service, `ValidatingWebhookConfiguration`, certgen RBAC/Jobs. |
 | `buildService.enabled=true` | Build-service Deployment and Service. |
@@ -102,10 +105,35 @@ Status: Implemented
 | `extensionController.buildServiceBaseUrl` | `http://<build-service-name>.<release-namespace>.svc` when empty. |
 | `migration.fiToFe.feApiBaseUrl` | `http://<extension-api-service>.<release-namespace>.svc:<extensionApi.service.port>` when empty. |
 | `migration.fiToFe.publishTarget.namespace` | Release namespace when empty. |
+| `publishTargetConfig.namespace` | Release namespace when empty. |
 
 `buildService.enabled=false` does not clear the derived build-service URL. FE
 package Jobs and FI runner Jobs still require a reachable service or explicit
 external URL when those flows run.
+
+## Publish Target ConfigMap
+
+Status: Implemented
+
+Template: `templates/publish-target-config.yaml`
+
+Default values:
+
+```yaml
+publishTargetConfig:
+  enabled: true
+  name: ksbuilder-publish-config
+  namespace: ""
+  annotations: {}
+  data:
+    args: ""
+  binaryData: {}
+```
+
+The ConfigMap is intended for
+`FrontendExtension.spec.publishPolicy.defaultTargetRef`. Publisher Jobs read it
+before running `ksbuilder publish`; `args` is appended to the command and
+`env.<NAME>` entries become process environment variables.
 
 ## Extension APIService
 
