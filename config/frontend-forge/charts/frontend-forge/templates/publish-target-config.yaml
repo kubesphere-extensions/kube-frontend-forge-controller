@@ -1,9 +1,12 @@
 {{- if .Values.publishTargetConfig.enabled }}
+{{- $namespace := default .Release.Namespace .Values.publishTargetConfig.namespace }}
+{{- $existing := lookup "v1" "ConfigMap" $namespace .Values.publishTargetConfig.name }}
+{{- if not $existing }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ .Values.publishTargetConfig.name | quote }}
-  namespace: {{ default .Release.Namespace .Values.publishTargetConfig.namespace | quote }}
+  namespace: {{ $namespace | quote }}
   labels:
     {{- include "frontend-forge.componentLabels" (dict "root" . "component" "publish-target") | nindent 4 }}
   {{- with .Values.publishTargetConfig.annotations }}
@@ -15,5 +18,6 @@ data:
 {{- with .Values.publishTargetConfig.binaryData }}
 binaryData:
   {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}
 {{- end }}
