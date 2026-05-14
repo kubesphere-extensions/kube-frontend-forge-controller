@@ -72,14 +72,21 @@ fn ready_artifact_requires_matching_source_hash() {
 #[test]
 fn list_query_passes_label_selector_to_kubernetes_list_params() {
     let query = FrontendExtensionListQuery {
-        label_selector: Some(" Package=Ready,Publish=NotPublished ".to_string()),
+        label_selector: Some(
+            " frontend-forge.kubesphere.io/package-state=ready,frontend-forge.kubesphere.io/\
+             publish-state=not-published "
+                .to_string(),
+        ),
     };
 
     let params = query.list_params();
 
     assert_eq!(
         params.label_selector.as_deref(),
-        Some("Package=Ready,Publish=NotPublished")
+        Some(
+            "frontend-forge.kubesphere.io/package-state=ready,frontend-forge.kubesphere.io/\
+             publish-state=not-published"
+        )
     );
 }
 

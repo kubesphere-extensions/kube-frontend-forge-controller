@@ -306,6 +306,9 @@ pub(crate) fn fe_status_labels_need_patch(
             .as_ref()
             .and_then(|current| current.get(key))
             != Some(value)
+    }) || fe.metadata.labels.as_ref().is_some_and(|current| {
+        current.contains_key(DEPRECATED_LABEL_FE_PACKAGE_STATUS)
+            || current.contains_key(DEPRECATED_LABEL_FE_PUBLISH_STATUS)
     })
 }
 
@@ -341,7 +344,21 @@ pub(crate) async fn patch_fe_status_labels(
         return Ok(());
     }
 
-    let patch = frontend_extension_status_labels_patch(status);
+    let has_deprecated_labels = fe.metadata.labels.as_ref().is_some_and(|current| {
+        current.contains_key(DEPRECATED_LABEL_FE_PACKAGE_STATUS)
+            || current.contains_key(DEPRECATED_LABEL_FE_PUBLISH_STATUS)
+    });
+    if has_deprecated_labels {
+        let patch = frontend_extension_clear_labels_patch();
+        fe_api
+            .patch(fe_name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await
+            .with_context(|_| PatchFrontendExtensionStatusLabelsSnafu {
+                name: fe_name.to_string(),
+            })?;
+    }
+
+    let patch = frontend_extension_status_labels_patch(fe, status);
     fe_api
         .patch(fe_name, &PatchParams::default(), &Patch::Merge(&patch))
         .await
@@ -353,11 +370,25 @@ pub(crate) async fn patch_fe_status_labels(
 }
 
 pub(crate) fn frontend_extension_status_labels_patch(
+    fe: &FrontendExtension,
     status: &FrontendExtensionStatus,
 ) -> serde_json::Value {
+    let mut labels = fe.metadata.labels.clone().unwrap_or_default();
+    labels.remove(DEPRECATED_LABEL_FE_PACKAGE_STATUS);
+    labels.remove(DEPRECATED_LABEL_FE_PUBLISH_STATUS);
+    labels.extend(frontend_extension_status_labels(status));
+
     json!({
         "metadata": {
-            "labels": frontend_extension_status_labels(status),
+            "labels": labels,
+        },
+    })
+}
+
+pub(crate) fn frontend_extension_clear_labels_patch() -> serde_json::Value {
+    json!({
+        "metadata": {
+            "labels": serde_json::Value::Null,
         },
     })
 }

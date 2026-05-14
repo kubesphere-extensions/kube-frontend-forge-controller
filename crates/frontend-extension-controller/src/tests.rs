@@ -566,6 +566,21 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
 
 #[test]
 fn status_labels_patch_writes_metadata_labels() {
+    let mut fe = sample_fe();
+    fe.metadata.labels = Some(BTreeMap::from([
+        (
+            DEPRECATED_LABEL_FE_PACKAGE_STATUS.to_string(),
+            "Ready".to_string(),
+        ),
+        (
+            DEPRECATED_LABEL_FE_PUBLISH_STATUS.to_string(),
+            "Published".to_string(),
+        ),
+        (
+            "app.kubernetes.io/name".to_string(),
+            "inspecttask".to_string(),
+        ),
+    ]));
     let status = FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Ready,
         publish: Some(PublishStatus {
@@ -576,7 +591,7 @@ fn status_labels_patch_writes_metadata_labels() {
         ..Default::default()
     };
 
-    let patch = frontend_extension_status_labels_patch(&status);
+    let patch = frontend_extension_status_labels_patch(&fe, &status);
 
     assert_eq!(
         patch["metadata"]["labels"][LABEL_FE_PACKAGE_STATUS],
@@ -585,6 +600,18 @@ fn status_labels_patch_writes_metadata_labels() {
     assert_eq!(
         patch["metadata"]["labels"][LABEL_FE_PUBLISH_STATUS],
         FE_PUBLISH_STATUS_PUBLISHED
+    );
+    assert_eq!(
+        patch["metadata"]["labels"]["app.kubernetes.io/name"],
+        "inspecttask"
+    );
+    assert_eq!(
+        patch["metadata"]["labels"].get(DEPRECATED_LABEL_FE_PACKAGE_STATUS),
+        None
+    );
+    assert_eq!(
+        patch["metadata"]["labels"].get(DEPRECATED_LABEL_FE_PUBLISH_STATUS),
+        None
     );
 }
 
