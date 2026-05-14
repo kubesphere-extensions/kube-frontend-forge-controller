@@ -507,6 +507,88 @@ fn status_patch_clears_stale_publish_last_error() {
 }
 
 #[test]
+fn status_labels_map_package_and_publish_states_for_list_filters() {
+    let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(labels[LABEL_FE_PACKAGE_STATUS], FE_PACKAGE_STATUS_READY);
+    assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_PUBLISHED);
+
+    let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Packaging,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Running,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(labels[LABEL_FE_PACKAGE_STATUS], FE_PACKAGE_STATUS_PACKAGING);
+    assert_eq!(
+        labels[LABEL_FE_PUBLISH_STATUS],
+        FE_PUBLISH_STATUS_PUBLISHING
+    );
+
+    let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Failed,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Failed,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(labels[LABEL_FE_PACKAGE_STATUS], FE_PACKAGE_STATUS_FAILED);
+    assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_FAILED);
+
+    let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: false,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(
+        labels[LABEL_FE_PUBLISH_STATUS],
+        FE_PUBLISH_STATUS_NOT_PUBLISHED
+    );
+}
+
+#[test]
+fn status_labels_patch_writes_metadata_labels() {
+    let status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let patch = frontend_extension_status_labels_patch(&status);
+
+    assert_eq!(
+        patch["metadata"]["labels"][LABEL_FE_PACKAGE_STATUS],
+        FE_PACKAGE_STATUS_READY
+    );
+    assert_eq!(
+        patch["metadata"]["labels"][LABEL_FE_PUBLISH_STATUS],
+        FE_PUBLISH_STATUS_PUBLISHED
+    );
+}
+
+#[test]
 fn artifact_gc_keeps_current_status_ref_and_recent_old_artifacts() {
     let fe: FrontendExtension = serde_json::from_value(json!({
         "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",

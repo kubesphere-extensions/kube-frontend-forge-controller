@@ -225,6 +225,13 @@ Conditions written by controller:
 | `DownloadReady` | `Available` | `ArtifactNotReady` |
 | `PublishSucceeded` | `Succeeded` | `NotRequested`, `PublishFailed` |
 
+Status labels written by controller for frontend list filtering:
+
+| Label | Values | Meaning |
+| --- | --- | --- |
+| `Package` | `Packaging`, `Ready`, `Failed` | Package creation state. `Pending` status is exposed as `Packaging`. |
+| `Publish` | `NotPublished`, `Publishing`, `Published`, `Failed` | Publish state. `Published` requires `status.publish.phase=Succeeded` and `active=true`; inactive succeeded publish is exposed as `NotPublished`. |
+
 ## Extension HTTP API
 
 Status: Implemented
@@ -250,7 +257,7 @@ API operations:
 
 | Method | Path suffix | Behavior |
 | --- | --- | --- |
-| `GET` | `/frontendextensions` | Lists FE summaries. |
+| `GET` | `/frontendextensions` | Lists FE summaries. Supports `?labelSelector=Package=Ready,Publish=NotPublished`. |
 | `POST` | `/frontendextensions` | Creates a cluster-scoped `FrontendExtension` through Kubernetes API. |
 | `GET` | `/frontendextensions/{name}` | Returns full FE object. |
 | `GET` | `/frontendextensions/{name}/download` | Returns current ready `package.tgz`. |

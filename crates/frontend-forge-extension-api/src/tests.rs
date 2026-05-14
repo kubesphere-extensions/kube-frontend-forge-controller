@@ -70,6 +70,31 @@ fn ready_artifact_requires_matching_source_hash() {
 }
 
 #[test]
+fn list_query_passes_label_selector_to_kubernetes_list_params() {
+    let query = FrontendExtensionListQuery {
+        label_selector: Some(" Package=Ready,Publish=NotPublished ".to_string()),
+    };
+
+    let params = query.list_params();
+
+    assert_eq!(
+        params.label_selector.as_deref(),
+        Some("Package=Ready,Publish=NotPublished")
+    );
+}
+
+#[test]
+fn empty_list_query_omits_label_selector() {
+    let query = FrontendExtensionListQuery {
+        label_selector: Some(" ".to_string()),
+    };
+
+    let params = query.list_params();
+
+    assert_eq!(params.label_selector, None);
+}
+
+#[test]
 fn resolve_publish_request_uses_fe_publish_policy_and_current_artifact() {
     let mut fe = ready_fe();
     fe.spec.publish_policy = Some(PublishPolicySpec {
