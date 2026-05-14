@@ -38,6 +38,7 @@ extension API 提供 FE list、get、create、download、publish、unpublish 和
 | `extensionController.enabled` | `true` | 安装 FE package/publish controller。 |
 | `extensionApi.enabled` | `true` | 安装 FE HTTP API Deployment 和 Service。 |
 | `migration.fiToFe.enabled` | `true` | 安装/升级后运行 FI-to-FE migration hook。 |
+| `publishTargetConfig.enabled` | `true` | 创建默认 `ksbuilder-publish-config` 发布目标 ConfigMap。 |
 | `controller.enabled` | `false` | 不安装 FI runtime controller。 |
 | `webhook.enabled` | `false` | 不安装 FI validating webhook。 |
 | `crds.installJsBundle` | `false` | 不安装外部依赖 `JSBundle` CRD。 |
@@ -46,6 +47,10 @@ extension API 提供 FE list、get、create、download、publish、unpublish 和
 FE packaging 和 FI runtime build 都会调用 `BUILD_SERVICE_BASE_URL`。在 chart
 默认值下，即使 `buildService.enabled=false`，该 URL 仍会被派生；运行这些流程时，
 需要在该地址提供服务、显式配置外部 URL，或在本地/e2e 中启用 stub。
+
+Publish Job 会读取 `FrontendExtension.spec.publishPolicy.defaultTargetRef`。
+chart 默认在 release namespace 创建 `ConfigMap/ksbuilder-publish-config`，确保安装后
+FE publish 立即有可用的发布目标配置。
 
 ## 快速安装
 

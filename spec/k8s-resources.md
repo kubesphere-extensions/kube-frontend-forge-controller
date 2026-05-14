@@ -11,6 +11,7 @@ Source of truth: Helm templates under `config/charts/frontend-forge`
 | FI/FE CRDs | Implemented | Always installed from `crds/`. |
 | FE package/publish/unpublish resources | Implemented | Rendered by default. |
 | FE HTTP API resources | Implemented | Rendered by default. |
+| Default publish target ConfigMap | Implemented | Rendered by default. |
 | FI runtime resources | Implemented | Not rendered by default. |
 | FI-to-FE migrator | Implemented | Rendered by default as Helm hook. |
 | FI webhook resources | Implemented | Not rendered by default. |
@@ -37,6 +38,7 @@ config/charts/frontend-forge/
     frontend-forge-extension-api-apiservice.yaml
     frontend-forge-extension-api-deployment.yaml
     jsbundle-crd.yaml
+    publish-target-config.yaml
     rbac-extension.yaml
     rbac-runtime.yaml
     serviceaccounts.yaml
@@ -68,6 +70,7 @@ Status: Implemented
 | Extension API ServiceAccount | `extensionApi.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
 | Extension API RBAC | `rbac.create=true` and `extensionApi.enabled=true` | `templates/rbac-extension.yaml` |
 | KubeSphere `APIService` | APIService render guard passes | `templates/frontend-forge-extension-api-apiservice.yaml` |
+| `ConfigMap/ksbuilder-publish-config` | `publishTargetConfig.enabled=true` | `templates/publish-target-config.yaml` |
 | Migrator ServiceAccount | `migration.fiToFe.enabled=true` and SA create enabled | `templates/serviceaccounts.yaml` |
 | Migrator ClusterRole / ClusterRoleBinding | `migration.fiToFe.enabled=true` | `templates/fi-to-fe-migration-job.yaml` |
 | `Job/<fullname>-fi-to-fe-migrator` | `migration.fiToFe.enabled=true` | `templates/fi-to-fe-migration-job.yaml` |
@@ -106,6 +109,7 @@ Status: Implemented
 | FE package/publish/unpublish Jobs | `WORK_NAMESPACE`, default release namespace. |
 | FE artifact ConfigMaps | `extensionController.artifactConfigmapNamespace`, default release namespace. |
 | FE API Deployment/Service | Helm release namespace. |
+| Default publish target ConfigMap | `publishTargetConfig.namespace`, default release namespace. |
 | Migrator Job | Helm release namespace. |
 | Migrated FE publish target namespace | `migration.fiToFe.publishTarget.namespace`, default release namespace. |
 
