@@ -257,26 +257,140 @@ pub(crate) fn fe_status_needs_patch(
     fe.status.as_ref() != Some(desired_status)
 }
 
+pub(crate) fn frontend_extension_status_labels(
+    status: &FrontendExtensionStatus,
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        (
+            LABEL_FE_PACKAGE_STATUS.to_string(),
+            package_status_label_value(&status.phase).to_string(),
+        ),
+        (
+            LABEL_FE_PUBLISH_STATUS.to_string(),
+            publish_status_label_value(status.publish.as_ref()).to_string(),
+        ),
+    ])
+}
+
+pub(crate) fn package_status_label_value(phase: &FrontendExtensionPhase) -> &'static str {
+    match phase {
+        FrontendExtensionPhase::Ready => FE_PACKAGE_STATUS_READY,
+        FrontendExtensionPhase::Failed => FE_PACKAGE_STATUS_FAILED,
+        FrontendExtensionPhase::Pending | FrontendExtensionPhase::Packaging => {
+            FE_PACKAGE_STATUS_PACKAGING
+        }
+    }
+}
+
+pub(crate) fn publish_status_label_value(publish: Option<&PublishStatus>) -> &'static str {
+    match publish {
+        Some(status) if matches!(status.phase, PublishPhase::Pending | PublishPhase::Running) => {
+            FE_PUBLISH_STATUS_PUBLISHING
+        }
+        Some(status) if matches!(status.phase, PublishPhase::Succeeded) && status.active => {
+            FE_PUBLISH_STATUS_PUBLISHED
+        }
+        Some(status) if matches!(status.phase, PublishPhase::Failed) => FE_PUBLISH_STATUS_FAILED,
+        _ => FE_PUBLISH_STATUS_NOT_PUBLISHED,
+    }
+}
+
+pub(crate) fn fe_status_labels_need_patch(
+    fe: &FrontendExtension,
+    desired_status: &FrontendExtensionStatus,
+) -> bool {
+    let labels = frontend_extension_status_labels(desired_status);
+    labels.iter().any(|(key, value)| {
+        fe.metadata
+            .labels
+            .as_ref()
+            .and_then(|current| current.get(key))
+            != Some(value)
+    }) || fe.metadata.labels.as_ref().is_some_and(|current| {
+        current.contains_key(DEPRECATED_LABEL_FE_PACKAGE_STATUS)
+            || current.contains_key(DEPRECATED_LABEL_FE_PUBLISH_STATUS)
+    })
+}
+
 pub(crate) async fn patch_fe_status(
     fe_api: &Api<FrontendExtension>,
     fe: &FrontendExtension,
     status: FrontendExtensionStatus,
 ) -> Result<(), Error> {
-    if !fe_status_needs_patch(fe, &status) {
+    let fe_name = fe.name_any();
+    if fe_status_needs_patch(fe, &status) {
+        let patch = frontend_extension_status_patch(&status, &fe_name)?;
+
+        fe_api
+            .patch_status(&fe_name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await
+            .with_context(|_| PatchFrontendExtensionStatusSnafu {
+                name: fe_name.clone(),
+            })?;
+    }
+
+    patch_fe_status_labels(fe_api, fe, &status, &fe_name).await?;
+
+    Ok(())
+}
+
+pub(crate) async fn patch_fe_status_labels(
+    fe_api: &Api<FrontendExtension>,
+    fe: &FrontendExtension,
+    status: &FrontendExtensionStatus,
+    fe_name: &str,
+) -> Result<(), Error> {
+    if !fe_status_labels_need_patch(fe, status) {
         return Ok(());
     }
 
-    let fe_name = fe.name_any();
-    let patch = frontend_extension_status_patch(&status, &fe_name)?;
+    let has_deprecated_labels = fe.metadata.labels.as_ref().is_some_and(|current| {
+        current.contains_key(DEPRECATED_LABEL_FE_PACKAGE_STATUS)
+            || current.contains_key(DEPRECATED_LABEL_FE_PUBLISH_STATUS)
+    });
+    if has_deprecated_labels {
+        let patch = frontend_extension_clear_labels_patch();
+        fe_api
+            .patch(fe_name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await
+            .with_context(|_| PatchFrontendExtensionStatusLabelsSnafu {
+                name: fe_name.to_string(),
+            })?;
+    }
 
+    let patch = frontend_extension_status_labels_patch(fe, status);
     fe_api
-        .patch_status(&fe_name, &PatchParams::default(), &Patch::Merge(&patch))
+        .patch(fe_name, &PatchParams::default(), &Patch::Merge(&patch))
         .await
-        .with_context(|_| PatchFrontendExtensionStatusSnafu {
-            name: fe_name.clone(),
+        .with_context(|_| PatchFrontendExtensionStatusLabelsSnafu {
+            name: fe_name.to_string(),
         })?;
 
     Ok(())
+}
+
+pub(crate) fn frontend_extension_status_labels_patch(
+    fe: &FrontendExtension,
+    status: &FrontendExtensionStatus,
+) -> serde_json::Value {
+    let mut labels = fe.metadata.labels.clone().unwrap_or_default();
+    labels.remove(DEPRECATED_LABEL_FE_PACKAGE_STATUS);
+    labels.remove(DEPRECATED_LABEL_FE_PUBLISH_STATUS);
+    labels.extend(frontend_extension_status_labels(status));
+
+    json!({
+        "metadata": {
+            "labels": labels,
+        },
+    })
+}
+
+pub(crate) fn frontend_extension_clear_labels_patch() -> serde_json::Value {
+    json!({
+        "metadata": {
+            "labels": serde_json::Value::Null,
+        },
+    })
 }
 
 pub(crate) fn frontend_extension_status_patch(
