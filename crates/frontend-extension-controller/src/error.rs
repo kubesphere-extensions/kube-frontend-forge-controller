@@ -20,6 +20,12 @@ pub(crate) enum Error {
         #[snafu(source(from(kube::Error, Box::new)))]
         source: Box<kube::Error>,
     },
+    #[snafu(display("failed to patch FrontendExtension status labels {name}: {source}"))]
+    PatchFrontendExtensionStatusLabels {
+        name: String,
+        #[snafu(source(from(kube::Error, Box::new)))]
+        source: Box<kube::Error>,
+    },
     #[snafu(display("failed to serialize FrontendExtension status patch for {name}: {source}"))]
     SerializeFrontendExtensionStatusPatch {
         name: String,

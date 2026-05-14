@@ -8,7 +8,7 @@ use std::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{
         HeaderValue, Response, StatusCode,
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
