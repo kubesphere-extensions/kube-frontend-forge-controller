@@ -2,12 +2,10 @@ use super::*;
 
 pub(crate) async fn list_extensions(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<FrontendExtensionListQuery>,
 ) -> Result<Json<FrontendExtensionListResponse>, ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
-    let params = query.list_params();
     let list = api
-        .list(&params)
+        .list(&ListParams::default())
         .await
         .map_err(|err| ApiError::kube("failed to list FrontendExtensions", &err))?;
     Ok(Json(FrontendExtensionListResponse {

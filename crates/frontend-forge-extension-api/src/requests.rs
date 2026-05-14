@@ -5,21 +5,6 @@ pub(crate) struct FrontendExtensionListResponse {
     pub(crate) items: Vec<FrontendExtensionSummary>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-pub(crate) struct FrontendExtensionListQuery {
-    #[serde(default, rename = "labelSelector")]
-    pub(crate) label_selector: Option<String>,
-}
-
-impl FrontendExtensionListQuery {
-    pub(crate) fn list_params(&self) -> ListParams {
-        match self.label_selector.as_deref().map(str::trim) {
-            Some(selector) if !selector.is_empty() => ListParams::default().labels(selector),
-            _ => ListParams::default(),
-        }
-    }
-}
-
 #[derive(Debug, Serialize)]
 pub(crate) struct FrontendExtensionSummary {
     pub(crate) name: String,
