@@ -3,7 +3,6 @@ use frontend_forge_api::{
     PageType, PrimaryMenuSpec,
 };
 use kube::core::ObjectMeta;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
@@ -13,12 +12,6 @@ fn cfg() -> MigratorConfig {
         schema_version: "v1".to_string(),
         ready_timeout: Duration::from_secs(1),
         poll_interval: Duration::from_millis(1),
-        fe_api_base_url: "http://frontend-forge-extension-api.extension-frontend-forge.svc"
-            .to_string(),
-        fe_api_insecure_skip_tls_verify: false,
-        fe_api_ca_cert_path: None,
-        fe_api_group: DEFAULT_FE_API_GROUP.to_string(),
-        fe_api_version: DEFAULT_FE_API_VERSION.to_string(),
         publish_target_kind: PublishTargetKind::ConfigMap,
         publish_target_namespace: "extension-frontend-forge".to_string(),
         publish_target_name: "ksbuilder-publish-config".to_string(),
@@ -152,68 +145,45 @@ fn unmanaged_existing_fe_is_rejected() {
 }
 
 #[test]
-fn publish_request_id_is_stable_for_fe_and_digest() {
+fn publish_request_id_is_stable_for_fe_and_source_hash() {
     assert_eq!(
         publish_request_id("fi-demo", "sha256:abcdef1234567890"),
         "fi-migration-fi-demo-abcdef123456"
     );
 }
 
-#[tokio::test]
-async fn publish_fe_posts_directly_to_fe_api() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        let mut buf = [0_u8; 1024];
-        loop {
-            let n = stream.read(&mut buf).await.unwrap();
-            if n == 0 {
-                break;
-            }
-            request.extend_from_slice(&buf[..n]);
-            if String::from_utf8_lossy(&request).contains("expectedArtifactDigest") {
-                break;
-            }
-        }
-        stream
-            .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
-            .await
-            .unwrap();
-        String::from_utf8(request).unwrap()
-    });
-
-    let mut cfg = cfg();
-    cfg.fe_api_base_url = format!("http://{addr}");
-    cfg.fe_api_insecure_skip_tls_verify = true;
-    cfg.fe_api_ca_cert_path = None;
-    let http = publish_http_client(&cfg).unwrap();
-
-    publish_fe(&http, &cfg, "fi-demo", "sha256:abcdef1234567890")
-        .await
-        .unwrap();
-    let request = server.await.unwrap();
-
-    assert!(request.starts_with(
-        "POST /apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/fi-demo/publish "
-    ));
-    assert!(!request.to_ascii_lowercase().contains("authorization:"));
-    assert!(request.contains("\"requestId\":\"fi-migration-fi-demo-abcdef123456\""));
-    assert!(request.contains("\"expectedArtifactDigest\":\"sha256:abcdef1234567890\""));
-}
-
 #[test]
-fn publish_http_client_rejects_missing_configured_ca_cert() {
-    let mut cfg = cfg();
-    cfg.fe_api_ca_cert_path = Some(format!(
-        "/tmp/frontend-forge-fi-migrator-missing-ca-{}",
-        std::process::id()
-    ));
+fn publish_intent_patch_writes_generation_source_and_clears_digest() {
+    let patch = publish_intent_patch(
+        &cfg(),
+        7,
+        "sha256:abcdef1234567890",
+        "fi-migration-fi-demo-abcdef123456",
+    );
 
-    let err = publish_http_client(&cfg).unwrap_err();
-    assert!(err.to_string().contains("failed to read file"));
+    let annotations = &patch["metadata"]["annotations"];
+    assert_eq!(
+        annotations[ANNO_PUBLISH_REQUEST_ID],
+        "fi-migration-fi-demo-abcdef123456"
+    );
+    assert_eq!(annotations[ANNO_PUBLISH_REQUEST_GENERATION], "7");
+    assert_eq!(
+        annotations[ANNO_PUBLISH_REQUEST_SOURCE_HASH],
+        "sha256:abcdef1234567890"
+    );
+    assert_eq!(
+        annotations[ANNO_PUBLISH_ARTIFACT_DIGEST],
+        serde_json::Value::Null
+    );
+    assert_eq!(annotations[ANNO_PUBLISH_TARGET_KIND], "ConfigMap");
+    assert_eq!(
+        annotations[ANNO_PUBLISH_TARGET_NAMESPACE],
+        "extension-frontend-forge"
+    );
+    assert_eq!(
+        annotations[ANNO_PUBLISH_TARGET_NAME],
+        "ksbuilder-publish-config"
+    );
 }
 
 #[test]
