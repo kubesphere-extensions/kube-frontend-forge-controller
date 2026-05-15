@@ -597,6 +597,61 @@ fn status_labels_patch_writes_metadata_labels() {
 }
 
 #[test]
+fn status_observation_guard_rejects_stale_frontend_extension_identity() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([(
+        ANNO_REBUILD_TOKEN.to_string(),
+        "token-1".to_string(),
+    )]));
+    let source_hash = frontend_extension_source_hash(&fe).unwrap();
+    let rebuild_token = frontend_extension_rebuild_token(&fe);
+    let current_artifact_key = artifact_key(&source_hash, &rebuild_token).unwrap();
+    let status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        observed_generation: fe.metadata.generation,
+        observed_source_hash: Some(source_hash.clone()),
+        observed_rebuild_token: Some(rebuild_token.clone()),
+        artifact: Some(ExtensionArtifactStatus {
+            storage: ArtifactStorageStatus {
+                kind: ArtifactStorageKind::ConfigMap,
+                ref_: NamespacedResourceRef {
+                    namespace: "extension-frontend-forge".to_string(),
+                    name: "fe-inspecttask-current".to_string(),
+                    uid: Some("cm-uid".to_string()),
+                },
+                key: PACKAGE_KEY.to_string(),
+            },
+            digest: "sha256:digest".to_string(),
+            size_bytes: 1,
+            media_type: "application/gzip".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            generated_at: Utc::now(),
+            source_hash: source_hash.clone(),
+            artifact_key: Some(current_artifact_key),
+        }),
+        ..Default::default()
+    };
+
+    assert!(fe_status_observes_frontend_extension(&fe, &status).unwrap());
+
+    let mut stale_generation = status.clone();
+    stale_generation.observed_generation = Some(6);
+    assert!(!fe_status_observes_frontend_extension(&fe, &stale_generation).unwrap());
+
+    let mut stale_source = status.clone();
+    stale_source.observed_source_hash = Some("sha256:stale".to_string());
+    assert!(!fe_status_observes_frontend_extension(&fe, &stale_source).unwrap());
+
+    let mut stale_rebuild = status.clone();
+    stale_rebuild.observed_rebuild_token = Some("token-2".to_string());
+    assert!(!fe_status_observes_frontend_extension(&fe, &stale_rebuild).unwrap());
+
+    let mut stale_artifact_key = status;
+    stale_artifact_key.artifact.as_mut().unwrap().artifact_key = Some("sha256:stale".to_string());
+    assert!(!fe_status_observes_frontend_extension(&fe, &stale_artifact_key).unwrap());
+}
+
+#[test]
 fn artifact_gc_keeps_current_status_ref_and_recent_old_artifacts() {
     let fe: FrontendExtension = serde_json::from_value(json!({
         "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",

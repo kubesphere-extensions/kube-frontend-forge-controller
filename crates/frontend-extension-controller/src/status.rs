@@ -257,6 +257,35 @@ pub(crate) fn fe_status_needs_patch(
     fe.status.as_ref() != Some(desired_status)
 }
 
+pub(crate) fn fe_status_observes_frontend_extension(
+    fe: &FrontendExtension,
+    status: &FrontendExtensionStatus,
+) -> Result<bool, Error> {
+    let source_hash =
+        frontend_extension_source_hash(fe).context(FrontendExtensionSourceHashSnafu)?;
+    let rebuild_token = frontend_extension_rebuild_token(fe);
+
+    if status.observed_generation != Some(fe.metadata.generation.unwrap_or_default()) {
+        return Ok(false);
+    }
+    if status.observed_source_hash.as_deref() != Some(source_hash.as_str()) {
+        return Ok(false);
+    }
+    if status.observed_rebuild_token.as_deref() != Some(rebuild_token.as_str()) {
+        return Ok(false);
+    }
+
+    if let Some(artifact) = status.artifact.as_ref() {
+        let current_artifact_key = artifact_key(&source_hash, &rebuild_token)
+            .context(FrontendExtensionArtifactKeySnafu)?;
+        if artifact.artifact_key.as_deref() != Some(current_artifact_key.as_str()) {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
 pub(crate) fn frontend_extension_status_labels(
     status: &FrontendExtensionStatus,
 ) -> BTreeMap<String, String> {
@@ -318,7 +347,22 @@ pub(crate) async fn patch_fe_status(
     status: FrontendExtensionStatus,
 ) -> Result<(), Error> {
     let fe_name = fe.name_any();
-    if fe_status_needs_patch(fe, &status) {
+    let mut latest_fe = fe_api
+        .get(&fe_name)
+        .await
+        .with_context(|_| GetFrontendExtensionSnafu {
+            name: fe_name.clone(),
+        })?;
+
+    if !fe_status_observes_frontend_extension(&latest_fe, &status)? {
+        info!(
+            fe = %fe_name,
+            "skipping stale FrontendExtension status patch"
+        );
+        return Ok(());
+    }
+
+    if fe_status_needs_patch(&latest_fe, &status) {
         let patch = frontend_extension_status_patch(&status, &fe_name)?;
 
         fe_api
@@ -327,9 +371,20 @@ pub(crate) async fn patch_fe_status(
             .with_context(|_| PatchFrontendExtensionStatusSnafu {
                 name: fe_name.clone(),
             })?;
+
+        latest_fe = fe_api
+            .get(&fe_name)
+            .await
+            .with_context(|_| GetFrontendExtensionSnafu {
+                name: fe_name.clone(),
+            })?;
     }
 
-    patch_fe_status_labels(fe_api, fe, &status, &fe_name).await?;
+    if let Some(latest_status) = latest_fe.status.as_ref()
+        && fe_status_observes_frontend_extension(&latest_fe, latest_status)?
+    {
+        patch_fe_status_labels(fe_api, &latest_fe, latest_status, &fe_name).await?;
+    }
 
     Ok(())
 }
