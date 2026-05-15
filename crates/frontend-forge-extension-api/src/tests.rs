@@ -222,6 +222,54 @@ fn resolve_publish_request_can_wait_for_current_source_without_artifact() {
 }
 
 #[test]
+fn publish_request_idempotency_matches_absent_artifact_digest() {
+    let current = PublishStatus {
+        phase: PublishPhase::Pending,
+        request_id: Some("request-queued".to_string()),
+        artifact_digest: None,
+        ..Default::default()
+    };
+    let request = ResolvedPublishRequest {
+        request_id: "request-queued".to_string(),
+        artifact_digest: None,
+        generation: Some(3),
+        source_hash: "sha256:source".to_string(),
+        target_ref: NamespacedResourceRef {
+            namespace: "extension-frontend-forge".to_string(),
+            name: "ksbuilder-publish-config".to_string(),
+            uid: None,
+        },
+        target_kind: "ConfigMap".to_string(),
+    };
+
+    assert!(publish_request_matches_status(&current, &request));
+}
+
+#[test]
+fn publish_request_idempotency_rejects_artifact_digest_mismatch() {
+    let current = PublishStatus {
+        phase: PublishPhase::Pending,
+        request_id: Some("request-queued".to_string()),
+        artifact_digest: None,
+        ..Default::default()
+    };
+    let request = ResolvedPublishRequest {
+        request_id: "request-queued".to_string(),
+        artifact_digest: Some("sha256:artifact".to_string()),
+        generation: Some(3),
+        source_hash: "sha256:source".to_string(),
+        target_ref: NamespacedResourceRef {
+            namespace: "extension-frontend-forge".to_string(),
+            name: "ksbuilder-publish-config".to_string(),
+            uid: None,
+        },
+        target_kind: "ConfigMap".to_string(),
+    };
+
+    assert!(!publish_request_matches_status(&current, &request));
+}
+
+#[test]
 fn currently_published_requires_succeeded_and_active() {
     let mut fe = ready_fe();
     fe.status = Some(FrontendExtensionStatus {

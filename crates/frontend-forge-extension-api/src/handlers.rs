@@ -195,13 +195,7 @@ pub(crate) async fn trigger_publish(
         .status
         .as_ref()
         .and_then(|status| status.publish.as_ref())
-        && current.request_id.as_deref() == Some(request.request_id.as_str())
-        && request
-            .artifact_digest
-            .as_ref()
-            .is_some_and(|artifact_digest| {
-                current.artifact_digest.as_deref() == Some(artifact_digest.as_str())
-            })
+        && publish_request_matches_status(current, &request)
     {
         return Ok((StatusCode::ACCEPTED, Json(current.clone())));
     }
@@ -217,6 +211,15 @@ pub(crate) async fn trigger_publish(
         }),
     ))
 }
+
+pub(crate) fn publish_request_matches_status(
+    current: &PublishStatus,
+    request: &ResolvedPublishRequest,
+) -> bool {
+    current.request_id.as_deref() == Some(request.request_id.as_str())
+        && current.artifact_digest.as_deref() == request.artifact_digest.as_deref()
+}
+
 pub(crate) async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
     api.get(name).await.map_err(|err| match err {
