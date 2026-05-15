@@ -16,7 +16,7 @@ permissions:
 jobs:
   verify-generated-crd:
     name: Verify generated CRD
-    runs-on: ubuntu-latest
+    runs-on: self-runner-extensions
 
     steps:
       - name: Check out repository
