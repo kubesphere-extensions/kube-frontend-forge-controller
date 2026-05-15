@@ -316,6 +316,63 @@ fn publish_status_is_retained_only_for_same_artifact_key() {
 }
 
 #[test]
+fn publish_request_accepts_waiting_intent_for_matching_generation_and_source() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([
+        (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
+        (ANNO_PUBLISH_REQUEST_GENERATION.to_string(), "7".to_string()),
+        (
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            "sha256:source".to_string(),
+        ),
+        (
+            ANNO_PUBLISH_TARGET_NAME.to_string(),
+            "ksbuilder-publish-config".to_string(),
+        ),
+    ]));
+
+    let request = publish_request(
+        &fe,
+        "request-1",
+        Some(7),
+        "sha256:source",
+        "sha256:artifact",
+    )
+    .unwrap();
+
+    assert_eq!(request.artifact_digest, "sha256:artifact");
+    assert_eq!(request.target_ref.name, "ksbuilder-publish-config");
+}
+
+#[test]
+fn publish_request_rejects_stale_waiting_intent() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([
+        (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
+        (ANNO_PUBLISH_REQUEST_GENERATION.to_string(), "6".to_string()),
+        (
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            "sha256:old".to_string(),
+        ),
+    ]));
+
+    let status = publish_request(
+        &fe,
+        "request-1",
+        Some(7),
+        "sha256:source",
+        "sha256:artifact",
+    )
+    .unwrap_err();
+
+    assert_eq!(status.phase, PublishPhase::Failed);
+    assert_eq!(
+        status.last_error.as_deref(),
+        Some("publish request generation does not match current frontend extension generation")
+    );
+}
+
+#[test]
 fn current_job_status_overrides_existing_package_job() {
     let fe: FrontendExtension = serde_json::from_value(json!({
         "apiVersion": "frontend-forge.kubesphere.io/v1alpha1",

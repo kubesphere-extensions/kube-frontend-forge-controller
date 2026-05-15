@@ -23,11 +23,14 @@ use frontend_forge_api::{
     UnpublishStatus,
 };
 use frontend_forge_common::{
-    ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID, ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_ID,
+    ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID, ANNO_PUBLISH_ARTIFACT_DIGEST,
+    ANNO_PUBLISH_REQUEST_GENERATION, ANNO_PUBLISH_REQUEST_ID, ANNO_PUBLISH_REQUEST_SOURCE_HASH,
     ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME, ANNO_PUBLISH_TARGET_NAMESPACE,
     ANNO_UNPUBLISH_EXTENSION_NAME, ANNO_UNPUBLISH_REQUEST_ID, sha256_hex,
 };
-use frontend_forge_extension_package_core::{PACKAGE_KEY, frontend_extension_package_name};
+use frontend_forge_extension_package_core::{
+    PACKAGE_KEY, frontend_extension_package_name, frontend_extension_source_hash,
+};
 use k8s_openapi::api::core::v1::ConfigMap;
 use kube::{
     Api, Client, ResourceExt,

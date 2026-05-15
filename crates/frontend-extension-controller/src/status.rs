@@ -29,7 +29,8 @@ pub(crate) fn packaging_fe_status(
     message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
-    let publish = retained_publish_for_artifact_key(fe, artifact_key);
+    let publish = pending_publish_for_current_source(fe, generation, source_hash)
+        .or_else(|| retained_publish_for_artifact_key(fe, artifact_key));
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Packaging,
         observed_generation: generation,
@@ -121,7 +122,8 @@ pub(crate) fn failed_fe_status(
     message: &str,
 ) -> FrontendExtensionStatus {
     let generation = Some(fe.metadata.generation.unwrap_or_default());
-    let publish = retained_publish_for_artifact_key(fe, artifact_key);
+    let publish = pending_publish_for_current_source(fe, generation, source_hash)
+        .or_else(|| retained_publish_for_artifact_key(fe, artifact_key));
     FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Failed,
         observed_generation: generation,
