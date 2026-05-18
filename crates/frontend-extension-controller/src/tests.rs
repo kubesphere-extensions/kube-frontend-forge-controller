@@ -8,6 +8,10 @@ fn test_time(value: &str) -> Time {
     serde_json::from_value(json!(value)).unwrap()
 }
 
+fn status_time(value: &str) -> chrono::DateTime<Utc> {
+    serde_json::from_value(json!(value)).unwrap()
+}
+
 fn artifact_cm(name: &str, fe_uid: &str, created_at: &str) -> ConfigMap {
     ConfigMap {
         metadata: ObjectMeta {
@@ -570,6 +574,7 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
         publish: Some(PublishStatus {
             phase: PublishPhase::Succeeded,
             active: true,
+            finished_at: Some(status_time("2026-05-18T03:29:14Z")),
             ..Default::default()
         }),
         ..Default::default()
@@ -628,6 +633,7 @@ fn status_labels_patch_writes_metadata_labels() {
         publish: Some(PublishStatus {
             phase: PublishPhase::Succeeded,
             active: true,
+            finished_at: Some(status_time("2026-05-18T03:29:14Z")),
             ..Default::default()
         }),
         ..Default::default()
@@ -982,6 +988,7 @@ fn unpublish_success_marks_publish_inactive() {
         publish: Some(PublishStatus {
             phase: PublishPhase::Succeeded,
             active: true,
+            finished_at: Some(status_time("2026-05-18T03:29:14Z")),
             ..Default::default()
         }),
         ..Default::default()
@@ -991,6 +998,7 @@ fn unpublish_success_marks_publish_inactive() {
             phase: UnpublishPhase::Succeeded,
             request_id: Some("request-1".to_string()),
             extension_name: Some("inspecttask".to_string()),
+            finished_at: Some(status_time("2026-05-18T03:29:20Z")),
             ..Default::default()
         }),
         should_requeue: false,
@@ -999,6 +1007,61 @@ fn unpublish_success_marks_publish_inactive() {
     apply_unpublish_sync(&mut status, &unpublish);
 
     assert!(!status.publish.unwrap().active);
+}
+
+#[test]
+fn older_unpublish_success_does_not_mark_newer_publish_inactive() {
+    let mut status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            finished_at: Some(status_time("2026-05-18T06:30:14Z")),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let unpublish = UnpublishSync {
+        status: Some(UnpublishStatus {
+            phase: UnpublishPhase::Succeeded,
+            request_id: Some("unpublish-before-latest-publish".to_string()),
+            extension_name: Some("inspecttask".to_string()),
+            finished_at: Some(status_time("2026-05-18T03:29:20Z")),
+            ..Default::default()
+        }),
+        should_requeue: false,
+    };
+
+    apply_unpublish_sync(&mut status, &unpublish);
+
+    assert!(status.publish.unwrap().active);
+}
+
+#[test]
+fn unpublish_without_proven_order_does_not_mark_publish_inactive() {
+    let mut status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let unpublish = UnpublishSync {
+        status: Some(UnpublishStatus {
+            phase: UnpublishPhase::Succeeded,
+            request_id: Some("old-unpublish".to_string()),
+            extension_name: Some("inspecttask".to_string()),
+            finished_at: Some(status_time("2026-05-18T03:29:20Z")),
+            ..Default::default()
+        }),
+        should_requeue: false,
+    };
+
+    apply_unpublish_sync(&mut status, &unpublish);
+
+    assert!(status.publish.unwrap().active);
 }
 
 #[test]
