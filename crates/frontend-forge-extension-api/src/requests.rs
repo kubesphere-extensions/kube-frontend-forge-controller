@@ -58,7 +58,9 @@ pub(crate) struct PublishRequest {
 #[derive(Debug)]
 pub(crate) struct ResolvedPublishRequest {
     pub(crate) request_id: String,
-    pub(crate) artifact_digest: String,
+    pub(crate) artifact_digest: Option<String>,
+    pub(crate) generation: Option<i64>,
+    pub(crate) source_hash: String,
     pub(crate) target_ref: NamespacedResourceRef,
     pub(crate) target_kind: String,
 }

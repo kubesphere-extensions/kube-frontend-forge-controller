@@ -3,7 +3,7 @@ use super::*;
 pub(crate) fn resolve_publish_request(
     fe: &FrontendExtension,
     request: &PublishRequest,
-    artifact: &ExtensionArtifactStatus,
+    artifact: Option<&ExtensionArtifactStatus>,
 ) -> Result<ResolvedPublishRequest, ApiError> {
     let target_ref = publish_target_ref(fe)
         .ok_or_else(|| ApiError::conflict("publish targetRef is required"))?;
@@ -18,6 +18,11 @@ pub(crate) fn resolve_publish_request(
             "publish targetKind must be ConfigMap or Secret",
         ));
     }
+    let source_hash = frontend_extension_source_hash(fe)
+        .map_err(|err| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let request_identity = artifact
+        .map(|artifact| artifact.digest.as_str())
+        .unwrap_or(source_hash.as_str());
 
     Ok(ResolvedPublishRequest {
         request_id: request
@@ -26,8 +31,10 @@ pub(crate) fn resolve_publish_request(
             .map(str::trim)
             .filter(|request_id| !request_id.is_empty())
             .map(ToOwned::to_owned)
-            .unwrap_or_else(|| generated_publish_request_id(&artifact.digest)),
-        artifact_digest: artifact.digest.clone(),
+            .unwrap_or_else(|| generated_publish_request_id(request_identity)),
+        artifact_digest: artifact.map(|artifact| artifact.digest.clone()),
+        generation: fe.metadata.generation,
+        source_hash,
         target_ref,
         target_kind,
     })
@@ -140,28 +147,45 @@ pub(crate) async fn patch_publish_request(
     request: &ResolvedPublishRequest,
 ) -> Result<(), ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
-    let annotations = BTreeMap::from([
+    let mut annotations = serde_json::Map::from_iter([
         (
             ANNO_PUBLISH_REQUEST_ID.to_string(),
-            request.request_id.clone(),
+            json!(request.request_id),
         ),
         (
-            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
-            request.artifact_digest.clone(),
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            json!(request.source_hash),
         ),
         (
             ANNO_PUBLISH_TARGET_KIND.to_string(),
-            request.target_kind.clone(),
+            json!(request.target_kind),
         ),
         (
             ANNO_PUBLISH_TARGET_NAMESPACE.to_string(),
-            request.target_ref.namespace.clone(),
+            json!(request.target_ref.namespace),
         ),
         (
             ANNO_PUBLISH_TARGET_NAME.to_string(),
-            request.target_ref.name.clone(),
+            json!(request.target_ref.name),
         ),
     ]);
+    if let Some(generation) = request.generation {
+        annotations.insert(
+            ANNO_PUBLISH_REQUEST_GENERATION.to_string(),
+            json!(generation.to_string()),
+        );
+    }
+    if let Some(artifact_digest) = request.artifact_digest.as_ref() {
+        annotations.insert(
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            json!(artifact_digest),
+        );
+    } else {
+        annotations.insert(
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            serde_json::Value::Null,
+        );
+    }
     let patch = json!({
         "metadata": {
             "annotations": annotations,

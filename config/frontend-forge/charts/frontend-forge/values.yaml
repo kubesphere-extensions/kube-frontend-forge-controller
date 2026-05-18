@@ -86,9 +86,6 @@ migration:
     backoffLimit: 0
     hookDeletePolicy: before-hook-creation
     activeDeadlineSeconds: null
-    feApiBaseUrl: ""
-    feApiInsecureSkipTlsVerify: false
-    feApiCaCertPath: ""
     publishTarget:
       kind: ConfigMap
       namespace: ""

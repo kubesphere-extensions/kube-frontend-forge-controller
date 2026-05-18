@@ -1,19 +1,22 @@
-use std::{collections::BTreeMap, env, fs, time::Duration};
+use std::{collections::BTreeMap, env, time::Duration};
 
 use frontend_forge_api::{
     ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
-    FrontendExtensionPackageSpec, FrontendExtensionPhase, FrontendExtensionSourceSpec,
-    FrontendExtensionSourceType, FrontendExtensionSpec, FrontendIntegration,
-    InlineFrontendExtensionSourceSpec, NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec,
-    PublishTargetKind,
+    FrontendExtensionPackageSpec, FrontendExtensionSourceSpec, FrontendExtensionSourceType,
+    FrontendExtensionSpec, FrontendIntegration, InlineFrontendExtensionSourceSpec,
+    NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec, PublishTargetKind,
 };
-use frontend_forge_common::sha256_hex;
+use frontend_forge_common::{
+    ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_GENERATION, ANNO_PUBLISH_REQUEST_ID,
+    ANNO_PUBLISH_REQUEST_SOURCE_HASH, ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME,
+    ANNO_PUBLISH_TARGET_NAMESPACE, sha256_hex,
+};
+use frontend_forge_extension_package_core::frontend_extension_source_hash;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     Api, Client, Resource, ResourceExt,
     api::{DeleteParams, Patch, PatchParams, PostParams},
 };
-use reqwest::StatusCode;
 use serde_json::{Value, json};
 use snafu::Snafu;
 use tokio::time::{Instant, sleep};
@@ -30,10 +33,6 @@ const DEFAULT_PROVIDER_NAME: &str = "Fi Migration Bot";
 const ANNO_CREATOR: &str = "kubesphere.io/creator";
 const DEFAULT_READY_TIMEOUT_SECONDS: u64 = 600;
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
-const DEFAULT_FE_API_BASE_URL: &str =
-    "http://frontend-forge-extension-api.extension-frontend-forge.svc";
-const DEFAULT_FE_API_GROUP: &str = "frontend-forge-api.kubesphere.io";
-const DEFAULT_FE_API_VERSION: &str = "v1alpha1";
 const DEFAULT_PUBLISH_TARGET_KIND: &str = "ConfigMap";
 const DEFAULT_PUBLISH_TARGET_NAME: &str = "ksbuilder-publish-config";
 
@@ -45,16 +44,6 @@ enum Error {
     Kube {
         action: String,
         source: Box<kube::Error>,
-    },
-    #[snafu(display("HTTP operation failed while {action}: {source}"))]
-    Http {
-        action: String,
-        source: Box<reqwest::Error>,
-    },
-    #[snafu(display("failed to read file {path}: {source}"))]
-    ReadFile {
-        path: String,
-        source: std::io::Error,
     },
     #[snafu(display("invalid {key} value {value:?}: {message}"))]
     InvalidEnv {
@@ -109,7 +98,5 @@ async fn main() -> Result<()> {
         .map_err(|source| Error::KubeClientInit {
             source: Box::new(source),
         })?;
-    let http = publish_http_client(&cfg)?;
-
-    run(client, http, cfg).await
+    run(client, cfg).await
 }

@@ -11,9 +11,8 @@ Helm template: `config/charts/frontend-forge/templates/fi-to-fe-migration-job.ya
 | Helm hook migrator Job | Implemented | Enabled by `migration.fiToFe.enabled=true` |
 | FI list/read/delete | Implemented | Cluster-scoped API |
 | FE create/patch | Implemented | Cluster-scoped API |
-| Wait for FE Ready | Implemented | Polls FE status |
-| Publish enabled FI through FE API | Implemented | Direct HTTP call to FE API |
-| Compensation after FI deleted and publish failed | Planned / TODO | Not implemented |
+| Publish enabled FI by FE intent | Implemented | Patch FE annotations |
+| Compensation after FI deleted and publish intent failed | Planned / TODO | Not implemented |
 
 ## Job Configuration
 
@@ -23,13 +22,8 @@ Status: Implemented
 | --- | --- | --- | --- |
 | `PACKAGE_VERSION` | `migration.fiToFe.packageVersion` | `0.1.0` | Migrated FE package version. |
 | `SCHEMA_VERSION` | `migration.fiToFe.schemaVersion` | `v1` | Fallback FE inline schema version. |
-| `READY_TIMEOUT_SECONDS` | `migration.fiToFe.readyTimeoutSeconds` | `600` | CRD readiness, FE Ready, FI deletion timeout. |
+| `READY_TIMEOUT_SECONDS` | `migration.fiToFe.readyTimeoutSeconds` | `600` | CRD readiness and FI deletion timeout. |
 | `POLL_INTERVAL_SECONDS` | `migration.fiToFe.pollIntervalSeconds` | `5` | Poll interval. |
-| `FE_API_BASE_URL` | `migration.fiToFe.feApiBaseUrl` | chart service URL | Base URL for publish request. |
-| `FE_API_INSECURE_SKIP_TLS_VERIFY` | `migration.fiToFe.feApiInsecureSkipTlsVerify` | `false` | HTTP TLS verification option. |
-| `FE_API_CA_CERT_PATH` | `migration.fiToFe.feApiCaCertPath` | empty | Optional custom CA path. Missing configured file fails startup. |
-| `FE_API_GROUP` | `extensionApi.apiService.group` | `frontend-forge-api.kubesphere.io` | Publish API group. |
-| `FE_API_VERSION` | `extensionApi.apiService.version` | `v1alpha1` | Publish API version. |
 | `PUBLISH_TARGET_KIND` | `migration.fiToFe.publishTarget.kind` | `ConfigMap` | FE `publishPolicy.defaultTargetKind`. |
 | `PUBLISH_TARGET_NAMESPACE` | `migration.fiToFe.publishTarget.namespace` or release namespace | required after chart render | FE `publishPolicy.defaultTargetRef.namespace`. |
 | `PUBLISH_TARGET_NAME` | `migration.fiToFe.publishTarget.name` | `ksbuilder-publish-config` | FE `publishPolicy.defaultTargetRef.name`. |
@@ -55,8 +49,8 @@ Before scanning FI objects, migrator waits for:
 | `frontendintegrations.frontend-forge.kubesphere.io` CRD | Established. |
 | `frontendextensions.frontend-forge.kubesphere.io` CRD | Established and v1alpha1 status subresource exists. |
 
-FE API Service availability is not preflighted; publish request errors are
-reported by the publish HTTP call.
+FE API Service availability is not required. The migrator patches FE resources
+directly through the Kubernetes API.
 
 ## Per-FI Flow
 
@@ -67,10 +61,9 @@ list all FrontendIntegration
 for each FI:
   derive FE name
   create or patch migrator-owned FE
-  wait for FE phase Ready and status.artifact.digest
   delete FI and wait until it is gone
   if original FI spec.enabled is missing or true:
-    POST FE publish API
+    patch FE publish intent for returned generation/sourceHash
   else:
     skip publish
 ```
@@ -154,48 +147,37 @@ is requested after FI deletion.
 
 Status: Implemented
 
-Migrator publish URL:
+The migrator no longer calls FE API publish endpoints. For enabled source FIs it
+patches publish intent annotations directly onto the migrated FE after the FE
+create/patch response is returned by apiserver:
 
-```text
-POST <FE_API_BASE_URL>/apis/<FE_API_GROUP>/<FE_API_VERSION>/frontendextensions/<fe-name>/publish
+```yaml
+frontend-forge.io/publish-request-id: fi-migration-<fe-name>-<source-hash-prefix-12>
+frontend-forge.io/publish-request-generation: "<metadata.generation>"
+frontend-forge.io/publish-request-source-hash: <current FE source hash>
+frontend-forge.io/publish-artifact-digest: null
+frontend-forge.io/publish-target-kind: ConfigMap
+frontend-forge.io/publish-target-namespace: <target namespace>
+frontend-forge.io/publish-target-name: <target name>
 ```
 
-Default path:
-
-```text
-/apis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions/<fe-name>/publish
-```
-
-Request body:
-
-```json
-{
-  "requestId": "fi-migration-<fe-name>-<digest-prefix-12>",
-  "expectedArtifactDigest": "<current FE artifact digest>"
-}
-```
-
-Accepted status codes:
-
-- `200 OK`
-- `201 Created`
-- `202 Accepted`
-
-Other status codes fail this FI migration item.
+The FE controller converts this intent into a publish Job only after the matching
+generation/source hash artifact is ready. If the FE changes before the artifact is
+ready, the stale intent is failed and no old artifact is published.
 
 ## Finalizer And Retry Constraints
 
 Status: Implemented
 
-- Migrator deletes the source FI after FE package is Ready.
-- It waits until FI no longer exists before publishing.
+- Migrator deletes the source FI after the FE create/patch succeeds.
+- It waits until FI no longer exists before writing publish intent.
 - If FI deletion is blocked by a finalizer, migration for that FI times out.
 - The default Job `backoffLimit=0` avoids hiding partial failure with Job-level retries.
 
 Status: Planned / TODO
 
-- If FI deletion succeeds and publish fails, rerunning the Job will not see the
-  deleted FI and will not automatically retry publish.
+- If FI deletion succeeds and publish intent patch fails, rerunning the Job will
+  not see the deleted FI and will not automatically retry publish.
 
 ## Local Verification
 
@@ -209,11 +191,8 @@ SCHEMA_VERSION=v1 \
 PUBLISH_TARGET_KIND=ConfigMap \
 PUBLISH_TARGET_NAMESPACE=extension-frontend-forge \
 PUBLISH_TARGET_NAME=ksbuilder-publish-config \
-FE_API_BASE_URL=http://127.0.0.1:18080 \
 cargo run -p frontend-forge-controller --bin fi-to-fe-migrator
 ```
-
-Use a local or port-forwarded FE API at `FE_API_BASE_URL`.
 
 ## TODO / Open Question
 

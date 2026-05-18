@@ -11,11 +11,11 @@ chrono.workspace = true
 futures.workspace = true
 frontend-forge-api = { path = "../api" }
 frontend-forge-common = { path = "../common" }
+frontend-forge-extension-package-core = { path = "../extension-package-core" }
 frontend-forge-manifest = { path = "../manifest" }
 k8s-openapi.workspace = true
 kube.workspace = true
 kube-runtime.workspace = true
-reqwest.workspace = true
 rustls.workspace = true
 serde_json.workspace = true
 snafu.workspace = true

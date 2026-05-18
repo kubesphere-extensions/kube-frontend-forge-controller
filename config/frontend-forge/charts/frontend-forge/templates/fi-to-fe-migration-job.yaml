@@ -79,16 +79,6 @@ spec:
               value: {{ .Values.migration.fiToFe.readyTimeoutSeconds | quote }}
             - name: POLL_INTERVAL_SECONDS
               value: {{ .Values.migration.fiToFe.pollIntervalSeconds | quote }}
-            - name: FE_API_BASE_URL
-              value: {{ default (include "frontend-forge.extensionApiServiceURL" .) .Values.migration.fiToFe.feApiBaseUrl | quote }}
-            - name: FE_API_INSECURE_SKIP_TLS_VERIFY
-              value: {{ .Values.migration.fiToFe.feApiInsecureSkipTlsVerify | quote }}
-            - name: FE_API_CA_CERT_PATH
-              value: {{ .Values.migration.fiToFe.feApiCaCertPath | quote }}
-            - name: FE_API_GROUP
-              value: {{ include "frontend-forge.extensionApiAPIServiceGroup" . | quote }}
-            - name: FE_API_VERSION
-              value: {{ include "frontend-forge.extensionApiAPIServiceVersion" . | quote }}
             - name: PUBLISH_TARGET_KIND
               value: {{ .Values.migration.fiToFe.publishTarget.kind | quote }}
             - name: PUBLISH_TARGET_NAMESPACE

@@ -84,11 +84,9 @@ Default behavior:
 - Overlong FE names use a stable `fi-<slice>-<hash>` form.
 - A target FE that already exists but is not marked as migrator-owned is skipped
   and reported as a failure.
-- Enabled FI resources are published only after the FE package is Ready and the
-  source FI has been deleted.
-- Publish requests go directly to the FE API service under
-  `/apis/frontend-forge-api.kubesphere.io/v1alpha1/...`; the migrator does not
-  call ks-apiserver, patch publish annotations, or create publish Jobs directly.
+- Enabled FI resources are published by patching FE publish intent annotations
+  after the source FI has been deleted. The FE controller creates the publish Job
+  after the matching FE artifact is Ready.
 
 Package defaults added during migration:
 
@@ -117,19 +115,15 @@ migration:
     pollIntervalSeconds: 5
     backoffLimit: 0
     hookDeletePolicy: before-hook-creation
-    feApiBaseUrl: ""
-    feApiInsecureSkipTlsVerify: false
-    feApiCaCertPath: ""
     publishTarget:
       kind: ConfigMap
       namespace: ""
       name: ksbuilder-publish-config
 ```
 
-When `feApiBaseUrl` is empty, the chart points it at the in-chart
-`frontend-forge-extension-api` Service. If `feApiCaCertPath` is set to a non-empty
-path and the file is missing, the migrator fails immediately instead of silently
-ignoring the configured CA.
+The migrator writes publish intent annotations directly to migrated FE resources;
+the FE controller publishes enabled FI migrations after the matching FE artifact is
+ready.
 
 Full migration semantics are documented in
 [`spec/fi-to-fe-migration.md`](../../../spec/fi-to-fe-migration.md).

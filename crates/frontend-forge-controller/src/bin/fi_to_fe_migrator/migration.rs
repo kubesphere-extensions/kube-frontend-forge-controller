@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) async fn run(client: Client, http: reqwest::Client, cfg: MigratorConfig) -> Result<()> {
+pub(crate) async fn run(client: Client, cfg: MigratorConfig) -> Result<()> {
     wait_for_prerequisites(&client, &cfg).await?;
 
     let fi_api = Api::<FrontendIntegration>::all(client.clone());
@@ -18,7 +18,7 @@ pub(crate) async fn run(client: Client, http: reqwest::Client, cfg: MigratorConf
 
     for fi in items {
         let fi_name = fi.name_any();
-        if let Err(err) = migrate_one(&client, &http, &cfg, fi).await {
+        if let Err(err) = migrate_one(&client, &cfg, fi).await {
             error!(fi = %fi_name, error = %err, "FI migration failed");
             failures.push(format!("{fi_name}: {err}"));
         }
@@ -40,7 +40,6 @@ pub(crate) async fn run(client: Client, http: reqwest::Client, cfg: MigratorConf
 
 pub(crate) async fn migrate_one(
     client: &Client,
-    http: &reqwest::Client,
     cfg: &MigratorConfig,
     fi: FrontendIntegration,
 ) -> Result<()> {
@@ -50,12 +49,11 @@ pub(crate) async fn migrate_one(
     info!(fi = %fi_name, fe = %fe_name, was_enabled, "migrating FI");
 
     let fe_api = Api::<FrontendExtension>::all(client.clone());
-    upsert_managed_fe(&fe_api, cfg, &fi, &fe_name).await?;
-    let artifact_digest = wait_for_fe_ready(&fe_api, &fe_name, cfg).await?;
+    let fe = upsert_managed_fe(&fe_api, cfg, &fi, &fe_name).await?;
     delete_fi_and_wait(client, &fi_name, cfg).await?;
 
     if was_enabled {
-        publish_fe(http, cfg, &fe_name, &artifact_digest).await?;
+        patch_publish_intent(&fe_api, cfg, &fe).await?;
     } else {
         info!(fi = %fi_name, fe = %fe_name, "source FI was disabled; skipping publish");
     }
@@ -67,7 +65,7 @@ pub(crate) async fn upsert_managed_fe(
     cfg: &MigratorConfig,
     fi: &FrontendIntegration,
     fe_name: &str,
-) -> Result<()> {
+) -> Result<FrontendExtension> {
     let desired = frontend_extension_from_fi(fi, fe_name, cfg);
     match fe_api
         .get_opt(fe_name)
@@ -77,7 +75,7 @@ pub(crate) async fn upsert_managed_fe(
             source: Box::new(source),
         })? {
         None => {
-            fe_api
+            let fe = fe_api
                 .create(&PostParams::default(), &desired)
                 .await
                 .map_err(|source| Error::Kube {
@@ -85,6 +83,7 @@ pub(crate) async fn upsert_managed_fe(
                     source: Box::new(source),
                 })?;
             info!(fe = %fe_name, "created migrated FrontendExtension");
+            Ok(fe)
         }
         Some(existing) => {
             ensure_existing_fe_is_managed_by_fi(&existing, fi)?;
@@ -95,7 +94,7 @@ pub(crate) async fn upsert_managed_fe(
                 },
                 "spec": desired.spec,
             });
-            fe_api
+            let fe = fe_api
                 .patch(fe_name, &PatchParams::default(), &Patch::Merge(&patch))
                 .await
                 .map_err(|source| Error::Kube {
@@ -103,9 +102,9 @@ pub(crate) async fn upsert_managed_fe(
                     source: Box::new(source),
                 })?;
             info!(fe = %fe_name, "patched migrated FrontendExtension");
+            Ok(fe)
         }
     }
-    Ok(())
 }
 
 pub(crate) fn ensure_existing_fe_is_managed_by_fi(
@@ -143,51 +142,6 @@ pub(crate) fn ensure_existing_fe_is_managed_by_fi(
         });
     }
     Ok(())
-}
-
-pub(crate) async fn wait_for_fe_ready(
-    fe_api: &Api<FrontendExtension>,
-    fe_name: &str,
-    cfg: &MigratorConfig,
-) -> Result<String> {
-    let deadline = Instant::now() + cfg.ready_timeout;
-    loop {
-        let fe = fe_api.get(fe_name).await.map_err(|source| Error::Kube {
-            action: format!("getting FrontendExtension {fe_name} while waiting for Ready"),
-            source: Box::new(source),
-        })?;
-        let phase = fe.status.as_ref().map(|status| status.phase.clone());
-        let digest = fe
-            .status
-            .as_ref()
-            .and_then(|status| status.artifact.as_ref())
-            .map(|artifact| artifact.digest.clone())
-            .filter(|digest| !digest.is_empty());
-        if phase == Some(FrontendExtensionPhase::Ready)
-            && let Some(digest) = digest
-        {
-            info!(fe = %fe_name, artifact_digest = %digest, "FrontendExtension is Ready");
-            return Ok(digest);
-        }
-        if phase == Some(FrontendExtensionPhase::Failed) {
-            return Err(Error::Message {
-                message: format!("FrontendExtension {fe_name} reached Failed phase"),
-            });
-        }
-        if Instant::now() >= deadline {
-            return Err(Error::Message {
-                message: format!(
-                    "timed out waiting for FrontendExtension {fe_name} to become Ready"
-                ),
-            });
-        }
-        info!(
-            fe = %fe_name,
-            phase = ?phase,
-            "waiting for FrontendExtension package Ready"
-        );
-        sleep(cfg.poll_interval).await;
-    }
 }
 
 pub(crate) async fn delete_fi_and_wait(

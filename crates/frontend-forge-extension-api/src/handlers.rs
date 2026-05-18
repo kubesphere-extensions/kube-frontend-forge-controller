@@ -172,15 +172,22 @@ pub(crate) async fn trigger_publish(
     Json(request): Json<PublishRequest>,
 ) -> Result<(StatusCode, Json<PublishStatus>), ApiError> {
     let extension = get_fe(&state, &name).await?;
-    let artifact = ready_artifact(&extension)?;
-    if request
-        .expected_artifact_digest
-        .as_deref()
-        .is_some_and(|expected| expected != artifact.digest)
-    {
-        return Err(ApiError::conflict(
-            "publish expectedArtifactDigest does not match current ready artifact",
-        ));
+    let artifact = match ready_artifact(&extension) {
+        Ok(artifact) => Some(artifact),
+        Err(_) if publish_can_wait_for_artifact(&extension) => None,
+        Err(err) => return Err(err),
+    };
+    if let Some(expected) = request.expected_artifact_digest.as_deref() {
+        let Some(artifact) = artifact else {
+            return Err(ApiError::conflict(
+                "publish expectedArtifactDigest cannot be checked until the artifact is ready",
+            ));
+        };
+        if expected != artifact.digest {
+            return Err(ApiError::conflict(
+                "publish expectedArtifactDigest does not match current ready artifact",
+            ));
+        }
     }
     let request = resolve_publish_request(&extension, &request, artifact)?;
 
@@ -188,8 +195,7 @@ pub(crate) async fn trigger_publish(
         .status
         .as_ref()
         .and_then(|status| status.publish.as_ref())
-        && current.request_id.as_deref() == Some(request.request_id.as_str())
-        && current.artifact_digest.as_deref() == Some(request.artifact_digest.as_str())
+        && publish_request_matches_status(current, &request)
     {
         return Ok((StatusCode::ACCEPTED, Json(current.clone())));
     }
@@ -200,11 +206,20 @@ pub(crate) async fn trigger_publish(
         Json(PublishStatus {
             phase: frontend_forge_api::PublishPhase::Pending,
             request_id: Some(request.request_id),
-            artifact_digest: Some(request.artifact_digest),
+            artifact_digest: request.artifact_digest,
             ..Default::default()
         }),
     ))
 }
+
+pub(crate) fn publish_request_matches_status(
+    current: &PublishStatus,
+    request: &ResolvedPublishRequest,
+) -> bool {
+    current.request_id.as_deref() == Some(request.request_id.as_str())
+        && current.artifact_digest.as_deref() == request.artifact_digest.as_deref()
+}
+
 pub(crate) async fn get_fe(state: &AppState, name: &str) -> Result<FrontendExtension, ApiError> {
     let api = Api::<FrontendExtension>::all(state.client.clone());
     api.get(name).await.map_err(|err| match err {
@@ -258,6 +273,8 @@ pub(crate) fn currently_published(fe: &FrontendExtension) -> bool {
 }
 
 pub(crate) fn ready_artifact(fe: &FrontendExtension) -> Result<&ExtensionArtifactStatus, ApiError> {
+    let current_source_hash = frontend_extension_source_hash(fe)
+        .map_err(|err| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     let status = fe
         .status
         .as_ref()
@@ -285,6 +302,11 @@ pub(crate) fn ready_artifact(fe: &FrontendExtension) -> Result<&ExtensionArtifac
             "FrontendExtension artifact does not match observed source hash",
         ));
     }
+    if status.observed_source_hash.as_deref() != Some(current_source_hash.as_str()) {
+        return Err(ApiError::conflict(
+            "FrontendExtension artifact does not match current source hash",
+        ));
+    }
     if !matches!(artifact.storage.kind, ArtifactStorageKind::ConfigMap) {
         return Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -292,4 +314,22 @@ pub(crate) fn ready_artifact(fe: &FrontendExtension) -> Result<&ExtensionArtifac
         ));
     }
     Ok(artifact)
+}
+
+pub(crate) fn publish_can_wait_for_artifact(fe: &FrontendExtension) -> bool {
+    let Some(status) = fe.status.as_ref() else {
+        return true;
+    };
+    if matches!(
+        status.phase,
+        FrontendExtensionPhase::Pending | FrontendExtensionPhase::Packaging
+    ) {
+        return true;
+    }
+    if matches!(status.phase, FrontendExtensionPhase::Ready)
+        && let Ok(current_source_hash) = frontend_extension_source_hash(fe)
+    {
+        return status.observed_source_hash.as_deref() != Some(current_source_hash.as_str());
+    }
+    false
 }
