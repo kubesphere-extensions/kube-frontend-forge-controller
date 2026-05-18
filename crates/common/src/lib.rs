@@ -185,28 +185,27 @@ pub fn observed_job_phase(status: Option<&JobStatus>) -> ObservedJobPhase {
         return ObservedJobPhase::Pending;
     };
 
-    if status.failed.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Failed;
+    if let Some(conditions) = &status.conditions {
+        for cond in conditions {
+            if cond.status == "True" && cond.type_ == "Complete" {
+                return ObservedJobPhase::Succeeded;
+            }
+        }
+        for cond in conditions {
+            if cond.status == "True" && cond.type_ == "Failed" {
+                return ObservedJobPhase::Failed;
+            }
+        }
+    }
+
+    if status.active.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Running;
     }
     if status.succeeded.unwrap_or(0) > 0 {
         return ObservedJobPhase::Succeeded;
     }
-    if status.active.unwrap_or(0) > 0 {
-        return ObservedJobPhase::Running;
-    }
-
-    if let Some(conditions) = &status.conditions {
-        for cond in conditions {
-            if cond.status != "True" {
-                continue;
-            }
-            if cond.type_ == "Failed" {
-                return ObservedJobPhase::Failed;
-            }
-            if cond.type_ == "Complete" {
-                return ObservedJobPhase::Succeeded;
-            }
-        }
+    if status.failed.unwrap_or(0) > 0 {
+        return ObservedJobPhase::Failed;
     }
 
     ObservedJobPhase::Pending
@@ -420,6 +419,7 @@ fn base36_pad4(mut n: u32) -> String {
 
 #[cfg(test)]
 mod tests {
+    use k8s_openapi::api::batch::v1::JobCondition;
     use serde_json::json;
 
     use super::*;
@@ -528,6 +528,50 @@ mod tests {
         assert_ne!(
             artifact_key(source_hash, "token-1").unwrap(),
             artifact_key("sha256:other", "token-1").unwrap()
+        );
+    }
+
+    #[test]
+    fn observed_job_phase_uses_terminal_conditions_before_counters() {
+        let status = JobStatus {
+            active: Some(1),
+            failed: Some(1),
+            conditions: Some(vec![JobCondition {
+                type_: "Complete".to_string(),
+                status: "True".to_string(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            observed_job_phase(Some(&status)),
+            ObservedJobPhase::Succeeded
+        );
+    }
+
+    #[test]
+    fn observed_job_phase_treats_active_retry_as_running() {
+        let status = JobStatus {
+            active: Some(1),
+            failed: Some(1),
+            ..Default::default()
+        };
+
+        assert_eq!(observed_job_phase(Some(&status)), ObservedJobPhase::Running);
+    }
+
+    #[test]
+    fn observed_job_phase_allows_success_after_failed_retries() {
+        let status = JobStatus {
+            succeeded: Some(1),
+            failed: Some(1),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            observed_job_phase(Some(&status)),
+            ObservedJobPhase::Succeeded
         );
     }
 

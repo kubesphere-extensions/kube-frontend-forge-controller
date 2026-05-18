@@ -8,6 +8,10 @@ fn test_time(value: &str) -> Time {
     serde_json::from_value(json!(value)).unwrap()
 }
 
+fn status_time(value: &str) -> chrono::DateTime<Utc> {
+    serde_json::from_value(json!(value)).unwrap()
+}
+
 fn artifact_cm(name: &str, fe_uid: &str, created_at: &str) -> ConfigMap {
     ConfigMap {
         metadata: ObjectMeta {
@@ -999,6 +1003,34 @@ fn unpublish_success_marks_publish_inactive() {
     apply_unpublish_sync(&mut status, &unpublish);
 
     assert!(!status.publish.unwrap().active);
+}
+
+#[test]
+fn older_unpublish_success_does_not_mark_newer_publish_inactive() {
+    let mut status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            finished_at: Some(status_time("2026-05-18T06:30:14Z")),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let unpublish = UnpublishSync {
+        status: Some(UnpublishStatus {
+            phase: UnpublishPhase::Succeeded,
+            request_id: Some("unpublish-before-latest-publish".to_string()),
+            extension_name: Some("inspecttask".to_string()),
+            finished_at: Some(status_time("2026-05-18T03:29:20Z")),
+            ..Default::default()
+        }),
+        should_requeue: false,
+    };
+
+    apply_unpublish_sync(&mut status, &unpublish);
+
+    assert!(status.publish.unwrap().active);
 }
 
 #[test]

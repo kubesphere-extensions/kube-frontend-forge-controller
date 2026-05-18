@@ -300,13 +300,27 @@ pub(crate) fn apply_unpublish_sync(
     unpublish: &UnpublishSync,
 ) {
     status.unpublish.clone_from(&unpublish.status);
-    if unpublish
-        .status
-        .as_ref()
-        .is_some_and(|status| matches!(status.phase, UnpublishPhase::Succeeded))
-        && let Some(publish) = status.publish.as_mut()
+    if let (Some(publish), Some(unpublish)) = (status.publish.as_mut(), unpublish.status.as_ref())
+        && matches!(unpublish.phase, UnpublishPhase::Succeeded)
+        && unpublish_succeeded_after_publish(publish, unpublish)
     {
         publish.active = false;
+    }
+}
+
+pub(crate) fn unpublish_succeeded_after_publish(
+    publish: &PublishStatus,
+    unpublish: &UnpublishStatus,
+) -> bool {
+    let publish_time = publish.finished_at.as_ref().or(publish.started_at.as_ref());
+    let unpublish_time = unpublish
+        .finished_at
+        .as_ref()
+        .or(unpublish.started_at.as_ref());
+
+    match (publish_time, unpublish_time) {
+        (Some(publish_time), Some(unpublish_time)) => unpublish_time >= publish_time,
+        _ => true,
     }
 }
 
