@@ -320,7 +320,7 @@ pub(crate) fn unpublish_succeeded_after_publish(
 
     match (publish_time, unpublish_time) {
         (Some(publish_time), Some(unpublish_time)) => unpublish_time >= publish_time,
-        _ => true,
+        _ => false,
     }
 }
 
