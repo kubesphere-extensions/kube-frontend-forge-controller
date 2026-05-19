@@ -115,7 +115,15 @@ fn frontend_extension_from_fi_copies_source_fields_and_defaults_package() {
         "Title"
     );
     assert_eq!(fe.spec.source.inline.frontend.menus[0].key, "menu");
+    assert_eq!(
+        fe.spec.source.inline.frontend.menus[0].page_key.as_deref(),
+        Some("menu")
+    );
     assert_eq!(fe.spec.source.inline.frontend.pages[0].key, "menu");
+    assert_eq!(
+        fe.spec.source.inline.frontend.pages[0].placement,
+        MenuPlacement::Global
+    );
 }
 
 #[test]

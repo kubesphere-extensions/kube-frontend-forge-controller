@@ -53,14 +53,17 @@ spec:
         menus:
           - displayName: Role
             key: role-test
+            pageKey: role-test
             placement: workspace
             type: page
           - displayName: Role
             key: cluster-role-test
+            pageKey: cluster-role-test
             placement: cluster
             type: page
         pages:
           - key: role-test
+            placement: workspace
             type: crdTable
             crdTable:
               authKey: inspecttask
@@ -92,6 +95,7 @@ spec:
                     type: time
                   title: CREATION_TIME
           - key: cluster-role-test
+            placement: cluster
             type: crdTable
             crdTable:
               authKey: inspecttask

@@ -1,10 +1,9 @@
 use frontend_forge_api::{
-    ColumnRenderType, ColumnSpec, CrdScope, CrdTablePageSpec, MenuNodeType, MenuPlacement,
-    PageSpec, PageType,
+    ColumnRenderType, ColumnSpec, CrdScope, CrdTablePageSpec, MenuNodeType, MenuPlacement, PageType,
 };
 use serde_json::{Map, Value, json};
 
-use crate::{FrontendRenderInput, ManifestRenderError, ResolvedFrontendPage};
+use crate::{FrontendPageSpec, FrontendRenderInput, ManifestRenderError, ResolvedFrontendPage};
 
 mod columns;
 mod pages;

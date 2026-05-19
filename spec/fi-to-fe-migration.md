@@ -133,8 +133,8 @@ Status: Implemented
 | `spec.builder.engineVersion` trimmed, fallback `SCHEMA_VERSION` | `spec.source.inline.schemaVersion` |
 | `spec.displayName` | `spec.source.inline.frontend.displayName` |
 | `spec.locales` | `spec.source.inline.frontend.locales` |
-| `spec.menus` | `spec.source.inline.frontend.menus` |
-| `spec.pages` | `spec.source.inline.frontend.pages` |
+| `spec.menus` | `spec.source.inline.frontend.menus`; page menus receive `pageKey` from the FI menu or child key |
+| `spec.pages` | `spec.source.inline.frontend.pages`; each generated FE page receives `placement` from the FI menu that binds it |
 | none | `spec.source.inline.extensionResources` is absent |
 | constant `Manual` | `spec.publishPolicy.mode` |
 | `PUBLISH_TARGET_KIND` | `spec.publishPolicy.defaultTargetKind` |

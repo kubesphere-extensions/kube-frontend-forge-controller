@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 
 pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, ManifestRenderError> {
@@ -11,20 +13,21 @@ pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, Manifest
     let mut routes = Vec::new();
     let mut menus = Vec::new();
     let mut pages = Vec::new();
+    let mut rendered_page_ids = HashSet::new();
 
     for menu in resolved_menus {
         match menu {
             ResolvedTopMenu::Page(page) => {
                 menus.push(render_leaf_menu(&page));
                 routes.push(render_route(&input.route_namespace, &fi_name, &page));
-                pages.push(render_page(&fi_name, &page)?);
+                push_rendered_page(&fi_name, &page, &mut pages, &mut rendered_page_ids)?;
             }
             ResolvedTopMenu::Organization { menu, children } => {
                 menus.push(render_organization_menu(&menu));
                 for child in children {
                     menus.push(render_leaf_menu(&child));
                     routes.push(render_route(&input.route_namespace, &fi_name, &child));
-                    pages.push(render_page(&fi_name, &child)?);
+                    push_rendered_page(&fi_name, &child, &mut pages, &mut rendered_page_ids)?;
                 }
             }
         }
@@ -53,6 +56,19 @@ pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, Manifest
     Ok(Value::Object(manifest))
 }
 
+fn push_rendered_page(
+    fi_name: &str,
+    page: &ResolvedPageBinding,
+    pages: &mut Vec<Value>,
+    rendered_page_ids: &mut HashSet<String>,
+) -> Result<(), ManifestRenderError> {
+    let page_id = page_id_for_suffix(fi_name, page.placement, &page.page_id_suffix);
+    if rendered_page_ids.insert(page_id) {
+        pages.push(render_page(fi_name, page)?);
+    }
+    Ok(())
+}
+
 pub(crate) fn menu_name_for_suffix(route_namespace: &str, fi_name: &str, suffix: &str) -> String {
     format!("{route_namespace}/{fi_name}/{suffix}")
 }
@@ -75,7 +91,7 @@ pub(crate) fn render_route(
     fi_name: &str,
     page: &ResolvedPageBinding,
 ) -> Value {
-    let page_id = page_id_for_suffix(fi_name, page.placement, &page.route_suffix);
+    let page_id = page_id_for_suffix(fi_name, page.placement, &page.page_id_suffix);
     json!({
         "path": format!(
             "{}{}",
@@ -118,7 +134,7 @@ pub(crate) fn render_page(
     fi_name: &str,
     page: &ResolvedPageBinding,
 ) -> Result<Value, ManifestRenderError> {
-    let page_id = page_id_for_suffix(fi_name, page.placement, &page.route_suffix);
+    let page_id = page_id_for_suffix(fi_name, page.placement, &page.page_id_suffix);
 
     match page.page.type_ {
         PageType::Iframe => {

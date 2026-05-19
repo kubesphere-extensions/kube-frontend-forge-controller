@@ -1,9 +1,14 @@
-use frontend_forge_api::FrontendIntegration;
+use frontend_forge_api::{FrontendExtension, FrontendIntegration};
 
 use super::*;
 
 fn render_v1_manifest(fi: &FrontendIntegration) -> Result<Value, ManifestRenderError> {
     let input = FrontendRenderInput::from_frontend_integration(fi);
+    super::render_v1_manifest(&input)
+}
+
+fn render_v1_fe_manifest(fe: &FrontendExtension) -> Result<Value, ManifestRenderError> {
+    let input = FrontendRenderInput::from_frontend_extension(fe)?;
     super::render_v1_manifest(&input)
 }
 
@@ -235,6 +240,151 @@ spec:
         "workspace-crd-page-state"
     );
     assert_eq!(pages[1]["componentsTree"]["meta"]["title"], "Ops Guide");
+}
+
+#[test]
+fn allows_multiple_fe_menus_to_bind_one_page_key() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: reuse-demo
+spec:
+  package:
+    name: reuse-demo
+    version: 0.1.0
+    displayName:
+      en: Reuse Demo
+    description:
+      en: Reuse Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: First Entry
+            key: first-entry
+            pageKey: shared-page
+            placement: global
+            type: page
+          - displayName: Second Entry
+            key: second-entry
+            pageKey: shared-page
+            placement: global
+            type: page
+        pages:
+          - key: shared-page
+            placement: global
+            type: iframe
+            iframe:
+              src: http://example.test/shared
+"#,
+    )
+    .unwrap();
+
+    let manifest = render_v1_fe_manifest(&fe).unwrap();
+    let routes = manifest["routes"].as_array().unwrap();
+    let pages = manifest["pages"].as_array().unwrap();
+
+    assert_eq!(routes.len(), 2);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(
+        routes[0]["path"],
+        "/frontendextensions/reuse-demo/first-entry"
+    );
+    assert_eq!(
+        routes[1]["path"],
+        "/frontendextensions/reuse-demo/second-entry"
+    );
+    assert_eq!(routes[0]["pageId"], "reuse-demo-global-shared-page");
+    assert_eq!(routes[1]["pageId"], "reuse-demo-global-shared-page");
+    assert_eq!(pages[0]["id"], "reuse-demo-global-shared-page");
+    assert_eq!(pages[0]["componentsTree"]["meta"]["title"], "First Entry");
+}
+
+#[test]
+fn rejects_fe_page_placement_mismatch() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: mismatch-demo
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: Mismatch Demo
+    description:
+      en: Mismatch Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Overview
+            key: overview
+            pageKey: overview-page
+            placement: cluster
+            type: page
+        pages:
+          - key: overview-page
+            placement: workspace
+            type: iframe
+            iframe:
+              src: http://example.test
+"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        render_v1_fe_manifest(&fe),
+        Err(ManifestRenderError::InvalidPageShape { .. })
+    ));
+}
+
+#[test]
+fn rejects_fe_page_menu_without_page_key() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: missing-page-key
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: Missing Page Key
+    description:
+      en: Missing Page Key
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Overview
+            key: overview
+            placement: cluster
+            type: page
+        pages:
+          - key: overview
+            placement: cluster
+            type: iframe
+            iframe:
+              src: http://example.test
+"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        render_v1_fe_manifest(&fe),
+        Err(ManifestRenderError::InvalidMenuShape { .. })
+    ));
 }
 
 #[test]
