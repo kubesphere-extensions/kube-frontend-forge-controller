@@ -63,10 +63,12 @@ spec:
         menus:
           - displayName: Inspect Tasks
             key: inspecttasks
+            pageKey: inspecttasks
             placement: cluster
             type: page
         pages:
           - key: inspecttasks
+            placement: cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -381,18 +383,22 @@ spec:
         menus:
           - displayName: Cluster Tasks
             key: cluster-tasks
+            pageKey: cluster-tasks
             placement: cluster
             type: page
           - displayName: Workspace Reports
             key: workspace-reports
+            pageKey: workspace-reports
             placement: workspace
             type: page
           - displayName: Global Items
             key: global-items
+            pageKey: global-items
             placement: global
             type: page
         pages:
           - key: cluster-tasks
+            placement: cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -409,6 +415,7 @@ spec:
                     type: text
                     path: metadata.name
           - key: workspace-reports
+            placement: workspace
             type: crdTable
             crdTable:
               group: reports.kubesphere.io
@@ -424,6 +431,7 @@ spec:
                     type: text
                     path: metadata.name
           - key: global-items
+            placement: global
             type: crdTable
             crdTable:
               group: items.kubesphere.io
@@ -518,10 +526,12 @@ spec:
         menus:
           - displayName: Global Frame
             key: global-frame
+            pageKey: global-frame
             placement: global
             type: page
         pages:
           - key: global-frame
+            placement: global
             type: iframe
             iframe:
               src: http://example.test

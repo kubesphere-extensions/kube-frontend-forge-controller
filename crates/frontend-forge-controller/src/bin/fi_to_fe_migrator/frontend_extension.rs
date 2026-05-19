@@ -44,8 +44,13 @@ pub(crate) fn frontend_extension_from_fi(
                     frontend: FrontendExtensionFrontendSpec {
                         display_name: fi.spec.display_name.clone(),
                         locales: fi.spec.locales.clone(),
-                        menus: fi.spec.menus.clone(),
-                        pages: fi.spec.pages.clone(),
+                        menus: fi
+                            .spec
+                            .menus
+                            .iter()
+                            .map(FrontendExtensionPrimaryMenuSpec::from)
+                            .collect(),
+                        pages: frontend_pages_from_fi(fi),
                     },
                     extension_resources: None,
                 },
@@ -64,6 +69,39 @@ pub(crate) fn frontend_extension_from_fi(
     fe.metadata.labels = Some(migrator_labels());
     fe.metadata.annotations = Some(migrator_annotations(fi));
     fe
+}
+
+pub(crate) fn frontend_pages_from_fi(fi: &FrontendIntegration) -> Vec<FrontendExtensionPageSpec> {
+    let mut pages = BTreeMap::new();
+
+    for menu in &fi.spec.menus {
+        match menu.type_ {
+            MenuNodeType::Page => {
+                insert_frontend_page(&mut pages, fi, menu.placement, &menu.key);
+            }
+            MenuNodeType::Organization => {
+                for child in &menu.children {
+                    insert_frontend_page(&mut pages, fi, menu.placement, &child.key);
+                }
+            }
+        }
+    }
+
+    pages.into_values().collect()
+}
+
+fn insert_frontend_page(
+    pages: &mut BTreeMap<(String, String), FrontendExtensionPageSpec>,
+    fi: &FrontendIntegration,
+    placement: MenuPlacement,
+    page_key: &str,
+) {
+    let Some(page) = fi.spec.pages.iter().find(|page| page.key == page_key) else {
+        return;
+    };
+    pages
+        .entry((placement.as_str().to_string(), page_key.to_string()))
+        .or_insert_with(|| FrontendExtensionPageSpec::from_fi_page(page, placement));
 }
 
 pub(crate) fn migrator_labels() -> BTreeMap<String, String> {

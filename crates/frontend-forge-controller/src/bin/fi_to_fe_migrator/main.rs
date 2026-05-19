@@ -2,8 +2,9 @@ use std::{collections::BTreeMap, env, time::Duration};
 
 use frontend_forge_api::{
     ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
-    FrontendExtensionPackageSpec, FrontendExtensionSourceSpec, FrontendExtensionSourceType,
-    FrontendExtensionSpec, FrontendIntegration, InlineFrontendExtensionSourceSpec,
+    FrontendExtensionPackageSpec, FrontendExtensionPageSpec, FrontendExtensionPrimaryMenuSpec,
+    FrontendExtensionSourceSpec, FrontendExtensionSourceType, FrontendExtensionSpec,
+    FrontendIntegration, InlineFrontendExtensionSourceSpec, MenuNodeType, MenuPlacement,
     NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec, PublishTargetKind,
 };
 use frontend_forge_common::{

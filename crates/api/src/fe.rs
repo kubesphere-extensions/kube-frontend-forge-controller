@@ -6,7 +6,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::fi::{PageSpec, PrimaryMenuSpec};
+use crate::fi::{
+    CrdTablePageSpec, IframePageSpec, MenuNodeType, MenuPlacement, PageSpec as FiPageSpec,
+    PageType, PrimaryMenuSpec as FiPrimaryMenuSpec, SecondaryMenuSpec as FiSecondaryMenuSpec,
+};
 
 #[derive(CustomResource, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[kube(
@@ -144,9 +147,93 @@ pub struct FrontendExtensionFrontendSpec {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub locales: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub menus: Vec<PrimaryMenuSpec>,
+    pub menus: Vec<FrontendExtensionPrimaryMenuSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub pages: Vec<PageSpec>,
+    pub pages: Vec<FrontendExtensionPageSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct FrontendExtensionPrimaryMenuSpec {
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    pub placement: MenuPlacement,
+    #[serde(rename = "type")]
+    pub type_: MenuNodeType,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "pageKey")]
+    pub page_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<FrontendExtensionSecondaryMenuSpec>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct FrontendExtensionSecondaryMenuSpec {
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(rename = "pageKey")]
+    pub page_key: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct FrontendExtensionPageSpec {
+    pub key: String,
+    pub placement: MenuPlacement,
+    #[serde(rename = "type")]
+    pub type_: PageType,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "crdTable")]
+    pub crd_table: Option<CrdTablePageSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iframe: Option<IframePageSpec>,
+}
+
+impl From<&FiPrimaryMenuSpec> for FrontendExtensionPrimaryMenuSpec {
+    fn from(menu: &FiPrimaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            placement: menu.placement,
+            type_: menu.type_,
+            page_key: match menu.type_ {
+                MenuNodeType::Page => Some(menu.key.clone()),
+                MenuNodeType::Organization => None,
+            },
+            children: menu
+                .children
+                .iter()
+                .map(FrontendExtensionSecondaryMenuSpec::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&FiSecondaryMenuSpec> for FrontendExtensionSecondaryMenuSpec {
+    fn from(menu: &FiSecondaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            page_key: menu.key.clone(),
+        }
+    }
+}
+
+impl FrontendExtensionPageSpec {
+    #[must_use]
+    pub fn from_fi_page(page: &FiPageSpec, placement: MenuPlacement) -> Self {
+        Self {
+            key: page.key.clone(),
+            placement,
+            type_: page.type_,
+            crd_table: page.crd_table.clone(),
+            iframe: page.iframe.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
@@ -493,10 +580,12 @@ spec:
         menus:
           - displayName: Inspect Tasks
             key: inspecttasks
+            pageKey: inspecttasks
             placement: cluster
             type: page
         pages:
           - key: inspecttasks
+            placement: cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -547,6 +636,11 @@ spec:
         let inline = fe.spec.source.inline;
         assert_eq!(inline.schema_version, "v1");
         assert_eq!(inline.frontend.menus[0].key, "inspecttasks");
+        assert_eq!(
+            inline.frontend.menus[0].page_key.as_deref(),
+            Some("inspecttasks")
+        );
+        assert_eq!(inline.frontend.pages[0].placement, MenuPlacement::Cluster);
         let resources = inline.extension_resources.unwrap();
         assert_eq!(resources.js_bundle.unwrap().name, "inspecttask");
     }
@@ -588,6 +682,10 @@ spec:
         let package = &spec_properties["package"];
         let extension_resources = &spec_properties["source"]["properties"]["inline"]["properties"]
             ["extensionResources"]["properties"];
+        let frontend = &spec_properties["source"]["properties"]["inline"]["properties"]["frontend"]
+            ["properties"];
+        let menu = &frontend["menus"]["items"]["properties"];
+        let page = &frontend["pages"]["items"];
         let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
             ["properties"]["status"]["properties"];
 
@@ -624,6 +722,15 @@ spec:
         assert!(package["properties"].get("installationMode").is_some());
         assert!(extension_resources.get("jsBundle").is_some());
         assert!(extension_resources.get("roleTemplates").is_none());
+        assert_eq!(menu["pageKey"]["type"], Value::String("string".to_string()));
+        assert_eq!(menu["pageKey"]["nullable"], Value::Bool(true));
+        assert!(page["properties"].get("placement").is_some());
+        assert!(
+            page["required"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String("placement".to_string()))
+        );
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
         assert!(status_properties.get("observedRebuildToken").is_some());

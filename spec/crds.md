@@ -114,9 +114,30 @@ the FE controller and FE HTTP API by default.
 | `package` | `FrontendExtensionPackageSpec` | yes | Extension package metadata and chart values. |
 | `source.type` | `Inline` | yes | Only `Inline` is implemented. |
 | `source.inline.schemaVersion` | string | yes | Renderer schema version; supported values match FI v1 renderer aliases. |
-| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | Menu/page/locales source shared with FI schema. |
+| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | FE menu/page/locales source. Menus bind pages through `pageKey` and `pages[].key`; pages also declare `placement`. |
 | `source.inline.extensionResources.jsBundle.name` | string | no | Type exists for compatibility; current package renderer does not use it. |
 | `publishPolicy` | `PublishPolicySpec` | no | Manual publish target defaults. |
+
+### Inline Frontend Fields
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `displayName` | string | Optional manifest display name override. |
+| `locales` | map `<lang, map<string,string>>` | Rendered to manifest `locales`. |
+| `menus` | `FrontendExtensionPrimaryMenuSpec[]` | Two-level menu source. |
+| `pages` | `FrontendExtensionPageSpec[]` | Page config list identified by `(placement, key)`. |
+
+FE menu fields match FI menu fields with one addition:
+
+| Field | Type | Applies to | Behavior |
+| --- | --- | --- | --- |
+| `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus with the same `placement` may point at the same `pageKey`. |
+
+FE page fields match FI page config fields with one addition:
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `placement` | `global` / `workspace` / `cluster` | Required. Must match the placement of every menu binding this page through `pageKey`. |
 
 ### Package Fields
 

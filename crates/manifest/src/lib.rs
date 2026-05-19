@@ -3,8 +3,11 @@ mod v1;
 use std::collections::BTreeMap;
 
 use frontend_forge_api::{
-    FrontendExtension, FrontendExtensionSourceType, FrontendIntegration, MenuPlacement, PageSpec,
-    PrimaryMenuSpec,
+    CrdTablePageSpec, FrontendExtension, FrontendExtensionPageSpec,
+    FrontendExtensionPrimaryMenuSpec, FrontendExtensionSecondaryMenuSpec,
+    FrontendExtensionSourceType, FrontendIntegration, IframePageSpec, MenuNodeType, MenuPlacement,
+    PageSpec as FiPageSpec, PageType, PrimaryMenuSpec as FiPrimaryMenuSpec,
+    SecondaryMenuSpec as FiSecondaryMenuSpec,
 };
 use kube::ResourceExt;
 use serde_json::Value;
@@ -20,6 +23,17 @@ pub enum ManifestRenderError {
     DuplicateTopLevelMenuKey { fi_name: String, key: String },
     #[snafu(display("FrontendIntegration {} has duplicate page key '{}'", fi_name, key))]
     DuplicatePageKey { fi_name: String, key: String },
+    #[snafu(display(
+        "FrontendIntegration {} has duplicate menu route '{}' in placement '{}'",
+        fi_name,
+        route,
+        placement
+    ))]
+    DuplicateMenuRoute {
+        fi_name: String,
+        placement: String,
+        route: String,
+    },
     #[snafu(display(
         "FrontendIntegration {} is missing page config for menu key '{}'",
         fi_name,
@@ -90,8 +104,9 @@ pub struct FrontendRenderInput {
     pub schema_version: Option<String>,
     pub route_namespace: String,
     pub locales: BTreeMap<String, BTreeMap<String, String>>,
-    pub menus: Vec<PrimaryMenuSpec>,
-    pub pages: Vec<PageSpec>,
+    pub menus: Vec<FrontendMenuSpec>,
+    pub pages: Vec<FrontendPageSpec>,
+    pub require_page_key: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,7 +115,120 @@ pub struct ResolvedFrontendPage {
     pub placement: MenuPlacement,
     pub route_suffix: String,
     pub action_key: String,
-    pub page: PageSpec,
+    pub page: FrontendPageSpec,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrontendMenuSpec {
+    pub display_name: String,
+    pub key: String,
+    pub icon: Option<String>,
+    pub placement: MenuPlacement,
+    pub type_: MenuNodeType,
+    pub page_key: Option<String>,
+    pub children: Vec<FrontendSecondaryMenuSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrontendSecondaryMenuSpec {
+    pub display_name: String,
+    pub key: String,
+    pub icon: Option<String>,
+    pub page_key: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrontendPageSpec {
+    pub key: String,
+    pub placement: Option<MenuPlacement>,
+    pub type_: PageType,
+    pub crd_table: Option<CrdTablePageSpec>,
+    pub iframe: Option<IframePageSpec>,
+}
+
+impl From<&FiPrimaryMenuSpec> for FrontendMenuSpec {
+    fn from(menu: &FiPrimaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            placement: menu.placement,
+            type_: menu.type_,
+            page_key: match menu.type_ {
+                MenuNodeType::Page => Some(menu.key.clone()),
+                MenuNodeType::Organization => None,
+            },
+            children: menu
+                .children
+                .iter()
+                .map(FrontendSecondaryMenuSpec::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&FiSecondaryMenuSpec> for FrontendSecondaryMenuSpec {
+    fn from(menu: &FiSecondaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            page_key: Some(menu.key.clone()),
+        }
+    }
+}
+
+impl From<&FiPageSpec> for FrontendPageSpec {
+    fn from(page: &FiPageSpec) -> Self {
+        Self {
+            key: page.key.clone(),
+            placement: None,
+            type_: page.type_,
+            crd_table: page.crd_table.clone(),
+            iframe: page.iframe.clone(),
+        }
+    }
+}
+
+impl From<&FrontendExtensionPrimaryMenuSpec> for FrontendMenuSpec {
+    fn from(menu: &FrontendExtensionPrimaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            placement: menu.placement,
+            type_: menu.type_,
+            page_key: menu.page_key.clone(),
+            children: menu
+                .children
+                .iter()
+                .map(FrontendSecondaryMenuSpec::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&FrontendExtensionSecondaryMenuSpec> for FrontendSecondaryMenuSpec {
+    fn from(menu: &FrontendExtensionSecondaryMenuSpec) -> Self {
+        Self {
+            display_name: menu.display_name.clone(),
+            key: menu.key.clone(),
+            icon: menu.icon.clone(),
+            page_key: Some(menu.page_key.clone()),
+        }
+    }
+}
+
+impl From<&FrontendExtensionPageSpec> for FrontendPageSpec {
+    fn from(page: &FrontendExtensionPageSpec) -> Self {
+        Self {
+            key: page.key.clone(),
+            placement: Some(page.placement),
+            type_: page.type_,
+            crd_table: page.crd_table.clone(),
+            iframe: page.iframe.clone(),
+        }
+    }
 }
 
 impl FrontendRenderInput {
@@ -116,8 +244,9 @@ impl FrontendRenderInput {
             schema_version: fi.spec.engine_version().map(ToString::to_string),
             route_namespace: "frontendintegrations".to_string(),
             locales: fi.spec.locales.clone(),
-            menus: fi.spec.menus.clone(),
-            pages: fi.spec.pages.clone(),
+            menus: fi.spec.menus.iter().map(FrontendMenuSpec::from).collect(),
+            pages: fi.spec.pages.iter().map(FrontendPageSpec::from).collect(),
+            require_page_key: false,
         }
     }
 
@@ -137,8 +266,19 @@ impl FrontendRenderInput {
                     schema_version: Some(inline.schema_version.clone()),
                     route_namespace: "frontendextensions".to_string(),
                     locales: inline.frontend.locales.clone(),
-                    menus: inline.frontend.menus.clone(),
-                    pages: inline.frontend.pages.clone(),
+                    menus: inline
+                        .frontend
+                        .menus
+                        .iter()
+                        .map(FrontendMenuSpec::from)
+                        .collect(),
+                    pages: inline
+                        .frontend
+                        .pages
+                        .iter()
+                        .map(FrontendPageSpec::from)
+                        .collect(),
+                    require_page_key: true,
                 })
             }
         }
@@ -390,10 +530,12 @@ spec:
         menus:
           - displayName: Inspect Tasks
             key: inspecttasks
+            pageKey: inspecttasks
             placement: cluster
             type: page
         pages:
           - key: inspecttasks
+            placement: cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -440,10 +582,12 @@ spec:
         menus:
           - displayName: Inspect Tasks
             key: inspecttasks
+            pageKey: inspecttasks
             placement: cluster
             type: page
         pages:
           - key: inspecttasks
+            placement: cluster
             type: iframe
             iframe:
               src: http://example.test

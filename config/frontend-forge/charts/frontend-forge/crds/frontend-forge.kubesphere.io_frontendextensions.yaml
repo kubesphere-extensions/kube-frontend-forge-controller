@@ -195,9 +195,12 @@ spec:
                                         type: string
                                       key:
                                         type: string
+                                      pageKey:
+                                        type: string
                                     required:
                                     - displayName
                                     - key
+                                    - pageKey
                                     type: object
                                   type: array
                                 displayName:
@@ -206,6 +209,9 @@ spec:
                                   nullable: true
                                   type: string
                                 key:
+                                  type: string
+                                pageKey:
+                                  nullable: true
                                   type: string
                                 placement:
                                   enum:
@@ -316,6 +322,12 @@ spec:
                                   type: object
                                 key:
                                   type: string
+                                placement:
+                                  enum:
+                                  - global
+                                  - workspace
+                                  - cluster
+                                  type: string
                                 type:
                                   enum:
                                   - crdTable
@@ -323,6 +335,7 @@ spec:
                                   type: string
                               required:
                               - key
+                              - placement
                               - type
                               type: object
                             type: array

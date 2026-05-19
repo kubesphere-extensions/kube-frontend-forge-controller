@@ -402,11 +402,13 @@ fn current_job_status_overrides_existing_package_job() {
                         "menus": [{
                             "displayName": "Inspect Tasks",
                             "key": "inspecttasks",
+                            "pageKey": "inspecttasks",
                             "placement": "cluster",
                             "type": "page",
                         }],
                         "pages": [{
                             "key": "inspecttasks",
+                            "placement": "cluster",
                             "type": "iframe",
                             "iframe": {
                                 "src": "http://example.test",
@@ -473,11 +475,13 @@ fn existing_package_job_is_fallback_when_current_job_missing() {
                         "menus": [{
                             "displayName": "Inspect Tasks",
                             "key": "inspecttasks",
+                            "pageKey": "inspecttasks",
                             "placement": "cluster",
                             "type": "page",
                         }],
                         "pages": [{
                             "key": "inspecttasks",
+                            "placement": "cluster",
                             "type": "iframe",
                             "iframe": {
                                 "src": "http://example.test",
