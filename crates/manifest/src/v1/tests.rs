@@ -305,6 +305,59 @@ spec:
 }
 
 #[test]
+fn rejects_duplicate_fe_menu_routes() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: duplicate-route-demo
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: Duplicate Route Demo
+    description:
+      en: Duplicate Route Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Tools
+            key: tools
+            placement: global
+            type: organization
+            children:
+              - displayName: First
+                key: inspect
+                pageKey: first-page
+              - displayName: Second
+                key: inspect
+                pageKey: second-page
+        pages:
+          - key: first-page
+            placement: global
+            type: iframe
+            iframe:
+              src: http://example.test/first
+          - key: second-page
+            placement: global
+            type: iframe
+            iframe:
+              src: http://example.test/second
+"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        render_v1_fe_manifest(&fe),
+        Err(ManifestRenderError::DuplicateMenuRoute { .. })
+    ));
+}
+
+#[test]
 fn rejects_fe_page_placement_mismatch() {
     let fe: FrontendExtension = serde_yaml::from_str(
         r#"

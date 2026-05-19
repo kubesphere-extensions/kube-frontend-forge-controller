@@ -118,7 +118,8 @@ Status: Implemented
 | Error | Trigger |
 | --- | --- |
 | `DuplicateTopLevelMenuKey` | Duplicate primary `menus[].key`. |
-| `DuplicatePageKey` | Duplicate FI `pages[].key`, duplicate FE page `(placement,key)`, or duplicate menu route for `(placement, route suffix)`. |
+| `DuplicatePageKey` | Duplicate FI `pages[].key` or duplicate FE page `(placement,key)`. |
+| `DuplicateMenuRoute` | Duplicate menu route for `(placement, route suffix)`. |
 | `MissingPageForMenuKey` | Page menu has no matching page config. FI bindings use menu `key`; FE bindings use `pageKey` plus matching `placement`. |
 | `OrphanPageConfig` | Page config is not bound by any page menu. |
 | `InvalidMenuShape` | `page` menu has children; `organization` has no children; FE page menu omits `pageKey`; FE organization menu defines `pageKey`. |

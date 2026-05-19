@@ -244,9 +244,10 @@ pub(crate) fn bind_page(
     bound_menu_routes: &mut HashSet<(String, String)>,
 ) -> Result<FrontendPageSpec, ManifestRenderError> {
     if !bound_menu_routes.insert((placement.as_str().to_string(), route_suffix.to_string())) {
-        return Err(ManifestRenderError::DuplicatePageKey {
+        return Err(ManifestRenderError::DuplicateMenuRoute {
             fi_name: fi_name.to_string(),
-            key: route_suffix.to_string(),
+            placement: placement.as_str().to_string(),
+            route: route_suffix.to_string(),
         });
     }
     let page_ref = page_ref_key(Some(placement), key);

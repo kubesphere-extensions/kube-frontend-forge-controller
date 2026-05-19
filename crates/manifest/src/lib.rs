@@ -24,6 +24,17 @@ pub enum ManifestRenderError {
     #[snafu(display("FrontendIntegration {} has duplicate page key '{}'", fi_name, key))]
     DuplicatePageKey { fi_name: String, key: String },
     #[snafu(display(
+        "FrontendIntegration {} has duplicate menu route '{}' in placement '{}'",
+        fi_name,
+        route,
+        placement
+    ))]
+    DuplicateMenuRoute {
+        fi_name: String,
+        placement: String,
+        route: String,
+    },
+    #[snafu(display(
         "FrontendIntegration {} is missing page config for menu key '{}'",
         fi_name,
         key
