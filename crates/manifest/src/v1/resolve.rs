@@ -205,12 +205,12 @@ pub(crate) fn resolve_spec(
 pub(crate) fn resolve_pages(
     spec: &FrontendRenderInput,
     fi_name: &str,
-    referenced_page_keys: &HashSet<String>,
+    referenced_page_keys: &HashSet<&str>,
 ) -> Result<HashMap<String, FrontendPageSpec>, ManifestRenderError> {
     let mut pages = HashMap::new();
 
     for page in &spec.pages {
-        if !referenced_page_keys.contains(&page.key) {
+        if !referenced_page_keys.contains(page.key.as_str()) {
             continue;
         }
 
@@ -227,28 +227,26 @@ pub(crate) fn resolve_pages(
     Ok(pages)
 }
 
-fn referenced_page_keys(spec: &FrontendRenderInput) -> HashSet<String> {
+fn referenced_page_keys(spec: &FrontendRenderInput) -> HashSet<&str> {
     let mut keys = HashSet::new();
 
     for menu in &spec.menus {
         match menu.type_ {
             MenuNodeType::Page => {
-                if let Some(page_key) = menu
-                    .page_key
-                    .as_ref()
-                    .or_else(|| (!spec.require_page_key).then_some(&menu.key))
+                if let Some(key) =
+                    referenced_page_key(menu.page_key.as_deref(), &menu.key, spec.require_page_key)
                 {
-                    keys.insert(page_key.clone());
+                    keys.insert(key);
                 }
             }
             MenuNodeType::Organization => {
                 for child in &menu.children {
-                    if let Some(page_key) = child
-                        .page_key
-                        .as_ref()
-                        .or_else(|| (!spec.require_page_key).then_some(&child.key))
-                    {
-                        keys.insert(page_key.clone());
+                    if let Some(key) = referenced_page_key(
+                        child.page_key.as_deref(),
+                        &child.key,
+                        spec.require_page_key,
+                    ) {
+                        keys.insert(key);
                     }
                 }
             }
@@ -256,6 +254,14 @@ fn referenced_page_keys(spec: &FrontendRenderInput) -> HashSet<String> {
     }
 
     keys
+}
+
+fn referenced_page_key<'a>(
+    page_key: Option<&'a str>,
+    menu_key: &'a str,
+    require_page_key: bool,
+) -> Option<&'a str> {
+    page_key.or_else(|| (!require_page_key).then_some(menu_key))
 }
 
 pub(crate) fn bind_page(
