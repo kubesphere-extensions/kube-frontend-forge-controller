@@ -103,7 +103,8 @@ FI keeps the historical route suffix as the page ID suffix. FE uses the bound
 page. FE menu `placements` are real entries; FE page `placements` are expected
 capabilities. When one FE menu declares multiple `placements`, it is expanded
 before rendering and produces one route/page per placement, as long as the bound
-page includes each menu placement.
+page includes each menu placement. Page configs that are not bound by any menu
+are ignored and do not produce standalone pages.
 
 Examples:
 
@@ -124,7 +125,6 @@ Status: Implemented
 | `DuplicatePageKey` | Duplicate `pages[].key`. |
 | `DuplicateMenuRoute` | Duplicate menu route for `(placement, route suffix)`. |
 | `MissingPageForMenuKey` | Page menu has no matching page config. FI bindings use menu `key`; FE bindings use `pageKey`. |
-| `OrphanPageConfig` | Page config is not bound by any page menu. |
 | `InvalidMenuShape` | `page` menu has children; `organization` has no children; FE menu has empty `placements`; FE page menu omits `pageKey`; FE organization menu defines `pageKey`. |
 | `InvalidMenuKey` | Menu key is empty, starts/ends with `-`, or contains chars outside `[a-z0-9-]`. |
 | `InvalidPageShape` | Page key invalid; FE page has empty `placements`; FE page `placements` do not include the bound menu placement; page type config missing; page defines config for the wrong type. |

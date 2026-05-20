@@ -879,7 +879,7 @@ spec:
 }
 
 #[test]
-fn rejects_orphan_page_config() {
+fn ignores_orphan_page_config() {
     let fi: FrontendIntegration = serde_yaml::from_str(
         r#"
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
@@ -901,14 +901,26 @@ spec:
       type: iframe
       iframe:
         src: http://example.test/orphan
+    - key: invalid-orphan
+      type: iframe
 "#,
     )
     .unwrap();
 
-    assert!(matches!(
-        render_v1_manifest(&fi),
-        Err(ManifestRenderError::OrphanPageConfig { .. })
-    ));
+    let manifest = render_v1_manifest(&fi).unwrap();
+    let pages = manifest["pages"].as_array().unwrap();
+    let routes = manifest["routes"].as_array().unwrap();
+
+    assert_eq!(pages.len(), 1);
+    assert_eq!(routes.len(), 1);
+    assert_eq!(pages[0]["id"], "demo-cluster-overview");
+    assert_eq!(routes[0]["pageId"], "demo-cluster-overview");
+    assert!(
+        pages
+            .iter()
+            .all(|page| page["componentsTree"]["root"]["props"]["FRAME_URL"]
+                != "http://example.test/orphan")
+    );
 }
 
 #[test]
@@ -938,28 +950,43 @@ spec:
         Err(ManifestRenderError::InvalidMenuKey { .. })
     ));
 
-    let invalid_page_key: FrontendIntegration = serde_yaml::from_str(
+    let invalid_page_key: FrontendExtension = serde_yaml::from_str(
         r#"
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
-kind: FrontendIntegration
+kind: FrontendExtension
 metadata:
   name: demo
 spec:
-  menus:
-    - displayName: Overview
-      key: overview
-      placement: cluster
-      type: page
-  pages:
-    - key: invalid_key
-      type: iframe
-      iframe:
-        src: http://example.test
+  package:
+    version: 0.1.0
+    displayName:
+      en: Demo
+    description:
+      en: Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Overview
+            key: overview
+            pageKey: invalid_key
+            placements:
+              - cluster
+            type: page
+        pages:
+          - key: invalid_key
+            placements:
+              - cluster
+            type: iframe
+            iframe:
+              src: http://example.test
 "#,
     )
     .unwrap();
     assert!(matches!(
-        render_v1_manifest(&invalid_page_key),
+        render_v1_fe_manifest(&invalid_page_key),
         Err(ManifestRenderError::InvalidPageShape { .. })
     ));
 
