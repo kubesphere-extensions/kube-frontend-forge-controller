@@ -85,13 +85,13 @@ pub(crate) fn resolve_spec(
 ) -> Result<Vec<ResolvedTopMenu>, ManifestRenderError> {
     let pages_by_key = resolve_pages(spec, fi_name)?;
     let mut top_level_keys = HashSet::new();
-    let mut bound_page_refs = HashSet::new();
+    let mut bound_page_keys = HashSet::new();
     let mut bound_menu_routes = HashSet::new();
     let mut resolved = Vec::new();
 
     for menu in &spec.menus {
         validate_key(fi_name, &menu.key, true)?;
-        if !top_level_keys.insert(menu.key.clone()) {
+        if !top_level_keys.insert((menu.placement.as_str().to_string(), menu.key.clone())) {
             return Err(ManifestRenderError::DuplicateTopLevelMenuKey {
                 fi_name: fi_name.to_string(),
                 key: menu.key.clone(),
@@ -122,7 +122,7 @@ pub(crate) fn resolve_spec(
                     &page_key,
                     &route_suffix,
                     &pages_by_key,
-                    &mut bound_page_refs,
+                    &mut bound_page_keys,
                     &mut bound_menu_routes,
                 )?;
                 resolved.push(ResolvedTopMenu::Page(Box::new(ResolvedPageBinding {
@@ -169,7 +169,7 @@ pub(crate) fn resolve_spec(
                         &page_key,
                         &route_suffix,
                         &pages_by_key,
-                        &mut bound_page_refs,
+                        &mut bound_page_keys,
                         &mut bound_menu_routes,
                     )?;
                     children.push(ResolvedPageBinding {
@@ -202,7 +202,7 @@ pub(crate) fn resolve_spec(
     }
 
     for page in &spec.pages {
-        if !bound_page_refs.contains(&page_ref_key(page.placement, &page.key)) {
+        if !bound_page_keys.contains(&page.key) {
             return Err(ManifestRenderError::OrphanPageConfig {
                 fi_name: fi_name.to_string(),
                 key: page.key.clone(),
@@ -216,14 +216,13 @@ pub(crate) fn resolve_spec(
 pub(crate) fn resolve_pages(
     spec: &FrontendRenderInput,
     fi_name: &str,
-) -> Result<HashMap<(Option<String>, String), FrontendPageSpec>, ManifestRenderError> {
+) -> Result<HashMap<String, FrontendPageSpec>, ManifestRenderError> {
     let mut pages = HashMap::new();
 
     for page in &spec.pages {
         validate_key(fi_name, &page.key, false)?;
         validate_page_shape(fi_name, page)?;
-        let page_ref = page_ref_key(page.placement, &page.key);
-        if pages.insert(page_ref, page.clone()).is_some() {
+        if pages.insert(page.key.clone(), page.clone()).is_some() {
             return Err(ManifestRenderError::DuplicatePageKey {
                 fi_name: fi_name.to_string(),
                 key: page.key.clone(),
@@ -239,8 +238,8 @@ pub(crate) fn bind_page(
     placement: MenuPlacement,
     key: &str,
     route_suffix: &str,
-    pages_by_key: &HashMap<(Option<String>, String), FrontendPageSpec>,
-    bound_page_refs: &mut HashSet<(Option<String>, String)>,
+    pages_by_key: &HashMap<String, FrontendPageSpec>,
+    bound_page_keys: &mut HashSet<String>,
     bound_menu_routes: &mut HashSet<(String, String)>,
 ) -> Result<FrontendPageSpec, ManifestRenderError> {
     if !bound_menu_routes.insert((placement.as_str().to_string(), route_suffix.to_string())) {
@@ -250,45 +249,30 @@ pub(crate) fn bind_page(
             route: route_suffix.to_string(),
         });
     }
-    let page_ref = page_ref_key(Some(placement), key);
+    let Some(page) = pages_by_key.get(key) else {
+        return missing_page(fi_name, key);
+    };
 
-    pages_by_key
-        .get(&page_ref)
-        .or_else(|| pages_by_key.get(&page_ref_key(None, key)))
-        .cloned()
-        .inspect(|page| {
-            bound_page_refs.insert(page_ref_key(page.placement, &page.key));
-        })
-        .map_or_else(
-            || missing_or_mismatched_page(fi_name, placement, key, pages_by_key),
-            Ok,
-        )
-}
-
-fn missing_or_mismatched_page(
-    fi_name: &str,
-    placement: MenuPlacement,
-    key: &str,
-    pages_by_key: &HashMap<(Option<String>, String), FrontendPageSpec>,
-) -> Result<FrontendPageSpec, ManifestRenderError> {
-    if pages_by_key
-        .keys()
-        .any(|(page_placement, page_key)| page_key == key && page_placement.is_some())
-    {
-        Err(ManifestRenderError::InvalidPageShape {
+    if !page_accepts_placement(page, placement) {
+        return Err(ManifestRenderError::InvalidPageShape {
             fi_name: fi_name.to_string(),
             key: key.to_string(),
             message: format!(
-                "page placement must match bound menu placement '{}'",
+                "page placements must include bound menu placement '{}'",
                 placement.as_str()
             ),
-        })
-    } else {
-        Err(ManifestRenderError::MissingPageForMenuKey {
-            fi_name: fi_name.to_string(),
-            key: key.to_string(),
-        })
+        });
     }
+
+    bound_page_keys.insert(page.key.clone());
+    Ok(page.clone())
+}
+
+fn missing_page(fi_name: &str, key: &str) -> Result<FrontendPageSpec, ManifestRenderError> {
+    Err(ManifestRenderError::MissingPageForMenuKey {
+        fi_name: fi_name.to_string(),
+        key: key.to_string(),
+    })
 }
 
 pub(crate) fn resolve_page_key(
@@ -311,14 +295,10 @@ pub(crate) fn resolve_page_key(
     }
 }
 
-pub(crate) fn page_ref_key(
-    placement: Option<MenuPlacement>,
-    key: &str,
-) -> (Option<String>, String) {
-    (
-        placement.map(|placement| placement.as_str().to_string()),
-        key.to_string(),
-    )
+pub(crate) fn page_accepts_placement(page: &FrontendPageSpec, placement: MenuPlacement) -> bool {
+    page.placements
+        .as_ref()
+        .is_none_or(|placements| placements.contains(&placement))
 }
 
 pub(crate) fn validate_key(
@@ -353,6 +333,14 @@ pub(crate) fn validate_page_shape(
     fi_name: &str,
     page: &FrontendPageSpec,
 ) -> Result<(), ManifestRenderError> {
+    if matches!(page.placements.as_ref(), Some(placements) if placements.is_empty()) {
+        return Err(ManifestRenderError::InvalidPageShape {
+            fi_name: fi_name.to_string(),
+            key: page.key.clone(),
+            message: "pages must define at least one placement".to_string(),
+        });
+    }
+
     match page.type_ {
         PageType::Iframe => {
             if page.iframe.is_none() {
