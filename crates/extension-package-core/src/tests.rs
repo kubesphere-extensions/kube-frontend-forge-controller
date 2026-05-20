@@ -69,6 +69,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -401,6 +403,8 @@ spec:
             type: page
         pages:
           - key: cluster-tasks
+            placements:
+              - cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -417,6 +421,8 @@ spec:
                     type: text
                     path: metadata.name
           - key: workspace-reports
+            placements:
+              - workspace
             type: crdTable
             crdTable:
               group: reports.kubesphere.io
@@ -432,6 +438,8 @@ spec:
                     type: text
                     path: metadata.name
           - key: global-items
+            placements:
+              - global
             type: crdTable
             crdTable:
               group: items.kubesphere.io
@@ -532,6 +540,8 @@ spec:
             type: page
         pages:
           - key: global-frame
+            placements:
+              - global
             type: iframe
             iframe:
               src: http://example.test

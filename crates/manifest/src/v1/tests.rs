@@ -278,6 +278,8 @@ spec:
             type: page
         pages:
           - key: shared-page
+            placements:
+              - global
             type: iframe
             iframe:
               src: http://example.test/shared
@@ -340,10 +342,14 @@ spec:
                 pageKey: second-page
         pages:
           - key: first-page
+            placements:
+              - global
             type: iframe
             iframe:
               src: http://example.test/first
           - key: second-page
+            placements:
+              - global
             type: iframe
             iframe:
               src: http://example.test/second
@@ -387,6 +393,9 @@ spec:
             type: page
         pages:
           - key: overview-page
+            placements:
+              - cluster
+              - workspace
             type: iframe
             iframe:
               src: http://example.test
@@ -419,6 +428,51 @@ spec:
 }
 
 #[test]
+fn rejects_fe_page_placements_that_do_not_cover_menu_placement() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: capability-mismatch-demo
+spec:
+  package:
+    version: 0.1.0
+    displayName:
+      en: Capability Mismatch Demo
+    description:
+      en: Capability Mismatch Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Overview
+            key: overview
+            pageKey: overview-page
+            placements:
+              - cluster
+              - workspace
+            type: page
+        pages:
+          - key: overview-page
+            placements:
+              - cluster
+            type: iframe
+            iframe:
+              src: http://example.test
+"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        render_v1_fe_manifest(&fe),
+        Err(ManifestRenderError::InvalidPageShape { .. })
+    ));
+}
+
+#[test]
 fn rejects_fe_page_menu_without_page_key() {
     let fe: FrontendExtension = serde_yaml::from_str(
         r#"
@@ -446,6 +500,8 @@ spec:
             type: page
         pages:
           - key: overview
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test

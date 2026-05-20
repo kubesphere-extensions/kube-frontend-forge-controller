@@ -140,7 +140,7 @@ pub struct FrontendSecondaryMenuSpec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrontendPageSpec {
     pub key: String,
-    pub placement: Option<MenuPlacement>,
+    pub placements: Option<Vec<MenuPlacement>>,
     pub type_: PageType,
     pub crd_table: Option<CrdTablePageSpec>,
     pub iframe: Option<IframePageSpec>,
@@ -182,7 +182,7 @@ impl From<&FiPageSpec> for FrontendPageSpec {
     fn from(page: &FiPageSpec) -> Self {
         Self {
             key: page.key.clone(),
-            placement: None,
+            placements: None,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
             iframe: page.iframe.clone(),
@@ -205,7 +205,7 @@ impl From<&FrontendExtensionPageSpec> for FrontendPageSpec {
     fn from(page: &FrontendExtensionPageSpec) -> Self {
         Self {
             key: page.key.clone(),
-            placement: None,
+            placements: Some(page.placements.clone()),
             type_: page.type_,
             crd_table: page.crd_table.clone(),
             iframe: page.iframe.clone(),
@@ -548,6 +548,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -600,6 +602,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test

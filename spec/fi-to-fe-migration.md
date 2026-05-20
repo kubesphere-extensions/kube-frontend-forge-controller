@@ -134,7 +134,7 @@ Status: Implemented
 | `spec.displayName` | `spec.source.inline.frontend.displayName` |
 | `spec.locales` | `spec.source.inline.frontend.locales` |
 | `spec.menus` | `spec.source.inline.frontend.menus`; each FI menu `placement` becomes a single-item FE `placements`; page menus receive `pageKey` from the FI menu or child key |
-| `spec.pages` | `spec.source.inline.frontend.pages`; generated FE pages keep only page config and key |
+| `spec.pages` | `spec.source.inline.frontend.pages`; generated FE pages keep page config and key, and collect the placements of every FI menu that binds the page |
 | none | `spec.source.inline.extensionResources` is absent |
 | constant `Manual` | `spec.publishPolicy.mode` |
 | `PUBLISH_TARGET_KIND` | `spec.publishPolicy.defaultTargetKind` |

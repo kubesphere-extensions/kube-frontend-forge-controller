@@ -26,8 +26,8 @@ Source of truth: `crates/manifest/src/lib.rs`,
 | `schema_version` | `spec.builder.engineVersion` | `source.inline.schemaVersion` |
 | `route_namespace` | `frontendintegrations` | `frontendextensions` |
 | `locales` | `spec.locales` | `source.inline.frontend.locales` |
-| `menus` | `spec.menus`; page bindings use menu `key` | `source.inline.frontend.menus`; page bindings use `pageKey`; each `placements[]` entry expands to one internal menu |
-| `pages` | `spec.pages`; page placement is derived from the bound menu | `source.inline.frontend.pages`; pages declare `key`; page placement is derived from the bound menu |
+| `menus` | `spec.menus`; page bindings use menu `key` | `source.inline.frontend.menus`; page bindings use `pageKey`; each menu `placements[]` entry expands to one internal menu |
+| `pages` | `spec.pages`; page placement is derived from the bound menu | `source.inline.frontend.pages`; pages declare `key` and capability `placements`; rendered page placement is derived from the bound menu |
 
 Supported renderer aliases: `v1`, `v1alpha1`, `1`, `1.0`; missing or empty
 version resolves to `v1`.
@@ -100,8 +100,10 @@ Status: Implemented
 
 FI keeps the historical route suffix as the page ID suffix. FE uses the bound
 `pageKey`, so multiple FE menus in the same placement can route to one rendered
-page. When one FE menu declares multiple `placements`, it is expanded before
-rendering and produces one route/page per placement.
+page. FE menu `placements` are real entries; FE page `placements` are expected
+capabilities. When one FE menu declares multiple `placements`, it is expanded
+before rendering and produces one route/page per placement, as long as the bound
+page includes each menu placement.
 
 Examples:
 
@@ -125,7 +127,7 @@ Status: Implemented
 | `OrphanPageConfig` | Page config is not bound by any page menu. |
 | `InvalidMenuShape` | `page` menu has children; `organization` has no children; FE menu has empty `placements`; FE page menu omits `pageKey`; FE organization menu defines `pageKey`. |
 | `InvalidMenuKey` | Menu key is empty, starts/ends with `-`, or contains chars outside `[a-z0-9-]`. |
-| `InvalidPageShape` | Page key invalid; page type config missing; page defines config for the wrong type. |
+| `InvalidPageShape` | Page key invalid; FE page has empty `placements`; FE page `placements` do not include the bound menu placement; page type config missing; page defines config for the wrong type. |
 | `MissingCrdColumns` | `crdTable.columns` is empty. |
 | `UnsupportedEngineVersion` | FI `builder.engineVersion` is not a v1 alias. |
 | `UnsupportedSchemaVersion` | FE `source.inline.schemaVersion` is not a v1 alias. |
@@ -246,6 +248,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test

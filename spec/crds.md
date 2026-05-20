@@ -114,7 +114,7 @@ the FE controller and FE HTTP API by default.
 | `package` | `FrontendExtensionPackageSpec` | yes | Extension package metadata and chart values. |
 | `source.type` | `Inline` | yes | Only `Inline` is implemented. |
 | `source.inline.schemaVersion` | string | yes | Renderer schema version; supported values match FI v1 renderer aliases. |
-| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | FE menu/page/locales source. Menus bind pages through `pageKey` and `pages[].key`; menus declare one or more `placements`. |
+| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | FE menu/page/locales source. Menus bind pages through `pageKey` and `pages[].key`; menu `placements` describe real entries and page `placements` describe expected capability. |
 | `source.inline.extensionResources.jsBundle.name` | string | no | Type exists for compatibility; current package renderer does not use it. |
 | `publishPolicy` | `PublishPolicySpec` | no | Manual publish target defaults. |
 
@@ -131,10 +131,14 @@ FE menu fields are close to FI menu fields, with placement expanded to a list:
 
 | Field | Type | Applies to | Behavior |
 | --- | --- | --- | --- |
-| `placements` | array of `global` / `workspace` / `cluster` | primary | Required. Each placement is expanded into an internal menu binding. |
-| `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus may point at the same `pageKey`. |
+| `placements` | array of `global` / `workspace` / `cluster` | primary | Required. Real menu entry placements. Each placement is expanded into an internal menu binding. |
+| `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus may point at the same `pageKey`, but the target page must include the menu placement. |
 
-FE page fields match FI page config fields, without a `placement` field. Placement is derived from each bound menu.
+FE page fields match FI page config fields with one addition:
+
+| Field | Type | Behavior |
+| --- | --- | --- |
+| `placements` | array of `global` / `workspace` / `cluster` | Required. Expected page capability placements. A menu can bind the page only when the page includes the menu placement. |
 
 ### Package Fields
 

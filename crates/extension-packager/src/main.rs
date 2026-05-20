@@ -347,6 +347,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: iframe
             iframe:
               src: http://example.test

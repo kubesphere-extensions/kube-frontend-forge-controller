@@ -183,6 +183,8 @@ pub struct FrontendExtensionSecondaryMenuSpec {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct FrontendExtensionPageSpec {
     pub key: String,
+    #[schemars(length(min = 1))]
+    pub placements: Vec<MenuPlacement>,
     #[serde(rename = "type")]
     pub type_: PageType,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "crdTable")]
@@ -225,9 +227,10 @@ impl From<&FiSecondaryMenuSpec> for FrontendExtensionSecondaryMenuSpec {
 
 impl FrontendExtensionPageSpec {
     #[must_use]
-    pub fn from_fi_page(page: &FiPageSpec) -> Self {
+    pub fn from_fi_page(page: &FiPageSpec, placements: Vec<MenuPlacement>) -> Self {
         Self {
             key: page.key.clone(),
+            placements,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
             iframe: page.iframe.clone(),
@@ -585,6 +588,8 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            placements:
+              - cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -641,6 +646,10 @@ spec:
         );
         assert_eq!(
             inline.frontend.menus[0].placements,
+            vec![MenuPlacement::Cluster]
+        );
+        assert_eq!(
+            inline.frontend.pages[0].placements,
             vec![MenuPlacement::Cluster]
         );
         let resources = inline.extension_resources.unwrap();
@@ -735,6 +744,13 @@ spec:
                 .contains(&Value::String("placements".to_string()))
         );
         assert!(page["properties"].get("placement").is_none());
+        assert!(page["properties"].get("placements").is_some());
+        assert!(
+            page["required"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String("placements".to_string()))
+        );
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
         assert!(status_properties.get("observedRebuildToken").is_some());

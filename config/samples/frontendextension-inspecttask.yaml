@@ -65,6 +65,8 @@ spec:
             type: page
         pages:
           - key: role-test
+            placements:
+              - workspace
             type: crdTable
             crdTable:
               authKey: inspecttask
@@ -96,6 +98,8 @@ spec:
                     type: time
                   title: CREATION_TIME
           - key: cluster-role-test
+            placements:
+              - cluster
             type: crdTable
             crdTable:
               authKey: inspecttask
