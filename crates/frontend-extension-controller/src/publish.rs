@@ -14,6 +14,12 @@ pub(crate) struct PublishSync {
     pub(crate) should_requeue: bool,
 }
 
+#[derive(Debug)]
+pub(crate) enum PublishRequestError {
+    Stale,
+    Failed(Box<PublishStatus>),
+}
+
 pub(crate) async fn sync_publish(
     fe: &FrontendExtension,
     job_api: &Api<Job>,
@@ -42,7 +48,13 @@ pub(crate) async fn sync_publish(
         &artifact.digest,
     ) {
         Ok(request) => request,
-        Err(status) => {
+        Err(PublishRequestError::Stale) => {
+            return Ok(PublishSync {
+                status: retained_publish(fe),
+                should_requeue: false,
+            });
+        }
+        Err(PublishRequestError::Failed(status)) => {
             return Ok(PublishSync {
                 status: Some(*status),
                 should_requeue: false,
@@ -94,24 +106,16 @@ pub(crate) fn publish_request(
     current_generation: Option<i64>,
     current_source_hash: &str,
     current_artifact_digest: &str,
-) -> Result<PublishRequest, Box<PublishStatus>> {
+) -> Result<PublishRequest, PublishRequestError> {
     let annos = fe.metadata.annotations.as_ref();
     let requested_generation = publish_request_generation(fe);
     if requested_generation.is_some() && requested_generation != current_generation {
-        return Err(Box::new(failed_publish_status(
-            request_id,
-            None,
-            "publish request generation does not match current frontend extension generation",
-        )));
+        return Err(PublishRequestError::Stale);
     }
 
     let requested_source_hash = publish_request_source_hash(fe);
     if requested_source_hash.is_some() && requested_source_hash != Some(current_source_hash) {
-        return Err(Box::new(failed_publish_status(
-            request_id,
-            None,
-            "publish request source hash does not match current ready artifact",
-        )));
+        return Err(PublishRequestError::Stale);
     }
 
     let requested_digest = annos
@@ -120,10 +124,12 @@ pub(crate) fn publish_request(
         .cloned();
 
     if requested_digest.is_none() && requested_source_hash.is_none() {
-        return Err(Box::new(failed_publish_status(
-            request_id,
-            None,
-            "publish artifact digest or source hash annotation is required",
+        return Err(PublishRequestError::Failed(Box::new(
+            failed_publish_status(
+                request_id,
+                None,
+                "publish artifact digest or source hash annotation is required",
+            ),
         )));
     }
 
@@ -131,28 +137,26 @@ pub(crate) fn publish_request(
         .as_deref()
         .is_some_and(|digest| digest != current_artifact_digest)
     {
-        return Err(Box::new(failed_publish_status(
-            request_id,
-            requested_digest,
-            "publish artifact digest does not match current ready artifact",
-        )));
+        return Err(PublishRequestError::Stale);
     }
 
     let artifact_digest = requested_digest.unwrap_or_else(|| current_artifact_digest.to_string());
 
     let target_ref = publish_target_ref(fe).ok_or_else(|| {
-        Box::new(failed_publish_status(
+        PublishRequestError::Failed(Box::new(failed_publish_status(
             request_id,
             Some(artifact_digest.clone()),
             "publish targetRef is required",
-        ))
+        )))
     })?;
     let target_kind = publish_target_kind(fe);
     if !matches!(target_kind.as_str(), "ConfigMap" | "Secret") {
-        return Err(Box::new(failed_publish_status(
-            request_id,
-            Some(artifact_digest.clone()),
-            "publish targetKind must be ConfigMap or Secret",
+        return Err(PublishRequestError::Failed(Box::new(
+            failed_publish_status(
+                request_id,
+                Some(artifact_digest.clone()),
+                "publish targetKind must be ConfigMap or Secret",
+            ),
         )));
     }
 
@@ -199,18 +203,10 @@ pub(crate) fn pending_publish_for_current_source(
     if publish_request_generation(fe)
         .is_some_and(|generation| Some(generation) != current_generation)
     {
-        return Some(failed_publish_status(
-            request_id,
-            artifact_digest,
-            "publish request generation does not match current frontend extension generation",
-        ));
+        return None;
     }
     if requested_source_hash != current_source_hash {
-        return Some(failed_publish_status(
-            request_id,
-            artifact_digest,
-            "publish request source hash does not match current ready artifact",
-        ));
+        return None;
     }
 
     Some(PublishStatus {
@@ -280,19 +276,10 @@ pub(crate) fn failed_publish_status(
 
 pub(crate) fn current_publish_for_artifact(
     fe: &FrontendExtension,
-    artifact_digest: &str,
-    artifact_key: &str,
+    _artifact_digest: &str,
+    _artifact_key: &str,
 ) -> PublishStatus {
-    let publish = fe.status.as_ref().and_then(|status| status.publish.clone());
-    match publish {
-        Some(status)
-            if status.artifact_digest.as_deref() == Some(artifact_digest)
-                && current_status_artifact_key(fe) == Some(artifact_key) =>
-        {
-            status
-        }
-        _ => PublishStatus::default(),
-    }
+    retained_publish(fe).unwrap_or_default()
 }
 
 pub(crate) fn publish_already_finished(

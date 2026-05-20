@@ -271,7 +271,7 @@ fn artifact_configmap_requires_matching_artifact_key_annotation() {
 }
 
 #[test]
-fn publish_status_is_retained_only_for_same_artifact_key() {
+fn publish_status_is_retained_when_artifact_changes() {
     let mut fe = sample_fe();
     fe.status = Some(FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Ready,
@@ -311,12 +311,9 @@ fn publish_status_is_retained_only_for_same_artifact_key() {
             .phase,
         PublishPhase::Succeeded
     );
-    assert_eq!(
-        retained_publish_for_artifact_key(&fe, "sha256:newkey")
-            .unwrap()
-            .phase,
-        PublishPhase::NotRequested
-    );
+    let retained = retained_publish_for_artifact_key(&fe, "sha256:newkey").unwrap();
+    assert_eq!(retained.phase, PublishPhase::Succeeded);
+    assert_eq!(retained.artifact_digest.as_deref(), Some("sha256:artifact"));
 }
 
 #[test]
@@ -349,7 +346,7 @@ fn publish_request_accepts_waiting_intent_for_matching_generation_and_source() {
 }
 
 #[test]
-fn publish_request_rejects_stale_waiting_intent() {
+fn publish_request_ignores_stale_waiting_intent() {
     let mut fe = sample_fe();
     fe.metadata.annotations = Some(BTreeMap::from([
         (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
@@ -360,7 +357,7 @@ fn publish_request_rejects_stale_waiting_intent() {
         ),
     ]));
 
-    let status = publish_request(
+    let err = publish_request(
         &fe,
         "request-1",
         Some(7),
@@ -369,11 +366,7 @@ fn publish_request_rejects_stale_waiting_intent() {
     )
     .unwrap_err();
 
-    assert_eq!(status.phase, PublishPhase::Failed);
-    assert_eq!(
-        status.last_error.as_deref(),
-        Some("publish request generation does not match current frontend extension generation")
-    );
+    assert!(matches!(err, PublishRequestError::Stale));
 }
 
 #[test]
@@ -586,6 +579,7 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
 
     assert_eq!(labels[LABEL_FE_PACKAGE_STATUS], FE_PACKAGE_STATUS_READY);
     assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_PUBLISHED);
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_FALSE);
 
     let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Packaging,
@@ -601,6 +595,7 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
         labels[LABEL_FE_PUBLISH_STATUS],
         FE_PUBLISH_STATUS_PUBLISHING
     );
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_FALSE);
 
     let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Failed,
@@ -613,6 +608,7 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
 
     assert_eq!(labels[LABEL_FE_PACKAGE_STATUS], FE_PACKAGE_STATUS_FAILED);
     assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_FAILED);
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_FALSE);
 
     let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Ready,
@@ -628,6 +624,57 @@ fn status_labels_map_package_and_publish_states_for_list_filters() {
         labels[LABEL_FE_PUBLISH_STATUS],
         FE_PUBLISH_STATUS_NOT_PUBLISHED
     );
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_FALSE);
+}
+
+#[test]
+fn publish_fresh_label_tracks_current_artifact_digest() {
+    let status = FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        artifact: Some(ExtensionArtifactStatus {
+            storage: ArtifactStorageStatus {
+                kind: ArtifactStorageKind::ConfigMap,
+                ref_: NamespacedResourceRef {
+                    namespace: "extension-frontend-forge".to_string(),
+                    name: "fe-inspecttask-a1b2c3d4".to_string(),
+                    uid: None,
+                },
+                key: PACKAGE_KEY.to_string(),
+            },
+            digest: "sha256:current".to_string(),
+            size_bytes: 1,
+            media_type: "application/gzip".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            generated_at: Utc::now(),
+            source_hash: "sha256:source".to_string(),
+            artifact_key: Some("sha256:artifactkey".to_string()),
+        }),
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Succeeded,
+            active: true,
+            artifact_digest: Some("sha256:current".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let labels = frontend_extension_status_labels(&status);
+
+    assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_PUBLISHED);
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_TRUE);
+
+    let stale = FrontendExtensionStatus {
+        publish: Some(PublishStatus {
+            artifact_digest: Some("sha256:old".to_string()),
+            ..status.publish.clone().unwrap()
+        }),
+        ..status
+    };
+
+    let labels = frontend_extension_status_labels(&stale);
+
+    assert_eq!(labels[LABEL_FE_PUBLISH_STATUS], FE_PUBLISH_STATUS_PUBLISHED);
+    assert_eq!(labels[LABEL_FE_PUBLISH_FRESH], FE_PUBLISH_FRESH_FALSE);
 }
 
 #[test]
@@ -652,6 +699,10 @@ fn status_labels_patch_writes_metadata_labels() {
     assert_eq!(
         patch["metadata"]["labels"][LABEL_FE_PUBLISH_STATUS],
         FE_PUBLISH_STATUS_PUBLISHED
+    );
+    assert_eq!(
+        patch["metadata"]["labels"][LABEL_FE_PUBLISH_FRESH],
+        FE_PUBLISH_FRESH_FALSE
     );
     assert_eq!(
         patch["metadata"]["labels"][DEPRECATED_LABEL_FE_PACKAGE_STATUS],
