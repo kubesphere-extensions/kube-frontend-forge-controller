@@ -168,18 +168,13 @@ pub(crate) fn failed_fe_status(
 
 pub(crate) fn retained_publish_for_artifact_key(
     fe: &FrontendExtension,
-    artifact_key: &str,
+    _artifact_key: &str,
 ) -> Option<PublishStatus> {
-    let status = fe.status.as_ref()?;
-    if status
-        .artifact
-        .as_ref()
-        .is_some_and(|artifact| artifact.artifact_key.as_deref() == Some(artifact_key))
-    {
-        status.publish.clone()
-    } else {
-        Some(PublishStatus::default())
-    }
+    retained_publish(fe).or_else(|| Some(PublishStatus::default()))
+}
+
+pub(crate) fn retained_publish(fe: &FrontendExtension) -> Option<PublishStatus> {
+    fe.status.as_ref().and_then(|status| status.publish.clone())
 }
 
 pub(crate) fn fe_condition(
@@ -300,6 +295,10 @@ pub(crate) fn frontend_extension_status_labels(
             LABEL_FE_PUBLISH_STATUS.to_string(),
             publish_status_label_value(status.publish.as_ref()).to_string(),
         ),
+        (
+            LABEL_FE_PUBLISH_FRESH.to_string(),
+            publish_fresh_label_value(status).to_string(),
+        ),
     ])
 }
 
@@ -323,6 +322,26 @@ pub(crate) fn publish_status_label_value(publish: Option<&PublishStatus>) -> &'s
         }
         Some(status) if matches!(status.phase, PublishPhase::Failed) => FE_PUBLISH_STATUS_FAILED,
         _ => FE_PUBLISH_STATUS_NOT_PUBLISHED,
+    }
+}
+
+pub(crate) fn publish_fresh_label_value(status: &FrontendExtensionStatus) -> &'static str {
+    let Some(artifact_digest) = status
+        .artifact
+        .as_ref()
+        .map(|artifact| artifact.digest.as_str())
+    else {
+        return FE_PUBLISH_FRESH_FALSE;
+    };
+    match status.publish.as_ref() {
+        Some(publish)
+            if matches!(publish.phase, PublishPhase::Succeeded)
+                && publish.active
+                && publish.artifact_digest.as_deref() == Some(artifact_digest) =>
+        {
+            FE_PUBLISH_FRESH_TRUE
+        }
+        _ => FE_PUBLISH_FRESH_FALSE,
     }
 }
 

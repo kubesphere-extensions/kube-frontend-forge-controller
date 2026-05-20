@@ -231,6 +231,7 @@ Status labels written by controller for frontend list filtering:
 | --- | --- | --- |
 | `frontend-forge.kubesphere.io/package-state` | `packaging`, `ready`, `failed` | Package creation state. `Pending` status is exposed as `packaging`. |
 | `frontend-forge.kubesphere.io/publish-state` | `not-published`, `publishing`, `published`, `failed` | Publish state. `published` requires `status.publish.phase=Succeeded` and `active=true`; inactive succeeded publish is exposed as `not-published`. |
+| `frontend-forge.kubesphere.io/publish-fresh` | `true`, `false` | Whether the active published artifact digest matches the current ready artifact digest. |
 
 ## Extension HTTP API
 
