@@ -41,12 +41,6 @@ pub enum ManifestRenderError {
     ))]
     MissingPageForMenuKey { fi_name: String, key: String },
     #[snafu(display(
-        "FrontendIntegration {} has page config '{}' without a menu binding",
-        fi_name,
-        key
-    ))]
-    OrphanPageConfig { fi_name: String, key: String },
-    #[snafu(display(
         "FrontendIntegration {} has invalid menu shape for key '{}': {}",
         fi_name,
         key,

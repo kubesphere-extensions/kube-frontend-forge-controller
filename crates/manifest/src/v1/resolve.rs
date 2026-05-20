@@ -83,9 +83,9 @@ pub(crate) fn resolve_spec(
     fi_name: &str,
     route_namespace: &str,
 ) -> Result<Vec<ResolvedTopMenu>, ManifestRenderError> {
-    let pages_by_key = resolve_pages(spec, fi_name)?;
+    let referenced_page_keys = referenced_page_keys(spec);
+    let pages_by_key = resolve_pages(spec, fi_name, &referenced_page_keys)?;
     let mut top_level_keys = HashSet::new();
-    let mut bound_page_keys = HashSet::new();
     let mut bound_menu_routes = HashSet::new();
     let mut resolved = Vec::new();
 
@@ -122,7 +122,6 @@ pub(crate) fn resolve_spec(
                     &page_key,
                     &route_suffix,
                     &pages_by_key,
-                    &mut bound_page_keys,
                     &mut bound_menu_routes,
                 )?;
                 resolved.push(ResolvedTopMenu::Page(Box::new(ResolvedPageBinding {
@@ -169,7 +168,6 @@ pub(crate) fn resolve_spec(
                         &page_key,
                         &route_suffix,
                         &pages_by_key,
-                        &mut bound_page_keys,
                         &mut bound_menu_routes,
                     )?;
                     children.push(ResolvedPageBinding {
@@ -201,25 +199,21 @@ pub(crate) fn resolve_spec(
         }
     }
 
-    for page in &spec.pages {
-        if !bound_page_keys.contains(&page.key) {
-            return Err(ManifestRenderError::OrphanPageConfig {
-                fi_name: fi_name.to_string(),
-                key: page.key.clone(),
-            });
-        }
-    }
-
     Ok(resolved)
 }
 
 pub(crate) fn resolve_pages(
     spec: &FrontendRenderInput,
     fi_name: &str,
+    referenced_page_keys: &HashSet<&str>,
 ) -> Result<HashMap<String, FrontendPageSpec>, ManifestRenderError> {
     let mut pages = HashMap::new();
 
     for page in &spec.pages {
+        if !referenced_page_keys.contains(page.key.as_str()) {
+            continue;
+        }
+
         validate_key(fi_name, &page.key, false)?;
         validate_page_shape(fi_name, page)?;
         if pages.insert(page.key.clone(), page.clone()).is_some() {
@@ -233,13 +227,49 @@ pub(crate) fn resolve_pages(
     Ok(pages)
 }
 
+fn referenced_page_keys(spec: &FrontendRenderInput) -> HashSet<&str> {
+    let mut keys = HashSet::new();
+
+    for menu in &spec.menus {
+        match menu.type_ {
+            MenuNodeType::Page => {
+                if let Some(key) =
+                    referenced_page_key(menu.page_key.as_deref(), &menu.key, spec.require_page_key)
+                {
+                    keys.insert(key);
+                }
+            }
+            MenuNodeType::Organization => {
+                for child in &menu.children {
+                    if let Some(key) = referenced_page_key(
+                        child.page_key.as_deref(),
+                        &child.key,
+                        spec.require_page_key,
+                    ) {
+                        keys.insert(key);
+                    }
+                }
+            }
+        }
+    }
+
+    keys
+}
+
+fn referenced_page_key<'a>(
+    page_key: Option<&'a str>,
+    menu_key: &'a str,
+    require_page_key: bool,
+) -> Option<&'a str> {
+    page_key.or_else(|| (!require_page_key).then_some(menu_key))
+}
+
 pub(crate) fn bind_page(
     fi_name: &str,
     placement: MenuPlacement,
     key: &str,
     route_suffix: &str,
     pages_by_key: &HashMap<String, FrontendPageSpec>,
-    bound_page_keys: &mut HashSet<String>,
     bound_menu_routes: &mut HashSet<(String, String)>,
 ) -> Result<FrontendPageSpec, ManifestRenderError> {
     if !bound_menu_routes.insert((placement.as_str().to_string(), route_suffix.to_string())) {
@@ -264,7 +294,6 @@ pub(crate) fn bind_page(
         });
     }
 
-    bound_page_keys.insert(page.key.clone());
     Ok(page.clone())
 }
 
