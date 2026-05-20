@@ -91,7 +91,7 @@ pub(crate) fn resolve_spec(
 
     for menu in &spec.menus {
         validate_key(fi_name, &menu.key, true)?;
-        if !top_level_keys.insert(menu.key.clone()) {
+        if !top_level_keys.insert((menu.placement.as_str().to_string(), menu.key.clone())) {
             return Err(ManifestRenderError::DuplicateTopLevelMenuKey {
                 fi_name: fi_name.to_string(),
                 key: menu.key.clone(),
@@ -259,36 +259,14 @@ pub(crate) fn bind_page(
         .inspect(|page| {
             bound_page_refs.insert(page_ref_key(page.placement, &page.key));
         })
-        .map_or_else(
-            || missing_or_mismatched_page(fi_name, placement, key, pages_by_key),
-            Ok,
-        )
+        .map_or_else(|| missing_page(fi_name, key), Ok)
 }
 
-fn missing_or_mismatched_page(
-    fi_name: &str,
-    placement: MenuPlacement,
-    key: &str,
-    pages_by_key: &HashMap<(Option<String>, String), FrontendPageSpec>,
-) -> Result<FrontendPageSpec, ManifestRenderError> {
-    if pages_by_key
-        .keys()
-        .any(|(page_placement, page_key)| page_key == key && page_placement.is_some())
-    {
-        Err(ManifestRenderError::InvalidPageShape {
-            fi_name: fi_name.to_string(),
-            key: key.to_string(),
-            message: format!(
-                "page placement must match bound menu placement '{}'",
-                placement.as_str()
-            ),
-        })
-    } else {
-        Err(ManifestRenderError::MissingPageForMenuKey {
-            fi_name: fi_name.to_string(),
-            key: key.to_string(),
-        })
-    }
+fn missing_page(fi_name: &str, key: &str) -> Result<FrontendPageSpec, ManifestRenderError> {
+    Err(ManifestRenderError::MissingPageForMenuKey {
+        fi_name: fi_name.to_string(),
+        key: key.to_string(),
+    })
 }
 
 pub(crate) fn resolve_page_key(

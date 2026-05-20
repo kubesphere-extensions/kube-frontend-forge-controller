@@ -64,11 +64,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -384,21 +384,23 @@ spec:
           - displayName: Cluster Tasks
             key: cluster-tasks
             pageKey: cluster-tasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
           - displayName: Workspace Reports
             key: workspace-reports
             pageKey: workspace-reports
-            placement: workspace
+            placements:
+              - workspace
             type: page
           - displayName: Global Items
             key: global-items
             pageKey: global-items
-            placement: global
+            placements:
+              - global
             type: page
         pages:
           - key: cluster-tasks
-            placement: cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -415,7 +417,6 @@ spec:
                     type: text
                     path: metadata.name
           - key: workspace-reports
-            placement: workspace
             type: crdTable
             crdTable:
               group: reports.kubesphere.io
@@ -431,7 +432,6 @@ spec:
                     type: text
                     path: metadata.name
           - key: global-items
-            placement: global
             type: crdTable
             crdTable:
               group: items.kubesphere.io
@@ -527,11 +527,11 @@ spec:
           - displayName: Global Frame
             key: global-frame
             pageKey: global-frame
-            placement: global
+            placements:
+              - global
             type: page
         pages:
           - key: global-frame
-            placement: global
             type: iframe
             iframe:
               src: http://example.test

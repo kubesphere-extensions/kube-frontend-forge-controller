@@ -190,24 +190,6 @@ impl From<&FiPageSpec> for FrontendPageSpec {
     }
 }
 
-impl From<&FrontendExtensionPrimaryMenuSpec> for FrontendMenuSpec {
-    fn from(menu: &FrontendExtensionPrimaryMenuSpec) -> Self {
-        Self {
-            display_name: menu.display_name.clone(),
-            key: menu.key.clone(),
-            icon: menu.icon.clone(),
-            placement: menu.placement,
-            type_: menu.type_,
-            page_key: menu.page_key.clone(),
-            children: menu
-                .children
-                .iter()
-                .map(FrontendSecondaryMenuSpec::from)
-                .collect(),
-        }
-    }
-}
-
 impl From<&FrontendExtensionSecondaryMenuSpec> for FrontendSecondaryMenuSpec {
     fn from(menu: &FrontendExtensionSecondaryMenuSpec) -> Self {
         Self {
@@ -223,7 +205,7 @@ impl From<&FrontendExtensionPageSpec> for FrontendPageSpec {
     fn from(page: &FrontendExtensionPageSpec) -> Self {
         Self {
             key: page.key.clone(),
-            placement: Some(page.placement),
+            placement: None,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
             iframe: page.iframe.clone(),
@@ -266,12 +248,7 @@ impl FrontendRenderInput {
                     schema_version: Some(inline.schema_version.clone()),
                     route_namespace: "frontendextensions".to_string(),
                     locales: inline.frontend.locales.clone(),
-                    menus: inline
-                        .frontend
-                        .menus
-                        .iter()
-                        .map(FrontendMenuSpec::from)
-                        .collect(),
+                    menus: frontend_extension_menus(&inline.frontend.menus, &fe.name_any())?,
                     pages: inline
                         .frontend
                         .pages
@@ -283,6 +260,41 @@ impl FrontendRenderInput {
             }
         }
     }
+}
+
+fn frontend_extension_menus(
+    menus: &[FrontendExtensionPrimaryMenuSpec],
+    fe_name: &str,
+) -> Result<Vec<FrontendMenuSpec>, ManifestRenderError> {
+    let mut expanded = Vec::new();
+
+    for menu in menus {
+        if menu.placements.is_empty() {
+            return Err(ManifestRenderError::InvalidMenuShape {
+                fi_name: fe_name.to_string(),
+                key: menu.key.clone(),
+                message: "menus must define at least one placement".to_string(),
+            });
+        }
+
+        for placement in &menu.placements {
+            expanded.push(FrontendMenuSpec {
+                display_name: menu.display_name.clone(),
+                key: menu.key.clone(),
+                icon: menu.icon.clone(),
+                placement: *placement,
+                type_: menu.type_,
+                page_key: menu.page_key.clone(),
+                children: menu
+                    .children
+                    .iter()
+                    .map(FrontendSecondaryMenuSpec::from)
+                    .collect(),
+            });
+        }
+    }
+
+    Ok(expanded)
 }
 
 fn localized_text(values: &BTreeMap<String, String>) -> Option<String> {
@@ -531,11 +543,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test
@@ -583,11 +595,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test

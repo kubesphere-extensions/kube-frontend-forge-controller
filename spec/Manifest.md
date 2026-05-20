@@ -26,8 +26,8 @@ Source of truth: `crates/manifest/src/lib.rs`,
 | `schema_version` | `spec.builder.engineVersion` | `source.inline.schemaVersion` |
 | `route_namespace` | `frontendintegrations` | `frontendextensions` |
 | `locales` | `spec.locales` | `source.inline.frontend.locales` |
-| `menus` | `spec.menus`; page bindings use menu `key` | `source.inline.frontend.menus`; page bindings use `pageKey` |
-| `pages` | `spec.pages`; page placement is derived from the bound menu | `source.inline.frontend.pages`; pages declare `key` and `placement` |
+| `menus` | `spec.menus`; page bindings use menu `key` | `source.inline.frontend.menus`; page bindings use `pageKey`; each `placements[]` entry expands to one internal menu |
+| `pages` | `spec.pages`; page placement is derived from the bound menu | `source.inline.frontend.pages`; pages declare `key`; page placement is derived from the bound menu |
 
 Supported renderer aliases: `v1`, `v1alpha1`, `1`, `1.0`; missing or empty
 version resolves to `v1`.
@@ -100,7 +100,8 @@ Status: Implemented
 
 FI keeps the historical route suffix as the page ID suffix. FE uses the bound
 `pageKey`, so multiple FE menus in the same placement can route to one rendered
-page.
+page. When one FE menu declares multiple `placements`, it is expanded before
+rendering and produces one route/page per placement.
 
 Examples:
 
@@ -117,14 +118,14 @@ Status: Implemented
 
 | Error | Trigger |
 | --- | --- |
-| `DuplicateTopLevelMenuKey` | Duplicate primary `menus[].key`. |
-| `DuplicatePageKey` | Duplicate FI `pages[].key` or duplicate FE page `(placement,key)`. |
+| `DuplicateTopLevelMenuKey` | Duplicate primary `menus[].key` in the same placement. |
+| `DuplicatePageKey` | Duplicate `pages[].key`. |
 | `DuplicateMenuRoute` | Duplicate menu route for `(placement, route suffix)`. |
-| `MissingPageForMenuKey` | Page menu has no matching page config. FI bindings use menu `key`; FE bindings use `pageKey` plus matching `placement`. |
+| `MissingPageForMenuKey` | Page menu has no matching page config. FI bindings use menu `key`; FE bindings use `pageKey`. |
 | `OrphanPageConfig` | Page config is not bound by any page menu. |
-| `InvalidMenuShape` | `page` menu has children; `organization` has no children; FE page menu omits `pageKey`; FE organization menu defines `pageKey`. |
+| `InvalidMenuShape` | `page` menu has children; `organization` has no children; FE menu has empty `placements`; FE page menu omits `pageKey`; FE organization menu defines `pageKey`. |
 | `InvalidMenuKey` | Menu key is empty, starts/ends with `-`, or contains chars outside `[a-z0-9-]`. |
-| `InvalidPageShape` | Page key invalid; FE page placement does not match the bound menu placement; page type config missing; page defines config for the wrong type. |
+| `InvalidPageShape` | Page key invalid; page type config missing; page defines config for the wrong type. |
 | `MissingCrdColumns` | `crdTable.columns` is empty. |
 | `UnsupportedEngineVersion` | FI `builder.engineVersion` is not a v1 alias. |
 | `UnsupportedSchemaVersion` | FE `source.inline.schemaVersion` is not a v1 alias. |
@@ -240,11 +241,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test

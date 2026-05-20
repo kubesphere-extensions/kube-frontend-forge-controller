@@ -213,12 +213,15 @@ spec:
                                 pageKey:
                                   nullable: true
                                   type: string
-                                placement:
-                                  enum:
-                                  - global
-                                  - workspace
-                                  - cluster
-                                  type: string
+                                placements:
+                                  items:
+                                    enum:
+                                    - global
+                                    - workspace
+                                    - cluster
+                                    type: string
+                                  minItems: 1
+                                  type: array
                                 type:
                                   enum:
                                   - page
@@ -227,7 +230,7 @@ spec:
                               required:
                               - displayName
                               - key
-                              - placement
+                              - placements
                               - type
                               type: object
                             type: array
@@ -322,12 +325,6 @@ spec:
                                   type: object
                                 key:
                                   type: string
-                                placement:
-                                  enum:
-                                  - global
-                                  - workspace
-                                  - cluster
-                                  type: string
                                 type:
                                   enum:
                                   - crdTable
@@ -335,7 +332,6 @@ spec:
                                   type: string
                               required:
                               - key
-                              - placement
                               - type
                               type: object
                             type: array

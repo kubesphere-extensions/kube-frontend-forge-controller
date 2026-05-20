@@ -267,16 +267,17 @@ spec:
           - displayName: First Entry
             key: first-entry
             pageKey: shared-page
-            placement: global
+            placements:
+              - global
             type: page
           - displayName: Second Entry
             key: second-entry
             pageKey: shared-page
-            placement: global
+            placements:
+              - global
             type: page
         pages:
           - key: shared-page
-            placement: global
             type: iframe
             iframe:
               src: http://example.test/shared
@@ -327,7 +328,8 @@ spec:
         menus:
           - displayName: Tools
             key: tools
-            placement: global
+            placements:
+              - global
             type: organization
             children:
               - displayName: First
@@ -338,12 +340,10 @@ spec:
                 pageKey: second-page
         pages:
           - key: first-page
-            placement: global
             type: iframe
             iframe:
               src: http://example.test/first
           - key: second-page
-            placement: global
             type: iframe
             iframe:
               src: http://example.test/second
@@ -358,20 +358,20 @@ spec:
 }
 
 #[test]
-fn rejects_fe_page_placement_mismatch() {
+fn expands_fe_menu_placements() {
     let fe: FrontendExtension = serde_yaml::from_str(
         r#"
 apiVersion: frontend-forge.kubesphere.io/v1alpha1
 kind: FrontendExtension
 metadata:
-  name: mismatch-demo
+  name: multi-placement-demo
 spec:
   package:
     version: 0.1.0
     displayName:
-      en: Mismatch Demo
+      en: Multi Placement Demo
     description:
-      en: Mismatch Demo
+      en: Multi Placement Demo
   source:
     type: Inline
     inline:
@@ -381,11 +381,12 @@ spec:
           - displayName: Overview
             key: overview
             pageKey: overview-page
-            placement: cluster
+            placements:
+              - cluster
+              - workspace
             type: page
         pages:
           - key: overview-page
-            placement: workspace
             type: iframe
             iframe:
               src: http://example.test
@@ -393,10 +394,28 @@ spec:
     )
     .unwrap();
 
-    assert!(matches!(
-        render_v1_fe_manifest(&fe),
-        Err(ManifestRenderError::InvalidPageShape { .. })
-    ));
+    let manifest = render_v1_fe_manifest(&fe).unwrap();
+    let routes = manifest["routes"].as_array().unwrap();
+    let pages = manifest["pages"].as_array().unwrap();
+
+    assert_eq!(routes.len(), 2);
+    assert_eq!(pages.len(), 2);
+    assert_eq!(
+        routes[0]["path"],
+        "/clusters/:cluster/frontendextensions/multi-placement-demo/overview"
+    );
+    assert_eq!(
+        routes[1]["path"],
+        "/workspaces/:workspace/frontendextensions/multi-placement-demo/overview"
+    );
+    assert_eq!(
+        routes[0]["pageId"],
+        "multi-placement-demo-cluster-overview-page"
+    );
+    assert_eq!(
+        routes[1]["pageId"],
+        "multi-placement-demo-workspace-overview-page"
+    );
 }
 
 #[test]
@@ -422,11 +441,11 @@ spec:
         menus:
           - displayName: Overview
             key: overview
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: overview
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test

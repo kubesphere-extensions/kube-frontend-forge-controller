@@ -342,11 +342,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: iframe
             iframe:
               src: http://example.test

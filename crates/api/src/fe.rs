@@ -159,7 +159,8 @@ pub struct FrontendExtensionPrimaryMenuSpec {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    pub placement: MenuPlacement,
+    #[schemars(length(min = 1))]
+    pub placements: Vec<MenuPlacement>,
     #[serde(rename = "type")]
     pub type_: MenuNodeType,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pageKey")]
@@ -182,7 +183,6 @@ pub struct FrontendExtensionSecondaryMenuSpec {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct FrontendExtensionPageSpec {
     pub key: String,
-    pub placement: MenuPlacement,
     #[serde(rename = "type")]
     pub type_: PageType,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "crdTable")]
@@ -197,7 +197,7 @@ impl From<&FiPrimaryMenuSpec> for FrontendExtensionPrimaryMenuSpec {
             display_name: menu.display_name.clone(),
             key: menu.key.clone(),
             icon: menu.icon.clone(),
-            placement: menu.placement,
+            placements: vec![menu.placement],
             type_: menu.type_,
             page_key: match menu.type_ {
                 MenuNodeType::Page => Some(menu.key.clone()),
@@ -225,10 +225,9 @@ impl From<&FiSecondaryMenuSpec> for FrontendExtensionSecondaryMenuSpec {
 
 impl FrontendExtensionPageSpec {
     #[must_use]
-    pub fn from_fi_page(page: &FiPageSpec, placement: MenuPlacement) -> Self {
+    pub fn from_fi_page(page: &FiPageSpec) -> Self {
         Self {
             key: page.key.clone(),
-            placement,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
             iframe: page.iframe.clone(),
@@ -581,11 +580,11 @@ spec:
           - displayName: Inspect Tasks
             key: inspecttasks
             pageKey: inspecttasks
-            placement: cluster
+            placements:
+              - cluster
             type: page
         pages:
           - key: inspecttasks
-            placement: cluster
             type: crdTable
             crdTable:
               group: kubeeye.kubesphere.io
@@ -640,7 +639,10 @@ spec:
             inline.frontend.menus[0].page_key.as_deref(),
             Some("inspecttasks")
         );
-        assert_eq!(inline.frontend.pages[0].placement, MenuPlacement::Cluster);
+        assert_eq!(
+            inline.frontend.menus[0].placements,
+            vec![MenuPlacement::Cluster]
+        );
         let resources = inline.extension_resources.unwrap();
         assert_eq!(resources.js_bundle.unwrap().name, "inspecttask");
     }
@@ -684,7 +686,8 @@ spec:
             ["extensionResources"]["properties"];
         let frontend = &spec_properties["source"]["properties"]["inline"]["properties"]["frontend"]
             ["properties"];
-        let menu = &frontend["menus"]["items"]["properties"];
+        let menu_item = &frontend["menus"]["items"];
+        let menu = &menu_item["properties"];
         let page = &frontend["pages"]["items"];
         let status_properties = &schema["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
             ["properties"]["status"]["properties"];
@@ -724,13 +727,14 @@ spec:
         assert!(extension_resources.get("roleTemplates").is_none());
         assert_eq!(menu["pageKey"]["type"], Value::String("string".to_string()));
         assert_eq!(menu["pageKey"]["nullable"], Value::Bool(true));
-        assert!(page["properties"].get("placement").is_some());
+        assert!(menu.get("placements").is_some());
         assert!(
-            page["required"]
+            menu_item["required"]
                 .as_array()
                 .unwrap()
-                .contains(&Value::String("placement".to_string()))
+                .contains(&Value::String("placements".to_string()))
         );
+        assert!(page["properties"].get("placement").is_none());
         assert!(status_properties.get("observedGeneration").is_some());
         assert!(status_properties.get("observedSourceHash").is_some());
         assert!(status_properties.get("observedRebuildToken").is_some());

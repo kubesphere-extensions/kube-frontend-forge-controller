@@ -77,11 +77,11 @@ pub(crate) fn frontend_pages_from_fi(fi: &FrontendIntegration) -> Vec<FrontendEx
     for menu in &fi.spec.menus {
         match menu.type_ {
             MenuNodeType::Page => {
-                insert_frontend_page(&mut pages, fi, menu.placement, &menu.key);
+                insert_frontend_page(&mut pages, fi, &menu.key);
             }
             MenuNodeType::Organization => {
                 for child in &menu.children {
-                    insert_frontend_page(&mut pages, fi, menu.placement, &child.key);
+                    insert_frontend_page(&mut pages, fi, &child.key);
                 }
             }
         }
@@ -91,17 +91,16 @@ pub(crate) fn frontend_pages_from_fi(fi: &FrontendIntegration) -> Vec<FrontendEx
 }
 
 fn insert_frontend_page(
-    pages: &mut BTreeMap<(String, String), FrontendExtensionPageSpec>,
+    pages: &mut BTreeMap<String, FrontendExtensionPageSpec>,
     fi: &FrontendIntegration,
-    placement: MenuPlacement,
     page_key: &str,
 ) {
     let Some(page) = fi.spec.pages.iter().find(|page| page.key == page_key) else {
         return;
     };
     pages
-        .entry((placement.as_str().to_string(), page_key.to_string()))
-        .or_insert_with(|| FrontendExtensionPageSpec::from_fi_page(page, placement));
+        .entry(page_key.to_string())
+        .or_insert_with(|| FrontendExtensionPageSpec::from_fi_page(page));
 }
 
 pub(crate) fn migrator_labels() -> BTreeMap<String, String> {

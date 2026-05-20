@@ -4,8 +4,8 @@ use frontend_forge_api::{
     ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
     FrontendExtensionPackageSpec, FrontendExtensionPageSpec, FrontendExtensionPrimaryMenuSpec,
     FrontendExtensionSourceSpec, FrontendExtensionSourceType, FrontendExtensionSpec,
-    FrontendIntegration, InlineFrontendExtensionSourceSpec, MenuNodeType, MenuPlacement,
-    NamespacedResourceRef, PublishPolicyMode, PublishPolicySpec, PublishTargetKind,
+    FrontendIntegration, InlineFrontendExtensionSourceSpec, MenuNodeType, NamespacedResourceRef,
+    PublishPolicyMode, PublishPolicySpec, PublishTargetKind,
 };
 use frontend_forge_common::{
     ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_GENERATION, ANNO_PUBLISH_REQUEST_ID,

@@ -114,7 +114,7 @@ the FE controller and FE HTTP API by default.
 | `package` | `FrontendExtensionPackageSpec` | yes | Extension package metadata and chart values. |
 | `source.type` | `Inline` | yes | Only `Inline` is implemented. |
 | `source.inline.schemaVersion` | string | yes | Renderer schema version; supported values match FI v1 renderer aliases. |
-| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | FE menu/page/locales source. Menus bind pages through `pageKey` and `pages[].key`; pages also declare `placement`. |
+| `source.inline.frontend` | `FrontendExtensionFrontendSpec` | yes | FE menu/page/locales source. Menus bind pages through `pageKey` and `pages[].key`; menus declare one or more `placements`. |
 | `source.inline.extensionResources.jsBundle.name` | string | no | Type exists for compatibility; current package renderer does not use it. |
 | `publishPolicy` | `PublishPolicySpec` | no | Manual publish target defaults. |
 
@@ -125,19 +125,16 @@ the FE controller and FE HTTP API by default.
 | `displayName` | string | Optional manifest display name override. |
 | `locales` | map `<lang, map<string,string>>` | Rendered to manifest `locales`. |
 | `menus` | `FrontendExtensionPrimaryMenuSpec[]` | Two-level menu source. |
-| `pages` | `FrontendExtensionPageSpec[]` | Page config list identified by `(placement, key)`. |
+| `pages` | `FrontendExtensionPageSpec[]` | Page config list identified by `key`. |
 
-FE menu fields match FI menu fields with one addition:
+FE menu fields are close to FI menu fields, with placement expanded to a list:
 
 | Field | Type | Applies to | Behavior |
 | --- | --- | --- | --- |
-| `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus with the same `placement` may point at the same `pageKey`. |
+| `placements` | array of `global` / `workspace` / `cluster` | primary | Required. Each placement is expanded into an internal menu binding. |
+| `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus may point at the same `pageKey`. |
 
-FE page fields match FI page config fields with one addition:
-
-| Field | Type | Behavior |
-| --- | --- | --- |
-| `placement` | `global` / `workspace` / `cluster` | Required. Must match the placement of every menu binding this page through `pageKey`. |
+FE page fields match FI page config fields, without a `placement` field. Placement is derived from each bound menu.
 
 ### Package Fields
 
