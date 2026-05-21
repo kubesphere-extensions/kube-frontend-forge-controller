@@ -50,13 +50,14 @@ pub(crate) async fn migrate_one(
 
     let fe_api = Api::<FrontendExtension>::all(client.clone());
     let fe = upsert_managed_fe(&fe_api, cfg, &fi, &fe_name).await?;
-    delete_fi_and_wait(client, &fi_name, cfg).await?;
 
     if was_enabled {
         patch_publish_intent(&fe_api, cfg, &fe).await?;
     } else {
         info!(fi = %fi_name, fe = %fe_name, "source FI was disabled; skipping publish");
     }
+
+    delete_fi_and_wait(client, &fi_name, cfg).await?;
 
     Ok(())
 }
