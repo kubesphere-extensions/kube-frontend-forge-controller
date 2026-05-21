@@ -18,7 +18,7 @@ use kube::{Api, Client};
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
-const DEFAULT_IN_CLUSTER_KUBECONFIG_PATH: &str = "/tmp/frontend-forge-kubeconfig/config";
+const FALLBACK_IN_CLUSTER_KUBECONFIG_PATH: &str = "/root/.kube/config";
 
 #[derive(Debug, Snafu)]
 enum Error {
@@ -489,6 +489,7 @@ fn ensure_in_cluster_kubeconfig() -> Result<BTreeMap<String, OsString>, Error> {
     let path = configured_kubeconfig_path(
         env::var("KSBUILDER_KUBECONFIG_PATH").ok(),
         env::var("KUBECONFIG").ok(),
+        env::var("HOME").ok(),
     );
     if path.exists() {
         return Ok(kubeconfig_env(&path));
@@ -513,14 +514,17 @@ fn ensure_in_cluster_kubeconfig() -> Result<BTreeMap<String, OsString>, Error> {
 fn configured_kubeconfig_path(
     ksbuilder_kubeconfig_path: Option<String>,
     kubeconfig: Option<String>,
+    home: Option<String>,
 ) -> PathBuf {
     ksbuilder_kubeconfig_path
         .filter(|value| !value.is_empty())
         .or_else(|| kubeconfig.filter(|value| !value.is_empty()))
-        .map_or_else(
-            || PathBuf::from(DEFAULT_IN_CLUSTER_KUBECONFIG_PATH),
-            PathBuf::from,
-        )
+        .map(PathBuf::from)
+        .or_else(|| {
+            home.filter(|value| !value.is_empty())
+                .map(|value| PathBuf::from(value).join(".kube/config"))
+        })
+        .unwrap_or_else(|| PathBuf::from(FALLBACK_IN_CLUSTER_KUBECONFIG_PATH))
 }
 
 fn kubeconfig_env(path: &Path) -> BTreeMap<String, OsString> {
@@ -856,10 +860,18 @@ mod tests {
     }
 
     #[test]
-    fn defaults_in_cluster_kubeconfig_path_to_tmp() {
+    fn defaults_in_cluster_kubeconfig_path_to_home() {
         assert_eq!(
-            configured_kubeconfig_path(None, None),
-            PathBuf::from(DEFAULT_IN_CLUSTER_KUBECONFIG_PATH)
+            configured_kubeconfig_path(None, None, Some("/home/nonroot".to_string())),
+            PathBuf::from("/home/nonroot/.kube/config")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_root_kubeconfig_without_home() {
+        assert_eq!(
+            configured_kubeconfig_path(None, None, None),
+            PathBuf::from(FALLBACK_IN_CLUSTER_KUBECONFIG_PATH)
         );
     }
 
@@ -868,7 +880,8 @@ mod tests {
         assert_eq!(
             configured_kubeconfig_path(
                 Some("/custom/ksbuilder/config".to_string()),
-                Some("/custom/kube/config".to_string())
+                Some("/custom/kube/config".to_string()),
+                Some("/home/nonroot".to_string())
             ),
             PathBuf::from("/custom/ksbuilder/config")
         );
@@ -879,7 +892,8 @@ mod tests {
         assert_eq!(
             configured_kubeconfig_path(
                 Some(String::new()),
-                Some("/custom/kube/config".to_string())
+                Some("/custom/kube/config".to_string()),
+                Some("/home/nonroot".to_string())
             ),
             PathBuf::from("/custom/kube/config")
         );
