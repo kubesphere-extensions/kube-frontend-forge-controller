@@ -18,6 +18,8 @@ use kube::{Api, Client};
 use snafu::{ResultExt, Snafu};
 use tracing::info;
 
+const DEFAULT_IN_CLUSTER_KUBECONFIG_PATH: &str = "/tmp/frontend-forge-kubeconfig/config";
+
 #[derive(Debug, Snafu)]
 enum Error {
     #[snafu(display("missing env {key}: {source}"))]
@@ -201,8 +203,10 @@ async fn main() -> Result<(), Error> {
 
     prepare_workdir(&cfg.workdir)?;
     let target_data = load_publish_target(&client, &cfg).await?;
-    let target_env = write_publish_target_data(&cfg.workdir, target_data.as_ref())?;
-    ensure_in_cluster_kubeconfig()?;
+    let mut target_env = write_publish_target_data(&cfg.workdir, target_data.as_ref())?;
+    for (key, value) in ensure_in_cluster_kubeconfig()? {
+        target_env.entry(key).or_insert(value);
+    }
 
     match cfg.action {
         PublisherAction::Publish => {
@@ -481,19 +485,13 @@ fn write_publish_target_data(
     Ok(envs)
 }
 
-fn ensure_in_cluster_kubeconfig() -> Result<(), Error> {
-    let path = env::var("KSBUILDER_KUBECONFIG_PATH")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            env::var("KUBECONFIG")
-                .ok()
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| "/root/.kube/config".to_string());
-    let path = PathBuf::from(path);
+fn ensure_in_cluster_kubeconfig() -> Result<BTreeMap<String, OsString>, Error> {
+    let path = configured_kubeconfig_path(
+        env::var("KSBUILDER_KUBECONFIG_PATH").ok(),
+        env::var("KUBECONFIG").ok(),
+    );
     if path.exists() {
-        return Ok(());
+        return Ok(kubeconfig_env(&path));
     }
 
     let service_host = env::var("KUBERNETES_SERVICE_HOST")
@@ -509,7 +507,24 @@ fn ensure_in_cluster_kubeconfig() -> Result<(), Error> {
     fs::write(&path, config).with_context(|_| WriteKubeconfigSnafu {
         path: path.display().to_string(),
     })?;
-    Ok(())
+    Ok(kubeconfig_env(&path))
+}
+
+fn configured_kubeconfig_path(
+    ksbuilder_kubeconfig_path: Option<String>,
+    kubeconfig: Option<String>,
+) -> PathBuf {
+    ksbuilder_kubeconfig_path
+        .filter(|value| !value.is_empty())
+        .or_else(|| kubeconfig.filter(|value| !value.is_empty()))
+        .map_or_else(
+            || PathBuf::from(DEFAULT_IN_CLUSTER_KUBECONFIG_PATH),
+            PathBuf::from,
+        )
+}
+
+fn kubeconfig_env(path: &Path) -> BTreeMap<String, OsString> {
+    BTreeMap::from([("KUBECONFIG".to_string(), path.as_os_str().to_os_string())])
 }
 
 fn in_cluster_kubeconfig(service_host: &str, service_port: &str) -> String {
@@ -838,6 +853,36 @@ mod tests {
             "certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         ));
         assert!(config.contains("tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token"));
+    }
+
+    #[test]
+    fn defaults_in_cluster_kubeconfig_path_to_tmp() {
+        assert_eq!(
+            configured_kubeconfig_path(None, None),
+            PathBuf::from(DEFAULT_IN_CLUSTER_KUBECONFIG_PATH)
+        );
+    }
+
+    #[test]
+    fn configured_kubeconfig_path_prefers_ksbuilder_override() {
+        assert_eq!(
+            configured_kubeconfig_path(
+                Some("/custom/ksbuilder/config".to_string()),
+                Some("/custom/kube/config".to_string())
+            ),
+            PathBuf::from("/custom/ksbuilder/config")
+        );
+    }
+
+    #[test]
+    fn configured_kubeconfig_path_uses_kubeconfig_when_override_is_empty() {
+        assert_eq!(
+            configured_kubeconfig_path(
+                Some(String::new()),
+                Some("/custom/kube/config".to_string())
+            ),
+            PathBuf::from("/custom/kube/config")
+        );
     }
 
     fn test_tgz(files: &[(&str, &[u8])]) -> Vec<u8> {
