@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  DOCKERHUB_NAMESPACE: ${{ github.event_name == 'push' && github.ref_name == 'dev' && 'kubespheredev' || 'kubesphere' }}
+  IMAGE_NAMESPACE: ${{ github.event_name == 'push' && github.ref_name == 'dev' && 'kubespheredev' || 'kubesphere' }}
   KUBESPHERE_HUB_REGISTRY: hub.kubesphere.com.cn
 
 jobs:
@@ -100,11 +100,12 @@ jobs:
       - name: Set Up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log In To Docker Hub
+      - name: Log In To KubeSphere Hub
         uses: docker/login-action@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ${{ env.KUBESPHERE_HUB_REGISTRY }}
+          username: ${{ secrets.KUBESPHERE_HUB_USERNAME }}
+          password: ${{ secrets.KUBESPHERE_HUB_TOKEN }}
 
       # 单平台 build + push（按 digest 推送，不直接 push tag）
       - name: Build and push by digest
@@ -116,7 +117,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           # 关键：push-by-digest + name-canonical，让 action 输出 image digest 供 merge 用
-          outputs: type=image,name=docker.io/${{ env.DOCKERHUB_NAMESPACE }}/${{ matrix.image_name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.KUBESPHERE_HUB_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image_name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image_name }}-${{ matrix.arch }}
           cache-to: type=gha,mode=min,scope=${{ matrix.image_name }}-${{ matrix.arch }}
 
@@ -151,25 +152,12 @@ jobs:
       - name: Set Up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log In To Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Log In To KubeSphere Hub
         uses: docker/login-action@v4
         with:
           registry: ${{ env.KUBESPHERE_HUB_REGISTRY }}
           username: ${{ secrets.KUBESPHERE_HUB_USERNAME }}
           password: ${{ secrets.KUBESPHERE_HUB_TOKEN }}
-
-      - name: Install skopeo
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y skopeo
 
       - name: Create and push manifest lists
         shell: bash
@@ -193,49 +181,28 @@ jobs:
             amd_digest="$(cat "digests/${image_name}-amd64.txt")"
             arm_digest="$(cat "digests/${image_name}-arm64.txt")"
 
-            dockerhub_repo="docker.io/${DOCKERHUB_NAMESPACE}/${image_name}"
-            hub_repo="${KUBESPHERE_HUB_REGISTRY}/${DOCKERHUB_NAMESPACE}/${image_name}"
+            hub_repo="${KUBESPHERE_HUB_REGISTRY}/${IMAGE_NAMESPACE}/${image_name}"
 
             if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-              dockerhub_tags=("${dockerhub_repo}:${GITHUB_REF_NAME}")
               hub_tags=("${hub_repo}:${GITHUB_REF_NAME}")
             else
               safe_base_ref="${GITHUB_REF_NAME//\//-}"
-              dockerhub_tags=("${dockerhub_repo}:${safe_base_ref}" "${dockerhub_repo}:latest")
               hub_tags=("${hub_repo}:${safe_base_ref}" "${hub_repo}:latest")
             fi
 
-            # 一次性合并 Docker Hub 上的两个平台 digest，并同时挂上所有最终 tags。
-            primary_tag="${dockerhub_tags[0]}"
+            # 一次性合并两个平台 digest，并同时挂上所有最终 tags。
+            primary_tag="${hub_tags[0]}"
             tag_args=()
-            for t in "${dockerhub_tags[@]}"; do
+            for t in "${hub_tags[@]}"; do
               tag_args+=("-t" "${t}")
             done
 
             docker buildx imagetools create \
               "${tag_args[@]}" \
-              "${dockerhub_repo}@${amd_digest}" \
-              "${dockerhub_repo}@${arm_digest}"
+              "${hub_repo}@${amd_digest}" \
+              "${hub_repo}@${arm_digest}"
 
-            dockerhub_digest="$(docker buildx imagetools inspect "${primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
-            dockerhub_canonical_ref="${dockerhub_repo}@${dockerhub_digest}"
-            dockerhub_joined_tags="$(printf '%s<br>' "${dockerhub_tags[@]}")"
-            dockerhub_joined_tags="${dockerhub_joined_tags%<br>}"
-
-            echo "multi-platform image digest: ${image_name} -> ${dockerhub_canonical_ref}"
-            echo "| docker.io | ${image_name} | ${dockerhub_joined_tags} | \`${dockerhub_digest}\` | \`${dockerhub_canonical_ref}\` |" >> "$GITHUB_STEP_SUMMARY"
-
-            for i in "${!dockerhub_tags[@]}"; do
-              skopeo copy \
-                --all \
-                --src-authfile "$HOME/.docker/config.json" \
-                --dest-authfile "$HOME/.docker/config.json" \
-                "docker://${dockerhub_tags[$i]}" \
-                "docker://${hub_tags[$i]}"
-            done
-
-            hub_primary_tag="${hub_tags[0]}"
-            hub_digest="$(docker buildx imagetools inspect "${hub_primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
+            hub_digest="$(docker buildx imagetools inspect "${primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
             hub_canonical_ref="${hub_repo}@${hub_digest}"
             hub_joined_tags="$(printf '%s<br>' "${hub_tags[@]}")"
             hub_joined_tags="${hub_joined_tags%<br>}"
