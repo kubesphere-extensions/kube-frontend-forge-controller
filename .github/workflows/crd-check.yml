@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - dev
     types:
       - opened
       - synchronize
@@ -15,11 +16,11 @@ permissions:
 jobs:
   verify-generated-crd:
     name: Verify generated CRD
-    runs-on: ubuntu-latest
+    runs-on: self-runner-extensions
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -31,4 +32,4 @@ jobs:
         run: cargo xtask gen-crd
 
       - name: Ensure generated CRD is committed
-        run: git diff --exit-code -- config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml
+        run: git diff --exit-code -- config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendintegrations.yaml config/charts/frontend-forge/crds/frontend-forge.kubesphere.io_frontendextensions.yaml

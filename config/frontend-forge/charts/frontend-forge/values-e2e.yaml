@@ -1,0 +1,26 @@
+crds:
+  installJsBundle: true
+
+image:
+  registry: ""
+  repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+  tag: ""
+
+runner:
+  image:
+    registry: ""
+    repository: ${FRONTEND_FORGE_RUNNER_IMAGE}
+    tag: ""
+
+extensionController:
+  enabled: false
+
+extensionApi:
+  enabled: false
+
+buildService:
+  enabled: true
+  image:
+    registry: ""
+    repository: ${FRONTEND_FORGE_IMAGE}
+    tag: ""

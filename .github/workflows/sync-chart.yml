@@ -1,0 +1,127 @@
+name: Sync Frontend Forge Chart
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-chart:
+    runs-on: self-runner-extensions
+    env:
+      SOURCE_REPO: ${{ github.event.repository.name }}
+      TARGET_REPO: kubesphere-extensions/frontend-forge
+      TARGET_BASE_BRANCH: main
+      SOURCE_CHART_DIR: config/charts/frontend-forge
+      TARGET_CHART_DIR: config/frontend-forge/charts/frontend-forge
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: sync
+        env:
+          GH_TOKEN: ${{ secrets.CIBOT_ACCESS_TOKEN }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -d "${SOURCE_CHART_DIR}" ]]; then
+            echo "Source chart directory does not exist: ${SOURCE_CHART_DIR}" >&2
+            exit 1
+          fi
+
+          SAFE_SOURCE_REPO="$(printf '%s' "${SOURCE_REPO}" | tr -cd '[:alnum:]_-')"
+          SAFE_REF_NAME="$(printf '%s' "${GITHUB_REF_NAME}" | tr -cd '[:alnum:]_.-')"
+          if [[ -z "${SAFE_SOURCE_REPO}" ]]; then
+            echo "Failed to derive a safe branch name from SOURCE_REPO=${SOURCE_REPO}" >&2
+            exit 1
+          fi
+          if [[ -z "${SAFE_REF_NAME}" ]]; then
+            SAFE_REF_NAME="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
+          fi
+
+          SYNC_BRANCH="sync/${SAFE_SOURCE_REPO}-chart-${SAFE_REF_NAME}"
+          SYNC_TITLE="[chart] Sync frontend-forge chart ${GITHUB_REF_NAME}"
+          MESSAGE_FILE="${RUNNER_TEMP}/sync-chart-message.txt"
+          if [[ -n "${RELEASE_URL}" ]]; then
+            PR_BODY="Source release: ${RELEASE_URL}"
+          else
+            PR_BODY="Source commit: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          fi
+
+          printf '%s\n' "${SYNC_TITLE}" > "${MESSAGE_FILE}"
+          printf 'sync_branch=%s\n' "${SYNC_BRANCH}" >> "$GITHUB_OUTPUT"
+          {
+            echo 'sync_title<<EOF_DELIM'
+            echo "${SYNC_TITLE}"
+            echo 'EOF_DELIM'
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo 'pr_body<<EOF_DELIM'
+            echo "${PR_BODY}"
+            echo 'EOF_DELIM'
+          } >> "$GITHUB_OUTPUT"
+
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git" -b "${TARGET_BASE_BRANCH}" target-repo
+          pushd target-repo
+          git config user.email "ci-bot@kubesphere.io"
+          git config user.name "ks-ci-bot"
+          git checkout -B "${SYNC_BRANCH}" "origin/${TARGET_BASE_BRANCH}"
+          popd
+
+          rm -rf "target-repo/${TARGET_CHART_DIR}"
+          mkdir -p "target-repo/${TARGET_CHART_DIR}"
+          cp -R "${SOURCE_CHART_DIR}/." "target-repo/${TARGET_CHART_DIR}/"
+
+          pushd target-repo
+          git add "${TARGET_CHART_DIR}"
+          if git diff --cached --quiet; then
+            echo "synced=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git commit -F "${MESSAGE_FILE}"
+          git push origin "${SYNC_BRANCH}" --force-with-lease
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.sync.outputs.synced == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CIBOT_ACCESS_TOKEN }}
+          SYNC_BRANCH: ${{ steps.sync.outputs.sync_branch }}
+          SYNC_TITLE: ${{ steps.sync.outputs.sync_title }}
+          PR_BODY: ${{ steps.sync.outputs.pr_body }}
+          TARGET_REPO: kubesphere-extensions/frontend-forge
+          TARGET_BASE_BRANCH: main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pushd target-repo
+          EXISTING_PR_NUMBER="$(
+            gh pr ls \
+              -R "${TARGET_REPO}" \
+              -A ks-ci-bot \
+              -H "${SYNC_BRANCH}" \
+              -B "${TARGET_BASE_BRANCH}" \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+          if [[ -n "${EXISTING_PR_NUMBER}" ]]; then
+            gh pr edit "${EXISTING_PR_NUMBER}" \
+              -R "${TARGET_REPO}" \
+              --title "${SYNC_TITLE}" \
+              --body "${PR_BODY}"
+          else
+            gh pr create \
+              -R "${TARGET_REPO}" \
+              -B "${TARGET_BASE_BRANCH}" \
+              -H "${SYNC_BRANCH}" \
+              -t "${SYNC_TITLE}" \
+              -b "${PR_BODY}"
+          fi

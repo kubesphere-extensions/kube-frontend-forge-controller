@@ -1,0 +1,107 @@
+{{- if and .Values.rbac.create .Values.controller.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-controller
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-controller") | nindent 4 }}
+rules:
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendintegrations"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendintegrations/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["jsbundles"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["jsbundles/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-controller
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "frontend-forge.fullname" . }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+rules:
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendintegrations"]
+    verbs: ["get"]
+  - apiGroups: ["frontend-forge.kubesphere.io"]
+    resources: ["frontendintegrations/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["jsbundles"]
+    verbs: ["get", "create", "patch", "update"]
+  - apiGroups: ["extensions.kubesphere.io"]
+    resources: ["jsbundles/status"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "frontend-forge.fullname" . }}-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.runnerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- $workNamespace := default .Release.Namespace .Values.controller.workNamespace }}
+{{- $configNamespace := default $workNamespace .Values.controller.jsbundleConfigmapNamespace }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+  namespace: {{ $configNamespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+  namespace: {{ $configNamespace }}
+  labels:
+    {{- include "frontend-forge.componentLabels" (dict "root" . "component" "runtime-runner") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "frontend-forge.fullname" . }}-runner-config-writer
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "frontend-forge.runnerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

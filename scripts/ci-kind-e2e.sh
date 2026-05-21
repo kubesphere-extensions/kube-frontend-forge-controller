@@ -5,13 +5,21 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 ARTIFACT_DIR="${ARTIFACT_DIR:-$ROOT_DIR/artifacts/ci-kind-e2e}"
-E2E_MANIFEST_DIR="${E2E_MANIFEST_DIR:-$ROOT_DIR/config/e2e}"
+CHART_DIR="${CHART_DIR:-$ROOT_DIR/config/charts/frontend-forge}"
+HELM_RELEASE="${HELM_RELEASE:-frontend-forge}"
 FRONTEND_FORGE_NAMESPACE="${FRONTEND_FORGE_NAMESPACE:-extension-frontend-forge}"
 SAMPLE_FILE="${SAMPLE_FILE:-$ROOT_DIR/config/samples/fi-lifecycle-smoke.yaml}"
-FRONTEND_INTEGRATION_CRD="${FRONTEND_INTEGRATION_CRD:-$ROOT_DIR/config/crd/bases/frontend-forge.kubesphere.io_frontendintegrations.yaml}"
-CONTROLLER_RBAC_FILE="${CONTROLLER_RBAC_FILE:-$ROOT_DIR/config/rbac/controller-rbac.yaml}"
-RUNNER_RBAC_FILE="${RUNNER_RBAC_FILE:-$ROOT_DIR/config/rbac/runner-rbac.yaml}"
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-frontend-forge-e2e}"
+FRONTEND_FORGE_CONTROLLER_IMAGE="${FRONTEND_FORGE_CONTROLLER_IMAGE:-}"
+FRONTEND_FORGE_RUNNER_IMAGE="${FRONTEND_FORGE_RUNNER_IMAGE:-}"
+FRONTEND_FORGE_IMAGE="${FRONTEND_FORGE_IMAGE:-}"
+RUN_FE_E2E="${RUN_FE_E2E:-false}"
+FRONTEND_EXTENSION_CONTROLLER_IMAGE="${FRONTEND_EXTENSION_CONTROLLER_IMAGE:-}"
+FRONTEND_EXTENSION_PACKAGER_IMAGE="${FRONTEND_EXTENSION_PACKAGER_IMAGE:-}"
+FRONTEND_EXTENSION_API_IMAGE="${FRONTEND_EXTENSION_API_IMAGE:-}"
+FRONTEND_EXTENSION_PUBLISHER_IMAGE="${FRONTEND_EXTENSION_PUBLISHER_IMAGE:-${FRONTEND_EXTENSION_PACKAGER_IMAGE:-}}"
+EXTENSION_API_LOCAL_PORT="${EXTENSION_API_LOCAL_PORT:-18080}"
+FE_FULL_REGRESSION_SCRIPT="${FE_FULL_REGRESSION_SCRIPT:-$ROOT_DIR/scripts/fe-full-regression.sh}"
 
 READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-600}"
 LIFECYCLE_TIMEOUT_SECONDS="${LIFECYCLE_TIMEOUT_SECONDS:-300}"
@@ -29,9 +37,19 @@ Usage:
 
 Environment:
   ARTIFACT_DIR                 Default: artifacts/ci-kind-e2e
-  E2E_MANIFEST_DIR             Default: config/e2e
+  CHART_DIR                    Default: config/charts/frontend-forge
+  HELM_RELEASE                 Default: frontend-forge
   FRONTEND_FORGE_NAMESPACE     Default: extension-frontend-forge
   KIND_CLUSTER_NAME            Default: frontend-forge-e2e
+  RUN_FE_E2E                   Default: false. Set true to run FrontendExtension packaging/download e2e.
+  FRONTEND_EXTENSION_CONTROLLER_IMAGE
+                               Required when RUN_FE_E2E=true
+  FRONTEND_EXTENSION_PACKAGER_IMAGE
+                               Required when RUN_FE_E2E=true
+  FRONTEND_EXTENSION_API_IMAGE Required when RUN_FE_E2E=true
+  FRONTEND_EXTENSION_PUBLISHER_IMAGE
+                               Optional when RUN_FE_E2E=true. Defaults to FRONTEND_EXTENSION_PACKAGER_IMAGE.
+  EXTENSION_API_LOCAL_PORT     Default: 18080
 EOF
 }
 
@@ -48,20 +66,29 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+is_true() {
+  [[ "$1" == "true" || "$1" == "1" || "$1" == "yes" ]]
+}
+
 assert_local_prereqs() {
   require_cmd kubectl
+  require_cmd helm
   require_cmd kind
   require_cmd perl
-  require_cmd python3
   [[ -f "$SAMPLE_FILE" ]] || die "sample file not found: $SAMPLE_FILE"
-  [[ -f "$FRONTEND_INTEGRATION_CRD" ]] || die "frontendintegration CRD not found: $FRONTEND_INTEGRATION_CRD"
-  [[ -f "$CONTROLLER_RBAC_FILE" ]] || die "controller RBAC not found: $CONTROLLER_RBAC_FILE"
-  [[ -f "$RUNNER_RBAC_FILE" ]] || die "runner RBAC not found: $RUNNER_RBAC_FILE"
-  [[ -f "$E2E_MANIFEST_DIR/namespace.yaml" ]] || die "missing e2e manifest: namespace.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" ]] || die "missing e2e manifest: jsbundle-crd.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/controller-serviceaccount.yaml" ]] || die "missing e2e manifest: controller-serviceaccount.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/controller-deployment-ci.yaml" ]] || die "missing e2e manifest: controller-deployment-ci.yaml"
-  [[ -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" ]] || die "missing e2e manifest: frontend-forge-build-service.yaml"
+  [[ -f "$CHART_DIR/Chart.yaml" ]] || die "chart not found: $CHART_DIR"
+  [[ -n "$FRONTEND_FORGE_CONTROLLER_IMAGE" ]] || die "FRONTEND_FORGE_CONTROLLER_IMAGE is required"
+  [[ -n "$FRONTEND_FORGE_RUNNER_IMAGE" ]] || die "FRONTEND_FORGE_RUNNER_IMAGE is required"
+  [[ -n "$FRONTEND_FORGE_IMAGE" ]] || die "FRONTEND_FORGE_IMAGE is required"
+
+  if is_true "$RUN_FE_E2E"; then
+    require_cmd curl
+    require_cmd shasum
+    [[ -x "$FE_FULL_REGRESSION_SCRIPT" ]] || die "FE_FULL_REGRESSION_SCRIPT is not executable: $FE_FULL_REGRESSION_SCRIPT"
+    [[ -n "$FRONTEND_EXTENSION_CONTROLLER_IMAGE" ]] || die "FRONTEND_EXTENSION_CONTROLLER_IMAGE is required when RUN_FE_E2E=true"
+    [[ -n "$FRONTEND_EXTENSION_PACKAGER_IMAGE" ]] || die "FRONTEND_EXTENSION_PACKAGER_IMAGE is required when RUN_FE_E2E=true"
+    [[ -n "$FRONTEND_EXTENSION_API_IMAGE" ]] || die "FRONTEND_EXTENSION_API_IMAGE is required when RUN_FE_E2E=true"
+  fi
 }
 
 prepare_artifacts() {
@@ -94,16 +121,80 @@ assert_cluster_ready() {
   kubectl get nodes >/dev/null
 }
 
-apply_manifests() {
-  log "安装 e2e 测试清单"
-  kubectl apply -f "$E2E_MANIFEST_DIR/namespace.yaml" | tee "$ARTIFACT_DIR/apply-namespace.log"
-  kubectl apply -f "$FRONTEND_INTEGRATION_CRD" | tee "$ARTIFACT_DIR/apply-frontendintegration-crd.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/jsbundle-crd.yaml" | tee "$ARTIFACT_DIR/apply-jsbundle-crd.log"
-  kubectl apply -f "$CONTROLLER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-controller-rbac.log"
-  kubectl apply -f "$RUNNER_RBAC_FILE" | tee "$ARTIFACT_DIR/apply-runner-rbac.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/controller-serviceaccount.yaml" | tee "$ARTIFACT_DIR/apply-controller-serviceaccount.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/frontend-forge-build-service.yaml" | tee "$ARTIFACT_DIR/apply-build-service.log"
-  kubectl apply -f "$E2E_MANIFEST_DIR/controller-deployment-ci.yaml" | tee "$ARTIFACT_DIR/apply-controller.log"
+install_chart() {
+  log "通过 Helm 安装 e2e 测试 Chart"
+  local values_file="$ARTIFACT_DIR/frontend-forge-e2e-values.yaml"
+
+  cat > "$values_file" <<EOF
+crds:
+  installJsBundle: true
+
+image:
+  registry: ""
+  repository: ${FRONTEND_FORGE_CONTROLLER_IMAGE}
+  tag: ""
+
+runner:
+  image:
+    registry: ""
+    repository: ${FRONTEND_FORGE_RUNNER_IMAGE}
+    tag: ""
+
+buildService:
+  enabled: true
+  image:
+    registry: ""
+    repository: ${FRONTEND_FORGE_IMAGE}
+    tag: ""
+EOF
+
+  if is_true "$RUN_FE_E2E"; then
+    cat >> "$values_file" <<EOF
+
+extensionController:
+  enabled: true
+  image:
+    registry: ""
+    repository: ${FRONTEND_EXTENSION_CONTROLLER_IMAGE}
+    tag: ""
+  packagerImage: ${FRONTEND_EXTENSION_PACKAGER_IMAGE}
+  publisherImage: ${FRONTEND_EXTENSION_PUBLISHER_IMAGE}
+
+extensionPackager:
+  image:
+    registry: ""
+    repository: ${FRONTEND_EXTENSION_PACKAGER_IMAGE}
+    tag: ""
+
+extensionPublisher:
+  image:
+    registry: ""
+    repository: ${FRONTEND_EXTENSION_PUBLISHER_IMAGE}
+    tag: ""
+
+extensionApi:
+  enabled: true
+  image:
+    registry: ""
+    repository: ${FRONTEND_EXTENSION_API_IMAGE}
+    tag: ""
+EOF
+  else
+    cat >> "$values_file" <<EOF
+
+extensionController:
+  enabled: false
+
+extensionApi:
+  enabled: false
+EOF
+  fi
+
+  helm upgrade --install "$HELM_RELEASE" "$CHART_DIR" \
+    --namespace "$FRONTEND_FORGE_NAMESPACE" \
+    --create-namespace \
+    --values "$values_file" \
+    | tee "$ARTIFACT_DIR/helm-install.log"
 }
 
 wait_for_frontend_forge_readiness() {
@@ -111,11 +202,21 @@ wait_for_frontend_forge_readiness() {
 
   wait_until "$READINESS_TIMEOUT_SECONDS" kubectl get crd frontendintegrations.frontend-forge.kubesphere.io || return 1
   wait_until "$READINESS_TIMEOUT_SECONDS" kubectl get crd jsbundles.extensions.kubesphere.io || return 1
+  if is_true "$RUN_FE_E2E"; then
+    wait_until "$READINESS_TIMEOUT_SECONDS" kubectl get crd frontendextensions.frontend-forge.kubesphere.io || return 1
+  fi
 
   kubectl rollout status deployment/frontend-forge -n "$FRONTEND_FORGE_NAMESPACE" --timeout="${READINESS_TIMEOUT_SECONDS}s" \
     | tee "$ARTIFACT_DIR/frontend-forge-readiness.log"
   kubectl rollout status deployment/frontend-forge-controller -n "$FRONTEND_FORGE_NAMESPACE" --timeout="${READINESS_TIMEOUT_SECONDS}s" \
     | tee "$ARTIFACT_DIR/frontend-forge-controller-readiness.log"
+
+  if is_true "$RUN_FE_E2E"; then
+    kubectl rollout status deployment/frontend-forge-extension-controller -n "$FRONTEND_FORGE_NAMESPACE" --timeout="${READINESS_TIMEOUT_SECONDS}s" \
+      | tee "$ARTIFACT_DIR/frontend-extension-controller-readiness.log"
+    kubectl rollout status deployment/frontend-forge-extension-api -n "$FRONTEND_FORGE_NAMESPACE" --timeout="${READINESS_TIMEOUT_SECONDS}s" \
+      | tee "$ARTIFACT_DIR/frontend-forge-extension-api-readiness.log"
+  fi
 }
 
 create_lifecycle_manifests() {
@@ -279,12 +380,56 @@ run_lifecycle_test() {
   wait_until "$DELETE_TIMEOUT_SECONDS" bash -lc "! kubectl -n ${FRONTEND_FORGE_NAMESPACE} get cm ${CONFIGMAP_NAME} >/dev/null 2>&1" || return 1
 }
 
+run_fe_e2e_test() {
+  log "执行 FrontendExtension 打包/下载回归测试"
+
+  local service_name=""
+  local port_forward_pid=""
+  local port_forward_log="$ARTIFACT_DIR/extension-api-port-forward.log"
+  local download_api_base_url="http://127.0.0.1:${EXTENSION_API_LOCAL_PORT}/apis/frontend-forge.kubesphere.io/v1alpha1/frontendextensions"
+  local kubeconfig_path="${KUBECONFIG:-$HOME/.kube/config}"
+
+  service_name="$(kubectl -n "$FRONTEND_FORGE_NAMESPACE" get svc \
+    -l "app.kubernetes.io/instance=${HELM_RELEASE},app.kubernetes.io/component=extension-api" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  assert_non_empty "$service_name" "extension API service not found"
+
+  kubectl -n "$FRONTEND_FORGE_NAMESPACE" port-forward "svc/$service_name" \
+    --address 127.0.0.1 "${EXTENSION_API_LOCAL_PORT}:80" > "$port_forward_log" 2>&1 &
+  port_forward_pid="$!"
+
+  local status=0
+  if ! wait_until "$READINESS_TIMEOUT_SECONDS" curl -fsS "$download_api_base_url"; then
+    status=1
+  elif ! KUBECONFIG_PATH="$kubeconfig_path" \
+    FRONTEND_FORGE_NAMESPACE="$FRONTEND_FORGE_NAMESPACE" \
+    ARTIFACT_DIR="$ARTIFACT_DIR/fe-full-regression" \
+    DOWNLOAD_API_BASE_URL="$download_api_base_url" \
+    EXPECTED_PACKAGER_IMAGE="$FRONTEND_EXTENSION_PACKAGER_IMAGE" \
+    "$FE_FULL_REGRESSION_SCRIPT" | tee "$ARTIFACT_DIR/fe-full-regression.log"; then
+    status=1
+  fi
+
+  if [[ -n "$port_forward_pid" ]]; then
+    if kill -0 "$port_forward_pid" >/dev/null 2>&1; then
+      kill "$port_forward_pid" >/dev/null 2>&1 || true
+    fi
+    wait "$port_forward_pid" >/dev/null 2>&1 || true
+  fi
+
+  return "$status"
+}
+
 collect_failure_artifacts() {
   log "收集失败现场"
   kubectl get all -A -o wide > "$ARTIFACT_DIR/kubectl-get-all-wide.txt" 2>/dev/null || true
-  kubectl get fi,jsbundle -A -o yaml > "$ARTIFACT_DIR/kubectl-get-fi-jsbundle.yaml" 2>/dev/null || true
+  kubectl get fi,frontendextension,jsbundle -A -o yaml > "$ARTIFACT_DIR/kubectl-get-fi-fe-jsbundle.yaml" 2>/dev/null || true
   kubectl -n "$FRONTEND_FORGE_NAMESPACE" describe deploy frontend-forge-controller > "$ARTIFACT_DIR/describe-frontend-forge-controller.txt" 2>/dev/null || true
+  kubectl -n "$FRONTEND_FORGE_NAMESPACE" describe deploy frontend-forge-extension-controller > "$ARTIFACT_DIR/describe-frontend-extension-controller.txt" 2>/dev/null || true
+  kubectl -n "$FRONTEND_FORGE_NAMESPACE" describe deploy frontend-forge-extension-api > "$ARTIFACT_DIR/describe-frontend-forge-extension-api.txt" 2>/dev/null || true
   kubectl -n "$FRONTEND_FORGE_NAMESPACE" logs deploy/frontend-forge-controller --all-containers=true --tail=-1 > "$ARTIFACT_DIR/frontend-forge-controller.log" 2>/dev/null || true
+  kubectl -n "$FRONTEND_FORGE_NAMESPACE" logs deploy/frontend-forge-extension-controller --all-containers=true --tail=-1 > "$ARTIFACT_DIR/frontend-extension-controller.log" 2>/dev/null || true
+  kubectl -n "$FRONTEND_FORGE_NAMESPACE" logs deploy/frontend-forge-extension-api --all-containers=true --tail=-1 > "$ARTIFACT_DIR/frontend-forge-extension-api.log" 2>/dev/null || true
   kubectl -n "$FRONTEND_FORGE_NAMESPACE" logs deploy/frontend-forge --all-containers=true --tail=-1 > "$ARTIFACT_DIR/frontend-forge.log" 2>/dev/null || true
   mkdir -p "$ARTIFACT_DIR/kind-export"
   kind export logs "$ARTIFACT_DIR/kind-export" --name "$KIND_CLUSTER_NAME" >/dev/null 2>&1 || true
@@ -296,7 +441,8 @@ write_summary_json() {
 {
   "kind_cluster_name": "${KIND_CLUSTER_NAME}",
   "status": "${status}",
-  "namespace": "${FRONTEND_FORGE_NAMESPACE}"
+  "namespace": "${FRONTEND_FORGE_NAMESPACE}",
+  "run_fe_e2e": "${RUN_FE_E2E}"
 }
 EOF
 }
@@ -313,13 +459,15 @@ main() {
   prepare_artifacts
   assert_cluster_ready
   cleanup_previous_test_resources
-  apply_manifests
+  install_chart
   create_lifecycle_manifests
 
   if ! wait_for_frontend_forge_readiness; then
     status="FAIL_READINESS"
   elif ! run_lifecycle_test; then
     status="FAIL_LIFECYCLE"
+  elif is_true "$RUN_FE_E2E" && ! run_fe_e2e_test; then
+    status="FAIL_FE_E2E"
   fi
 
   if [[ "$status" != "PASS" ]]; then

@@ -1,0 +1,40 @@
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendIntegration
+metadata:
+  name: fi-crdtable
+  annotations:
+    kubesphere.io/creator: admin
+    kubesphere.io/description: Sample FrontendIntegration for a crdTable page
+spec:
+  displayName: CRD Table
+  enabled: true
+  menus:
+    - displayName: CRD Table
+      key: crd-table
+      placement: cluster
+      type: page
+  pages:
+    - key: crd-table
+      type: crdTable
+      crdTable:
+        names:
+          plural: inspecttasks
+          kind: InspectTask
+        group: kubeeye.kubesphere.io
+        version: v1alpha2
+        scope: Cluster
+        columns:
+          - key: name
+            title: NAME
+            enableSorting: true
+            render:
+              type: text
+              path: metadata.name
+          - key: creation-time
+            title: CREATION_TIME
+            enableHiding: true
+            enableSorting: true
+            render:
+              type: time
+              path: metadata.creationTimestamp
+              format: local-datetime

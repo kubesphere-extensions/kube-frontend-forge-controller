@@ -1,0 +1,388 @@
+name: PR Kind E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    env:
+      E2E_CONFIG_FILE: .github/e2e-kind-pr.env
+      MATRIX_ARCH: ${{ matrix.arch }}
+      KIND_CLUSTER_NAME: frontend-forge-pr-e2e-${{ matrix.arch }}-${{ github.run_id }}
+      ARTIFACT_DIR: ${{ github.workspace }}/.tmp/e2e-artifacts/${{ matrix.arch }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Load e2e config
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          config_file="${E2E_CONFIG_FILE}"
+          [[ -f "$config_file" ]] || {
+            echo "missing e2e config file: ${config_file}" >&2
+            exit 1
+          }
+
+          declare -A config=(
+            [SKIP_E2E]="false"
+            [USE_LOCAL_IMAGES]="false"
+            [KIND_VERSION]="v0.31.0"
+            [KUBERNETES_VERSION]=""
+            [FRONTEND_FORGE_CONTROLLER_IMAGE]=""
+            [FRONTEND_FORGE_RUNNER_IMAGE]=""
+            [FRONTEND_FORGE_IMAGE]=""
+            [RUN_FE_E2E]="false"
+            [FRONTEND_EXTENSION_CONTROLLER_IMAGE]=""
+            [FRONTEND_EXTENSION_PACKAGER_IMAGE]=""
+            [FRONTEND_EXTENSION_API_IMAGE]=""
+            [FRONTEND_EXTENSION_PUBLISHER_IMAGE]=""
+          )
+
+          is_allowed_key() {
+            case "$1" in
+              SKIP_E2E|USE_LOCAL_IMAGES|KIND_VERSION|KUBERNETES_VERSION|FRONTEND_FORGE_CONTROLLER_IMAGE|FRONTEND_FORGE_RUNNER_IMAGE|FRONTEND_FORGE_IMAGE|RUN_FE_E2E|FRONTEND_EXTENSION_CONTROLLER_IMAGE|FRONTEND_EXTENSION_PACKAGER_IMAGE|FRONTEND_EXTENSION_API_IMAGE|FRONTEND_EXTENSION_PUBLISHER_IMAGE)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          trim() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "$value"
+          }
+
+          while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+            line="${raw_line%$'\r'}"
+            line="$(trim "$line")"
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            [[ "$line" == *=* ]] || {
+              echo "invalid config line: ${raw_line}" >&2
+              exit 1
+            }
+
+            key="$(trim "${line%%=*}")"
+            value="$(trim "${line#*=}")"
+            [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+              echo "invalid config key: ${key}" >&2
+              exit 1
+            }
+            is_allowed_key "$key" || {
+              echo "unsupported config key: ${key}" >&2
+              exit 1
+            }
+            [[ "$value" != *$'\n'* ]] || {
+              echo "config value contains a newline: ${key}" >&2
+              exit 1
+            }
+            config["$key"]="$value"
+          done < "$config_file"
+
+          case "${config[SKIP_E2E]}" in
+            true|false) ;;
+            *) echo "SKIP_E2E must be true or false" >&2; exit 1 ;;
+          esac
+          case "${config[USE_LOCAL_IMAGES]}" in
+            true|false) ;;
+            *) echo "USE_LOCAL_IMAGES must be true or false" >&2; exit 1 ;;
+          esac
+          case "${config[RUN_FE_E2E]}" in
+            true|false) ;;
+            *) echo "RUN_FE_E2E must be true or false" >&2; exit 1 ;;
+          esac
+
+          [[ -n "${config[FRONTEND_FORGE_IMAGE]}" ]] || {
+            echo "FRONTEND_FORGE_IMAGE is required" >&2
+            exit 1
+          }
+
+          if [[ "${config[USE_LOCAL_IMAGES]}" == "false" ]]; then
+            [[ -n "${config[FRONTEND_FORGE_CONTROLLER_IMAGE]}" ]] || {
+              echo "FRONTEND_FORGE_CONTROLLER_IMAGE is required when USE_LOCAL_IMAGES=false" >&2
+              exit 1
+            }
+            [[ -n "${config[FRONTEND_FORGE_RUNNER_IMAGE]}" ]] || {
+              echo "FRONTEND_FORGE_RUNNER_IMAGE is required when USE_LOCAL_IMAGES=false" >&2
+              exit 1
+            }
+          fi
+
+          if [[ "${config[RUN_FE_E2E]}" == "true" && "${config[USE_LOCAL_IMAGES]}" == "false" ]]; then
+            [[ -n "${config[FRONTEND_EXTENSION_CONTROLLER_IMAGE]}" ]] || {
+              echo "FRONTEND_EXTENSION_CONTROLLER_IMAGE is required when RUN_FE_E2E=true and USE_LOCAL_IMAGES=false" >&2
+              exit 1
+            }
+            [[ -n "${config[FRONTEND_EXTENSION_PACKAGER_IMAGE]}" ]] || {
+              echo "FRONTEND_EXTENSION_PACKAGER_IMAGE is required when RUN_FE_E2E=true and USE_LOCAL_IMAGES=false" >&2
+              exit 1
+            }
+            [[ -n "${config[FRONTEND_EXTENSION_API_IMAGE]}" ]] || {
+              echo "FRONTEND_EXTENSION_API_IMAGE is required when RUN_FE_E2E=true and USE_LOCAL_IMAGES=false" >&2
+              exit 1
+            }
+          fi
+
+          for key in "${!config[@]}"; do
+            printf '%s=%s\n' "$key" "${config[$key]}" >> "$GITHUB_ENV"
+          done
+          echo "skip_e2e=${config[SKIP_E2E]}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip e2e
+        if: ${{ steps.config.outputs.skip_e2e == 'true' }}
+        shell: bash
+        run: |
+          echo "SKIP_E2E=true; skipping PR kind e2e."
+
+      - name: Set local image tags
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${USE_LOCAL_IMAGES}" != "true" ]]; then
+            exit 0
+          fi
+
+          tag="pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${MATRIX_ARCH}"
+          {
+            echo "FRONTEND_FORGE_CONTROLLER_IMAGE=frontend-forge-controller:${tag}"
+            echo "FRONTEND_FORGE_RUNNER_IMAGE=frontend-forge-runner:${tag}"
+            if [[ "${RUN_FE_E2E}" == "true" ]]; then
+              echo "FRONTEND_EXTENSION_CONTROLLER_IMAGE=frontend-extension-controller:${tag}"
+              echo "FRONTEND_EXTENSION_PACKAGER_IMAGE=frontend-forge-extension-packager:${tag}"
+              echo "FRONTEND_EXTENSION_API_IMAGE=frontend-forge-extension-api:${tag}"
+              echo "FRONTEND_EXTENSION_PUBLISHER_IMAGE=frontend-forge-extension-publisher:${tag}"
+            fi
+          } >> "$GITHUB_ENV"
+
+      - name: Set up kubectl
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        uses: azure/setup-kubectl@v5
+
+      - name: Set up Docker Buildx
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        uses: docker/setup-buildx-action@v4
+
+      - name: Install kind
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) KIND_ARCH=amd64 ;;
+            aarch64|arm64) KIND_ARCH=arm64 ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${KIND_ARCH}"
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+          kind version
+
+      - name: Resolve kind node image
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        id: kind-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${KUBERNETES_VERSION}"
+          case "$version" in
+            "")
+              echo "kind_node_image=" >> "$GITHUB_OUTPUT"
+              echo "version_label=kind-default" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.23")
+              echo "kind_node_image=kindest/node:v1.23.17" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.23" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.26")
+              echo "kind_node_image=kindest/node:v1.26.15" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.26" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.28")
+              echo "kind_node_image=kindest/node:v1.28.15" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.28" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.30")
+              echo "kind_node_image=kindest/node:v1.30.13" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.30" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.32")
+              echo "kind_node_image=kindest/node:v1.32.11" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.32" >> "$GITHUB_OUTPUT"
+              ;;
+            "1.34")
+              echo "kind_node_image=kindest/node:v1.34.3" >> "$GITHUB_OUTPUT"
+              echo "version_label=1.34" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "unsupported kubernetes_version: ${version}" >&2
+              echo "supported versions: 1.23, 1.26, 1.28, 1.30, 1.32, 1.34" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Build local test images
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${USE_LOCAL_IMAGES}" != "true" ]]; then
+            echo "USE_LOCAL_IMAGES=false; skip local image build"
+            exit 0
+          fi
+
+          build_local_image() {
+            local image="$1"
+            local dockerfile="$2"
+            local cache_scope="$3"
+            docker buildx build \
+              --load \
+              --platform "linux/${MATRIX_ARCH}" \
+              --cache-from "type=gha,scope=e2e-${cache_scope}-${MATRIX_ARCH}" \
+              --cache-to "type=gha,mode=min,ignore-error=true,scope=e2e-${cache_scope}-${MATRIX_ARCH}" \
+              -t "$image" \
+              -f "$dockerfile" \
+              .
+          }
+
+          build_local_image "$FRONTEND_FORGE_CONTROLLER_IMAGE" crates/frontend-forge-controller/Dockerfile frontend-forge-controller
+          build_local_image "$FRONTEND_FORGE_RUNNER_IMAGE" crates/frontend-forge-runner/Dockerfile frontend-forge-runner
+
+          if [[ "${RUN_FE_E2E}" == "true" ]]; then
+            build_local_image "$FRONTEND_EXTENSION_CONTROLLER_IMAGE" crates/frontend-extension-controller/Dockerfile frontend-extension-controller
+            build_local_image "$FRONTEND_EXTENSION_PACKAGER_IMAGE" crates/extension-packager/Dockerfile frontend-forge-extension-packager
+            build_local_image "$FRONTEND_EXTENSION_API_IMAGE" crates/frontend-forge-extension-api/Dockerfile frontend-forge-extension-api
+            build_local_image "$FRONTEND_EXTENSION_PUBLISHER_IMAGE" crates/extension-publisher/Dockerfile frontend-forge-extension-publisher
+          fi
+
+      - name: Create kind cluster
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ steps.kind-image.outputs.kind_node_image }}" ]]; then
+            kind create cluster \
+              --name "${KIND_CLUSTER_NAME}" \
+              --image "${{ steps.kind-image.outputs.kind_node_image }}" \
+              --wait 5m
+          else
+            kind create cluster \
+              --name "${KIND_CLUSTER_NAME}" \
+              --wait 5m
+          fi
+          kubectl get nodes -o wide
+
+      - name: Pull configured test images
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker pull "${FRONTEND_FORGE_IMAGE}"
+
+          if [[ "${USE_LOCAL_IMAGES}" == "true" ]]; then
+            exit 0
+          fi
+
+          docker pull "${FRONTEND_FORGE_CONTROLLER_IMAGE}"
+          docker pull "${FRONTEND_FORGE_RUNNER_IMAGE}"
+
+          if [[ "${RUN_FE_E2E}" == "true" ]]; then
+            docker pull "${FRONTEND_EXTENSION_CONTROLLER_IMAGE}"
+            docker pull "${FRONTEND_EXTENSION_PACKAGER_IMAGE}"
+            docker pull "${FRONTEND_EXTENSION_API_IMAGE}"
+            if [[ -n "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" ]]; then
+              docker pull "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}"
+            fi
+          fi
+
+      - name: Load images into kind
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          load_image_into_kind() {
+            local image="$1"
+
+            if kind load docker-image --name "${KIND_CLUSTER_NAME}" "${image}"; then
+              return
+            fi
+
+            echo "kind load failed for ${image}; falling back to containerd import" >&2
+            local image_archive
+            image_archive="$(mktemp "${RUNNER_TEMP:-/tmp}/kind-image-XXXXXX")"
+            docker save "${image}" -o "${image_archive}"
+
+            while IFS= read -r node; do
+              [[ -n "${node}" ]] || continue
+              local node_archive="/tmp/$(basename "${image_archive}")"
+              docker cp "${image_archive}" "${node}:${node_archive}"
+              docker exec "${node}" ctr -n k8s.io images import "${node_archive}"
+              docker exec "${node}" rm -f "${node_archive}"
+            done < <(kind get nodes --name "${KIND_CLUSTER_NAME}")
+
+            rm -f "${image_archive}"
+          }
+
+          load_image_into_kind "${FRONTEND_FORGE_CONTROLLER_IMAGE}"
+          load_image_into_kind "${FRONTEND_FORGE_RUNNER_IMAGE}"
+          load_image_into_kind "${FRONTEND_FORGE_IMAGE}"
+          if [[ "${RUN_FE_E2E}" == "true" ]]; then
+            load_image_into_kind "${FRONTEND_EXTENSION_CONTROLLER_IMAGE}"
+            load_image_into_kind "${FRONTEND_EXTENSION_PACKAGER_IMAGE}"
+            load_image_into_kind "${FRONTEND_EXTENSION_API_IMAGE}"
+            if [[ -n "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" ]]; then
+              load_image_into_kind "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}"
+            fi
+          fi
+
+      - name: Run kind e2e
+        if: ${{ steps.config.outputs.skip_e2e != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci-kind-e2e.sh scripts/fe-full-regression.sh
+          ARTIFACT_DIR="${ARTIFACT_DIR}" \
+          KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+          FRONTEND_FORGE_CONTROLLER_IMAGE="${FRONTEND_FORGE_CONTROLLER_IMAGE}" \
+          FRONTEND_FORGE_RUNNER_IMAGE="${FRONTEND_FORGE_RUNNER_IMAGE}" \
+          FRONTEND_FORGE_IMAGE="${FRONTEND_FORGE_IMAGE}" \
+          RUN_FE_E2E="${RUN_FE_E2E}" \
+          FRONTEND_EXTENSION_CONTROLLER_IMAGE="${FRONTEND_EXTENSION_CONTROLLER_IMAGE}" \
+          FRONTEND_EXTENSION_PACKAGER_IMAGE="${FRONTEND_EXTENSION_PACKAGER_IMAGE}" \
+          FRONTEND_EXTENSION_API_IMAGE="${FRONTEND_EXTENSION_API_IMAGE}" \
+          FRONTEND_EXTENSION_PUBLISHER_IMAGE="${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" \
+          ./scripts/ci-kind-e2e.sh
+
+      - name: Upload e2e artifacts
+        if: ${{ always() && steps.config.outputs.skip_e2e != 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-e2e-kind-${{ matrix.arch }}-${{ steps.kind-image.outputs.version_label }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: warn

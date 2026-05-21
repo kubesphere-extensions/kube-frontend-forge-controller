@@ -15,6 +15,27 @@ on:
         description: Frontend Forge build-service image
         required: true
         type: string
+      run_frontend_extension_e2e:
+        description: Run FrontendExtension packaging/download e2e
+        required: false
+        default: false
+        type: boolean
+      frontend_extension_controller_image:
+        description: FrontendExtension controller image. Required when run_frontend_extension_e2e is true.
+        required: false
+        type: string
+      frontend_extension_packager_image:
+        description: FrontendExtension packager image. Required when run_frontend_extension_e2e is true.
+        required: false
+        type: string
+      frontend_extension_api_image:
+        description: FrontendExtension API image. Required when run_frontend_extension_e2e is true.
+        required: false
+        type: string
+      frontend_extension_publisher_image:
+        description: Optional FrontendExtension publisher image. Defaults to the packager image in the e2e script.
+        required: false
+        type: string
       kubernetes_version:
         description: Optional Kubernetes version (1.23, 1.26, 1.28, 1.30, 1.32, 1.34)
         required: false
@@ -37,20 +58,25 @@ jobs:
             runner: ubuntu-24.04-arm
 
     env:
+      KIND_VERSION: v0.31.0
       KIND_CLUSTER_NAME: frontend-forge-e2e-${{ matrix.arch }}
       ARTIFACT_DIR: ${{ github.workspace }}/.tmp/e2e-artifacts/${{ matrix.arch }}
-      RENDERED_MANIFEST_DIR: ${{ github.workspace }}/.tmp/e2e-manifests/${{ matrix.arch }}
       FRONTEND_FORGE_CONTROLLER_IMAGE: ${{ inputs.frontend_forge_controller_image }}
       FRONTEND_FORGE_RUNNER_IMAGE: ${{ inputs.frontend_forge_runner_image }}
       FRONTEND_FORGE_IMAGE: ${{ inputs.frontend_forge_image }}
+      RUN_FE_E2E: ${{ inputs.run_frontend_extension_e2e }}
+      FRONTEND_EXTENSION_CONTROLLER_IMAGE: ${{ inputs.frontend_extension_controller_image }}
+      FRONTEND_EXTENSION_PACKAGER_IMAGE: ${{ inputs.frontend_extension_packager_image }}
+      FRONTEND_EXTENSION_API_IMAGE: ${{ inputs.frontend_extension_api_image }}
+      FRONTEND_EXTENSION_PUBLISHER_IMAGE: ${{ inputs.frontend_extension_publisher_image }}
       KUBERNETES_VERSION: ${{ inputs.kubernetes_version }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Install kind
         shell: bash
@@ -61,7 +87,7 @@ jobs:
             aarch64|arm64) KIND_ARCH=arm64 ;;
             *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
           esac
-          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-${KIND_ARCH}"
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-${KIND_ARCH}"
           chmod +x kind
           sudo mv kind /usr/local/bin/kind
           kind version
@@ -131,53 +157,78 @@ jobs:
           docker pull "${FRONTEND_FORGE_CONTROLLER_IMAGE}"
           docker pull "${FRONTEND_FORGE_RUNNER_IMAGE}"
           docker pull "${FRONTEND_FORGE_IMAGE}"
+          if [[ "${RUN_FE_E2E}" == "true" ]]; then
+            : "${FRONTEND_EXTENSION_CONTROLLER_IMAGE:?frontend_extension_controller_image is required}"
+            : "${FRONTEND_EXTENSION_PACKAGER_IMAGE:?frontend_extension_packager_image is required}"
+            : "${FRONTEND_EXTENSION_API_IMAGE:?frontend_extension_api_image is required}"
+            docker pull "${FRONTEND_EXTENSION_CONTROLLER_IMAGE}"
+            docker pull "${FRONTEND_EXTENSION_PACKAGER_IMAGE}"
+            docker pull "${FRONTEND_EXTENSION_API_IMAGE}"
+            if [[ -n "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" ]]; then
+              docker pull "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}"
+            fi
+          fi
 
       - name: Load images into kind
         shell: bash
         run: |
           set -euo pipefail
-          kind load docker-image --name "${KIND_CLUSTER_NAME}" "${FRONTEND_FORGE_CONTROLLER_IMAGE}"
-          kind load docker-image --name "${KIND_CLUSTER_NAME}" "${FRONTEND_FORGE_RUNNER_IMAGE}"
-          kind load docker-image --name "${KIND_CLUSTER_NAME}" "${FRONTEND_FORGE_IMAGE}"
 
-      - name: Render e2e manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "${RENDERED_MANIFEST_DIR}"
-          cp -R config/e2e/. "${RENDERED_MANIFEST_DIR}/"
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
+          load_image_into_kind() {
+            local image="$1"
 
-          base = Path(os.environ["RENDERED_MANIFEST_DIR"])
-          replacements = {
-              "${FRONTEND_FORGE_CONTROLLER_IMAGE}": os.environ["FRONTEND_FORGE_CONTROLLER_IMAGE"],
-              "${FRONTEND_FORGE_RUNNER_IMAGE}": os.environ["FRONTEND_FORGE_RUNNER_IMAGE"],
-              "${FRONTEND_FORGE_IMAGE}": os.environ["FRONTEND_FORGE_IMAGE"],
+            if kind load docker-image --name "${KIND_CLUSTER_NAME}" "${image}"; then
+              return
+            fi
+
+            echo "kind load failed for ${image}; falling back to containerd import" >&2
+            local image_archive
+            image_archive="$(mktemp "${RUNNER_TEMP:-/tmp}/kind-image-XXXXXX")"
+            docker save "${image}" -o "${image_archive}"
+
+            while IFS= read -r node; do
+              [[ -n "${node}" ]] || continue
+              local node_archive="/tmp/$(basename "${image_archive}")"
+              docker cp "${image_archive}" "${node}:${node_archive}"
+              docker exec "${node}" ctr -n k8s.io images import "${node_archive}"
+              docker exec "${node}" rm -f "${node_archive}"
+            done < <(kind get nodes --name "${KIND_CLUSTER_NAME}")
+
+            rm -f "${image_archive}"
           }
 
-          for name in ("controller-deployment-ci.yaml", "frontend-forge-build-service.yaml"):
-              path = base / name
-              text = path.read_text()
-              for needle, value in replacements.items():
-                  text = text.replace(needle, value)
-              path.write_text(text)
-          PY
+          load_image_into_kind "${FRONTEND_FORGE_CONTROLLER_IMAGE}"
+          load_image_into_kind "${FRONTEND_FORGE_RUNNER_IMAGE}"
+          load_image_into_kind "${FRONTEND_FORGE_IMAGE}"
+          if [[ "${RUN_FE_E2E}" == "true" ]]; then
+            load_image_into_kind "${FRONTEND_EXTENSION_CONTROLLER_IMAGE}"
+            load_image_into_kind "${FRONTEND_EXTENSION_PACKAGER_IMAGE}"
+            load_image_into_kind "${FRONTEND_EXTENSION_API_IMAGE}"
+            if [[ -n "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" ]]; then
+              load_image_into_kind "${FRONTEND_EXTENSION_PUBLISHER_IMAGE}"
+            fi
+          fi
 
       - name: Run kind e2e
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x scripts/ci-kind-e2e.sh
+          chmod +x scripts/ci-kind-e2e.sh scripts/fe-full-regression.sh
           ARTIFACT_DIR="${ARTIFACT_DIR}" \
-          E2E_MANIFEST_DIR="${RENDERED_MANIFEST_DIR}" \
           KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME}" \
+          FRONTEND_FORGE_CONTROLLER_IMAGE="${FRONTEND_FORGE_CONTROLLER_IMAGE}" \
+          FRONTEND_FORGE_RUNNER_IMAGE="${FRONTEND_FORGE_RUNNER_IMAGE}" \
+          FRONTEND_FORGE_IMAGE="${FRONTEND_FORGE_IMAGE}" \
+          RUN_FE_E2E="${RUN_FE_E2E}" \
+          FRONTEND_EXTENSION_CONTROLLER_IMAGE="${FRONTEND_EXTENSION_CONTROLLER_IMAGE}" \
+          FRONTEND_EXTENSION_PACKAGER_IMAGE="${FRONTEND_EXTENSION_PACKAGER_IMAGE}" \
+          FRONTEND_EXTENSION_API_IMAGE="${FRONTEND_EXTENSION_API_IMAGE}" \
+          FRONTEND_EXTENSION_PUBLISHER_IMAGE="${FRONTEND_EXTENSION_PUBLISHER_IMAGE}" \
           ./scripts/ci-kind-e2e.sh
 
       - name: Upload e2e artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-kind-${{ matrix.arch }}-${{ steps.kind-image.outputs.version_label }}
           path: ${{ env.ARTIFACT_DIR }}

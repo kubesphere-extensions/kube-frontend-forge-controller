@@ -1,15 +1,13 @@
 name: Build And Push Docker Images
 
 on:
-  # Build images when PRs into these branches are closed (merged).
-  pull_request:
+  # Build images after changes are merged into these branches.
+  push:
     branches:
       - main
       - dev
       - release/*
       - hotfix/*
-    types:
-      - closed
   # Build images when a GitHub Release is published.
   release:
     types:
@@ -19,11 +17,12 @@ permissions:
   contents: read
 
 env:
-  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || 'spike2044' }}
+  DOCKERHUB_NAMESPACE: ${{ github.event_name == 'push' && github.ref_name == 'dev' && 'kubespheredev' || 'kubesphere' }}
+  KUBESPHERE_HUB_REGISTRY: hub.kubesphere.com.cn
 
 jobs:
   build-by-arch:
-    if: ${{ github.event_name == 'release' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true) }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     name: Build ${{ matrix.image_name }} (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -34,37 +33,75 @@ jobs:
           - runner: ubuntu-latest
             platform: linux/amd64
             arch: amd64
+            image_name: frontend-extension-controller
+            dockerfile: crates/frontend-extension-controller/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-packager
+            dockerfile: crates/extension-packager/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-publisher
+            dockerfile: crates/extension-publisher/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
             image_name: frontend-forge-controller
-            dockerfile: crates/controller/Dockerfile
+            dockerfile: crates/frontend-forge-controller/Dockerfile
           - runner: ubuntu-latest
             platform: linux/amd64
             arch: amd64
             image_name: frontend-forge-runner
-            dockerfile: crates/runner/Dockerfile
+            dockerfile: crates/frontend-forge-runner/Dockerfile
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+            image_name: frontend-forge-extension-api
+            dockerfile: crates/frontend-forge-extension-api/Dockerfile
 
           # arm64（原生 ARM runner，无需 QEMU）
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
+            image_name: frontend-extension-controller
+            dockerfile: crates/frontend-extension-controller/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-packager
+            dockerfile: crates/extension-packager/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-publisher
+            dockerfile: crates/extension-publisher/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
             image_name: frontend-forge-controller
-            dockerfile: crates/controller/Dockerfile
+            dockerfile: crates/frontend-forge-controller/Dockerfile
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
             image_name: frontend-forge-runner
-            dockerfile: crates/runner/Dockerfile
+            dockerfile: crates/frontend-forge-runner/Dockerfile
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            image_name: frontend-forge-extension-api
+            dockerfile: crates/frontend-forge-extension-api/Dockerfile
 
     steps:
       - name: Check Out Repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        uses: actions/checkout@v6
 
       - name: Set Up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log In To Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -72,7 +109,7 @@ jobs:
       # 单平台 build + push（按 digest 推送，不直接 push tag）
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -92,33 +129,47 @@ jobs:
           echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.image_name }}-${{ matrix.arch }}.txt"
 
       - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.image_name }}-${{ matrix.arch }}
           path: digests/*.txt
 
   merge-manifests:
-    if: ${{ github.event_name == 'release' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true) }}
+    if: ${{ github.event_name == 'release' || github.event_name == 'push' }}
     name: Merge multi-arch manifests
     runs-on: ubuntu-latest
     needs: [build-by-arch]
 
     steps:
       - name: Download all digest artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: digests-*
           path: digests
           merge-multiple: true
 
       - name: Set Up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log In To Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log In To KubeSphere Hub
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.KUBESPHERE_HUB_REGISTRY }}
+          username: ${{ secrets.KUBESPHERE_HUB_USERNAME }}
+          password: ${{ secrets.KUBESPHERE_HUB_TOKEN }}
+
+      - name: Install skopeo
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y skopeo
 
       - name: Create and push manifest lists
         shell: bash
@@ -128,41 +179,67 @@ jobs:
           {
             echo "## Multi-platform image digests"
             echo
-            echo "| Image | Tags | Digest | Canonical Reference |"
-            echo "| --- | --- | --- | --- |"
+            echo "| Registry | Image | Tags | Digest | Canonical Reference |"
+            echo "| --- | --- | --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          for image_name in frontend-forge-controller frontend-forge-runner; do
-            repo="docker.io/${DOCKERHUB_NAMESPACE}/${image_name}"
-
+          for image_name in \
+            frontend-extension-controller \
+            frontend-forge-extension-packager \
+            frontend-forge-extension-publisher \
+            frontend-forge-controller \
+            frontend-forge-runner \
+            frontend-forge-extension-api; do
             amd_digest="$(cat "digests/${image_name}-amd64.txt")"
             arm_digest="$(cat "digests/${image_name}-arm64.txt")"
 
+            dockerhub_repo="docker.io/${DOCKERHUB_NAMESPACE}/${image_name}"
+            hub_repo="${KUBESPHERE_HUB_REGISTRY}/${DOCKERHUB_NAMESPACE}/${image_name}"
+
             if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-              tags=("${repo}:${GITHUB_REF_NAME}")
+              dockerhub_tags=("${dockerhub_repo}:${GITHUB_REF_NAME}")
+              hub_tags=("${hub_repo}:${GITHUB_REF_NAME}")
             else
-              base_ref="${GITHUB_BASE_REF}"
-              safe_base_ref="${base_ref//\//-}"
-              tags=("${repo}:${safe_base_ref}" "${repo}:latest")
+              safe_base_ref="${GITHUB_REF_NAME//\//-}"
+              dockerhub_tags=("${dockerhub_repo}:${safe_base_ref}" "${dockerhub_repo}:latest")
+              hub_tags=("${hub_repo}:${safe_base_ref}" "${hub_repo}:latest")
             fi
 
-            # 一次性合并两个平台 digest，并同时挂上所有最终 tags。
-            primary_tag="${tags[0]}"
+            # 一次性合并 Docker Hub 上的两个平台 digest，并同时挂上所有最终 tags。
+            primary_tag="${dockerhub_tags[0]}"
             tag_args=()
-            for t in "${tags[@]}"; do
+            for t in "${dockerhub_tags[@]}"; do
               tag_args+=("-t" "${t}")
             done
 
             docker buildx imagetools create \
               "${tag_args[@]}" \
-              "${repo}@${amd_digest}" \
-              "${repo}@${arm_digest}"
+              "${dockerhub_repo}@${amd_digest}" \
+              "${dockerhub_repo}@${arm_digest}"
 
-            multiarch_digest="$(docker buildx imagetools inspect "${primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
-            canonical_ref="${repo}@${multiarch_digest}"
-            joined_tags="$(printf '%s<br>' "${tags[@]}")"
-            joined_tags="${joined_tags%<br>}"
+            dockerhub_digest="$(docker buildx imagetools inspect "${primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
+            dockerhub_canonical_ref="${dockerhub_repo}@${dockerhub_digest}"
+            dockerhub_joined_tags="$(printf '%s<br>' "${dockerhub_tags[@]}")"
+            dockerhub_joined_tags="${dockerhub_joined_tags%<br>}"
 
-            echo "multi-platform image digest: ${image_name} -> ${canonical_ref}"
-            echo "| ${image_name} | ${joined_tags} | \`${multiarch_digest}\` | \`${canonical_ref}\` |" >> "$GITHUB_STEP_SUMMARY"
+            echo "multi-platform image digest: ${image_name} -> ${dockerhub_canonical_ref}"
+            echo "| docker.io | ${image_name} | ${dockerhub_joined_tags} | \`${dockerhub_digest}\` | \`${dockerhub_canonical_ref}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+            for i in "${!dockerhub_tags[@]}"; do
+              skopeo copy \
+                --all \
+                --src-authfile "$HOME/.docker/config.json" \
+                --dest-authfile "$HOME/.docker/config.json" \
+                "docker://${dockerhub_tags[$i]}" \
+                "docker://${hub_tags[$i]}"
+            done
+
+            hub_primary_tag="${hub_tags[0]}"
+            hub_digest="$(docker buildx imagetools inspect "${hub_primary_tag}" | sed -n 's/^Digest: //p' | head -n1)"
+            hub_canonical_ref="${hub_repo}@${hub_digest}"
+            hub_joined_tags="$(printf '%s<br>' "${hub_tags[@]}")"
+            hub_joined_tags="${hub_joined_tags%<br>}"
+
+            echo "multi-platform image digest: ${image_name} -> ${hub_canonical_ref}"
+            echo "| ${KUBESPHERE_HUB_REGISTRY} | ${image_name} | ${hub_joined_tags} | \`${hub_digest}\` | \`${hub_canonical_ref}\` |" >> "$GITHUB_STEP_SUMMARY"
           done

@@ -1,0 +1,495 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ff-test-alpha
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ff-test-beta
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterwidgets.sample.frontend-forge.io
+  labels:
+    kubesphere.io/resource-served: "true"
+spec:
+  group: sample.frontend-forge.io
+  scope: Cluster
+  names:
+    plural: clusterwidgets
+    singular: clusterwidget
+    kind: ClusterWidget
+    shortNames:
+      - cwgt
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: Severity
+          type: string
+          jsonPath: .spec.severity
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                owner:
+                  type: string
+                severity:
+                  type: string
+                state:
+                  type: string
+                targetNamespace:
+                  type: string
+              required:
+                - displayName
+                - owner
+                - severity
+                - state
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterreports.sample.frontend-forge.io
+  labels:
+    kubesphere.io/resource-served: "true"
+spec:
+  group: sample.frontend-forge.io
+  scope: Cluster
+  names:
+    plural: clusterreports
+    singular: clusterreport
+    kind: ClusterReport
+    shortNames:
+      - crpt
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                owner:
+                  type: string
+                state:
+                  type: string
+                summary:
+                  type: string
+              required:
+                - displayName
+                - owner
+                - state
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: namespacewidgets.sample.frontend-forge.io
+  labels:
+    kubesphere.io/resource-served: "true"
+spec:
+  group: sample.frontend-forge.io
+  scope: Namespaced
+  names:
+    plural: namespacewidgets
+    singular: namespacewidget
+    kind: NamespaceWidget
+    shortNames:
+      - nwgt
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: Replicas
+          type: integer
+          jsonPath: .spec.replicas
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                owner:
+                  type: string
+                state:
+                  type: string
+                replicas:
+                  type: integer
+                  minimum: 0
+              required:
+                - displayName
+                - owner
+                - state
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: namespacerollouts.sample.frontend-forge.io
+  labels:
+    kubesphere.io/resource-served: "true"
+spec:
+  group: sample.frontend-forge.io
+  scope: Namespaced
+  names:
+    plural: namespacerollouts
+    singular: namespacerollout
+    kind: NamespaceRollout
+    shortNames:
+      - nrol
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .spec.state
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                displayName:
+                  type: string
+                owner:
+                  type: string
+                state:
+                  type: string
+                strategy:
+                  type: string
+              required:
+                - displayName
+                - owner
+                - state
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                message:
+                  type: string
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: ClusterWidget
+metadata:
+  name: cluster-widget-core
+spec:
+  displayName: Core Control Plane Widget
+  owner: platform
+  severity: high
+  state: Ready
+  targetNamespace: ff-test-alpha
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: ClusterWidget
+metadata:
+  name: cluster-widget-observability
+spec:
+  displayName: Observability Widget
+  owner: observability
+  severity: medium
+  state: Degraded
+  targetNamespace: ff-test-beta
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: ClusterReport
+metadata:
+  name: cluster-report-weekly
+spec:
+  displayName: Weekly Cluster Report
+  owner: sre
+  state: Published
+  summary: Synthetic weekly cluster report for crdTable testing.
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: ClusterReport
+metadata:
+  name: cluster-report-risk
+spec:
+  displayName: Risk Cluster Report
+  owner: security
+  state: Draft
+  summary: Synthetic risk report for cluster-scoped CRD testing.
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: NamespaceWidget
+metadata:
+  name: namespace-widget-api
+  namespace: ff-test-alpha
+spec:
+  displayName: API Widget
+  owner: app-team-a
+  state: Ready
+  replicas: 2
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: NamespaceWidget
+metadata:
+  name: namespace-widget-worker
+  namespace: ff-test-alpha
+spec:
+  displayName: Worker Widget
+  owner: app-team-a
+  state: Scaling
+  replicas: 5
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: NamespaceWidget
+metadata:
+  name: namespace-widget-console
+  namespace: ff-test-beta
+spec:
+  displayName: Console Widget
+  owner: app-team-b
+  state: Ready
+  replicas: 1
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: NamespaceRollout
+metadata:
+  name: rollout-canary
+  namespace: ff-test-alpha
+spec:
+  displayName: Canary Rollout
+  owner: release-team
+  state: Progressing
+  strategy: canary
+---
+apiVersion: sample.frontend-forge.io/v1alpha1
+kind: NamespaceRollout
+metadata:
+  name: rollout-blue-green
+  namespace: ff-test-beta
+spec:
+  displayName: Blue Green Rollout
+  owner: release-team
+  state: Paused
+  strategy: blue-green
+---
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendIntegration
+metadata:
+  name: fi-crdtable-testdata
+  annotations:
+    kubesphere.io/creator: admin
+    kubesphere.io/description: Test CRD tables for cluster-scoped and namespaced resources
+spec:
+  displayName: FI CRD Table Test Data
+  enabled: true
+  menus:
+    - displayName: Test Cluster CRDs
+      key: test-cluster-crds
+      placement: cluster
+      type: organization
+      children:
+        - displayName: Cluster Widgets
+          key: cluster-widgets
+        - displayName: Cluster Reports
+          key: cluster-reports
+    - displayName: Test Namespace CRDs
+      key: test-namespace-crds
+      placement: workspace
+      type: organization
+      children:
+        - displayName: Namespace Widgets
+          key: namespace-widgets
+        - displayName: Namespace Rollouts
+          key: namespace-rollouts
+  pages:
+    - key: cluster-widgets
+      type: crdTable
+      crdTable:
+        names:
+          plural: clusterwidgets
+          kind: ClusterWidget
+        group: sample.frontend-forge.io
+        version: v1alpha1
+        scope: Cluster
+        columns:
+          - key: name
+            title: NAME
+            enableSorting: true
+            render:
+              type: text
+              path: metadata.name
+          - key: state
+            title: STATE
+            enableSorting: true
+            render:
+              type: text
+              path: spec.state
+          - key: owner
+            title: OWNER
+            render:
+              type: text
+              path: spec.owner
+          - key: severity
+            title: SEVERITY
+            render:
+              type: text
+              path: spec.severity
+          - key: creation-time
+            title: CREATION_TIME
+            enableHiding: true
+            enableSorting: true
+            render:
+              type: time
+              path: metadata.creationTimestamp
+              format: local-datetime
+    - key: cluster-reports
+      type: crdTable
+      crdTable:
+        names:
+          plural: clusterreports
+          kind: ClusterReport
+        group: sample.frontend-forge.io
+        version: v1alpha1
+        scope: Cluster
+        columns:
+          - key: name
+            title: NAME
+            enableSorting: true
+            render:
+              type: text
+              path: metadata.name
+          - key: state
+            title: STATE
+            render:
+              type: text
+              path: spec.state
+          - key: owner
+            title: OWNER
+            render:
+              type: text
+              path: spec.owner
+          - key: summary
+            title: SUMMARY
+            enableHiding: true
+            render:
+              type: text
+              path: spec.summary
+    - key: namespace-widgets
+      type: crdTable
+      crdTable:
+        names:
+          plural: namespacewidgets
+          kind: NamespaceWidget
+        group: sample.frontend-forge.io
+        version: v1alpha1
+        scope: Namespaced
+        columns:
+          - key: name
+            title: NAME
+            enableSorting: true
+            render:
+              type: text
+              path: metadata.name
+          - key: namespace
+            title: NAMESPACE
+            render:
+              type: text
+              path: metadata.namespace
+          - key: state
+            title: STATE
+            render:
+              type: text
+              path: spec.state
+          - key: replicas
+            title: REPLICAS
+            render:
+              type: text
+              path: spec.replicas
+    - key: namespace-rollouts
+      type: crdTable
+      crdTable:
+        names:
+          plural: namespacerollouts
+          kind: NamespaceRollout
+        group: sample.frontend-forge.io
+        version: v1alpha1
+        scope: Namespaced
+        columns:
+          - key: name
+            title: NAME
+            enableSorting: true
+            render:
+              type: text
+              path: metadata.name
+          - key: namespace
+            title: NAMESPACE
+            render:
+              type: text
+              path: metadata.namespace
+          - key: state
+            title: STATE
+            render:
+              type: text
+              path: spec.state
+          - key: strategy
+            title: STRATEGY
+            render:
+              type: text
+              path: spec.strategy
+  builder:
+    engineVersion: v1

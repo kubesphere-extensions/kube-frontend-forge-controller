@@ -1,0 +1,140 @@
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: inspecttask
+spec:
+  package:
+    name: inspecttask
+    version: 0.1.0
+    displayName:
+      zh: 巡检任务
+      en: Inspect Task
+    description:
+      zh: InspectTask extension package。
+      en: InspectTask extension package.
+    category: dev-tools
+    keywords:
+      - Frontend
+    sources:
+      - https://github.com/kubesphere-extensions/frontend-forge
+    kubeVersion: ">=1.23.0-0"
+    ksVersion: ">=4.2.0-0"
+    maintainers:
+      - name: KubeSphere
+        email: kubesphere@yunify.com
+    home: https://kubesphere.com.cn/
+    provider:
+      zh:
+        name: 北京青云科技股份有限公司
+        email: kubesphere@yunify.com
+        url: https://kubesphere.com.cn/
+      en:
+        name: QingCloud Technologies
+        email: kubesphere@yunify.com
+        url: https://kubesphere.co/
+    icon: ./static/favicon.svg
+    installationMode: Multicluster
+    images:
+      - kubesphere/frontend-forge-console:v1.0.0
+      - kubesphere/frontend-forge-controller:v1.0.0
+      - kubesphere/frontend-forge-runner:v1.0.0
+    charts:
+      values: {}
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        locales:
+          zh:
+            title: 角色test
+          en:
+            title: Role Test
+        menus:
+          - displayName: Role
+            key: role-test
+            pageKey: role-test
+            placements:
+              - workspace
+            type: page
+          - displayName: Role
+            key: cluster-role-test
+            pageKey: cluster-role-test
+            placements:
+              - cluster
+            type: page
+        pages:
+          - key: role-test
+            placements:
+              - workspace
+            type: crdTable
+            crdTable:
+              authKey: inspecttask
+              group: iam.kubesphere.io
+              version: v1beta1
+              scope: Namespaced
+              names:
+                kind: Role
+                plural: roles
+              columns:
+                - enableSorting: true
+                  key: name
+                  render:
+                    path: metadata.name
+                    type: text
+                  title: NAME
+                - enableHiding: true
+                  key: namespace
+                  render:
+                    path: metadata.namespace
+                    type: text
+                  title: PROJECT
+                - enableHiding: true
+                  enableSorting: true
+                  key: updateTime
+                  render:
+                    format: local-datetime
+                    path: metadata.creationTimestamp
+                    type: time
+                  title: CREATION_TIME
+          - key: cluster-role-test
+            placements:
+              - cluster
+            type: crdTable
+            crdTable:
+              authKey: inspecttask
+              group: iam.kubesphere.io
+              version: v1beta1
+              scope: Namespaced
+              names:
+                kind: Role
+                plural: roles
+              columns:
+                - enableSorting: true
+                  key: name
+                  render:
+                    path: metadata.name
+                    type: text
+                  title: NAME
+                - enableHiding: true
+                  key: namespace
+                  render:
+                    path: metadata.namespace
+                    type: text
+                  title: PROJECT
+                - enableHiding: true
+                  enableSorting: true
+                  key: updateTime
+                  render:
+                    format: local-datetime
+                    path: metadata.creationTimestamp
+                    type: time
+                  title: CREATION_TIME
+      extensionResources:
+        jsBundle:
+          name: inspecttask
+  publishPolicy:
+    mode: Manual
+    defaultTargetRef:
+      namespace: extension-frontend-forge
+      name: ksbuilder-publish-config

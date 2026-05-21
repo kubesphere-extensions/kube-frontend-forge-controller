@@ -1,0 +1,47 @@
+apiVersion: kubesphere.io/v1alpha1
+name: frontend-forge
+version: 1.0.0
+displayName:
+  en: Frontend Forge
+  zh: Frontend Forge
+description:
+  en: Controllers and jobs for packaging, publishing, and serving KubeSphere frontend extensions.
+  zh: 用于打包、发布和服务 KubeSphere 前端扩展的控制器与任务。
+category: dev-tools
+keywords:
+  - frontend
+  - extension
+  - kubesphere
+  - controller
+home: https://github.com/kubesphere-extensions/kube-frontend-forge-controller
+sources:
+  - https://github.com/kubesphere-extensions/kube-frontend-forge-controller
+kubeVersion: ">=1.23.0-0"
+ksVersion: ">=4.2.0-0"
+maintainers:
+  - name: KubeSphere
+    email: kubesphere@yunify.com
+provider:
+  en:
+    name: QingCloud Technologies
+    email: kubesphere@yunify.com
+    url: https://kubesphere.co/
+  zh:
+    name: 北京青云科技股份有限公司
+    email: kubesphere@yunify.com
+    url: https://kubesphere.com.cn/
+icon: ./static/favicon.svg
+dependencies:
+  - name: frontend-forge
+    tags:
+      - extension
+installationMode: HostOnly
+images:
+  - docker.io/kubesphere/frontend-forge-controller:main
+  - docker.io/kubesphere/frontend-forge-runner:main
+  - docker.io/kubesphere/frontend-extension-controller:main
+  - docker.io/kubesphere/frontend-forge-extension-api:main
+  - docker.io/kubesphere/frontend-forge-extension-packager:main
+  - docker.io/kubesphere/frontend-forge-extension-publisher:main
+  - docker.io/kubesphere/frontend-forge:main
+  - docker.io/kubespheredev/kube-webhook-certgen:v1.1.1

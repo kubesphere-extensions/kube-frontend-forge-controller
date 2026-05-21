@@ -1,0 +1,241 @@
+# Default values for frontend-forge.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+
+controller:
+  enabled: false
+  workNamespace: ""
+  jsbundleConfigmapNamespace: ""
+  runnerServiceAccountName: ""
+  buildServiceBaseUrl: ""
+  jsbundleConfigKey: index.js
+  buildServiceTimeoutSeconds: 240
+  staleCheckGraceSeconds: 30
+  reconcileRequeueSeconds: 5
+  jobActiveDeadlineSeconds: 300
+  jobTtlSecondsAfterFinished: 3600
+
+image:
+  registry: docker.io
+  repository: kubesphere/frontend-forge-controller
+  pullPolicy: IfNotPresent
+  tag: main
+
+runner:
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-runner
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+
+replicaCount: 1
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources: {}
+livenessProbe: {}
+readinessProbe: {}
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+crds:
+  installJsBundle: false
+
+migration:
+  fiToFe:
+    enabled: true
+    packageVersion: "0.1.0"
+    schemaVersion: v1
+    readyTimeoutSeconds: 600
+    pollIntervalSeconds: 5
+    backoffLimit: 0
+    hookDeletePolicy: before-hook-creation
+    activeDeadlineSeconds: null
+    publishTarget:
+      kind: ConfigMap
+      namespace: ""
+      name: ksbuilder-publish-config
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+publishTargetConfig:
+  enabled: true
+  name: ksbuilder-publish-config
+  namespace: ""
+  annotations: {}
+  data:
+    args: ""
+  binaryData: {}
+
+extensionController:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-extension-controller
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  artifactConfigmapNamespace: ""
+  buildServiceBaseUrl: ""
+  buildServiceTimeoutSeconds: 240
+  jsbundleConfigKey: index.js
+  packagerServiceAccountName: ""
+  packagerImage: ""
+  publisherServiceAccountName: ""
+  publisherImage: ""
+  reconcileRequeueSeconds: 5
+  jobActiveDeadlineSeconds: 300
+  jobTtlSecondsAfterFinished: 3600
+  artifactRetainOldCount: 1
+  packageMaxAttempts: 3
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+extensionPackager:
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-packager
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+
+extensionPublisher:
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-publisher
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+
+extensionApi:
+  enabled: true
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge-extension-api
+    pullPolicy: IfNotPresent
+    tag: main
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    name: ""
+  bindAddr: 0.0.0.0:8080
+  service:
+    type: ClusterIP
+    port: 80
+  apiService:
+    enabled: true
+    onlyIfApiResourceExists: true
+    name: ""
+    group: frontend-forge-api.kubesphere.io
+    version: v1alpha1
+    url: ""
+    caBundle: ""
+    insecureSkipTLSVerify: null
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+webhook:
+  enabled: false
+  bindAddr: 0.0.0.0:9443
+  certPath: /tls/tls.crt
+  keyPath: /tls/tls.key
+  service:
+    name: ""
+    port: 443
+  secretName: ""
+  validatingWebhookName: ""
+  certgen:
+    image:
+      registry: docker.io
+      repository: kubespheredev/kube-webhook-certgen
+      pullPolicy: IfNotPresent
+      tag: v1.1.1
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      name: ""
+    ttlSecondsAfterFinished: 300
+
+buildService:
+  enabled: false
+  name: ""
+  replicaCount: 1
+  image:
+    registry: docker.io
+    repository: kubesphere/frontend-forge
+    pullPolicy: IfNotPresent
+    tag: main
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
