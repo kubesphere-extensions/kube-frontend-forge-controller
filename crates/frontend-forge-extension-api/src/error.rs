@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn status_reason_maps_common_kubernetes_reasons() {
         assert_eq!(status_reason(StatusCode::NOT_FOUND), "NotFound");
-        assert_eq!(status_reason(StatusCode::INTERNAL_SERVER_ERROR), "InternalError");
+        assert_eq!(
+            status_reason(StatusCode::INTERNAL_SERVER_ERROR),
+            "InternalError"
+        );
         assert_eq!(status_reason(StatusCode::UNPROCESSABLE_ENTITY), "Invalid");
     }
 }
