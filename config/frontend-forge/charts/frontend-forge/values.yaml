@@ -20,14 +20,14 @@ controller:
   jobTtlSecondsAfterFinished: 3600
 
 image:
-  registry: docker.io
+  registry: hub.kubesphere.com.cn
   repository: kubesphere/frontend-forge-controller
   pullPolicy: IfNotPresent
   tag: main
 
 runner:
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-forge-runner
     pullPolicy: IfNotPresent
     tag: main
@@ -113,7 +113,7 @@ extensionController:
   enabled: true
   replicaCount: 1
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-extension-controller
     pullPolicy: IfNotPresent
     tag: main
@@ -146,7 +146,7 @@ extensionController:
 
 extensionPackager:
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-forge-extension-packager
     pullPolicy: IfNotPresent
     tag: main
@@ -158,7 +158,7 @@ extensionPackager:
 
 extensionPublisher:
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-forge-extension-publisher
     pullPolicy: IfNotPresent
     tag: main
@@ -172,7 +172,7 @@ extensionApi:
   enabled: true
   replicaCount: 1
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-forge-extension-api
     pullPolicy: IfNotPresent
     tag: main
@@ -215,7 +215,7 @@ webhook:
   validatingWebhookName: ""
   certgen:
     image:
-      registry: docker.io
+      registry: hub.kubesphere.com.cn
       repository: kubespheredev/kube-webhook-certgen
       pullPolicy: IfNotPresent
       tag: v1.1.1
@@ -231,7 +231,7 @@ buildService:
   name: ""
   replicaCount: 1
   image:
-    registry: docker.io
+    registry: hub.kubesphere.com.cn
     repository: kubesphere/frontend-forge
     pullPolicy: IfNotPresent
     tag: main

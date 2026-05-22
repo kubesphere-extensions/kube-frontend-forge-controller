@@ -35,7 +35,7 @@ Important env:
 
 | Env | Default | Behavior |
 | --- | --- | --- |
-| `REGISTRY` | `docker.io/kubesphere` | Image registry prefix. |
+| `REGISTRY` | `hub.kubesphere.com.cn/kubesphere` | Image registry prefix. |
 | `TAG` | `dev-<timestamp>` | Image tag. |
 | `BUILDER` | `mybuilder` | Docker buildx builder. |
 | `PLATFORM` | `linux/amd64` | Build platform. |

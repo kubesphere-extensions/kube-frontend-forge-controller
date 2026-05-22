@@ -37,11 +37,11 @@ dependencies:
       - extension
 installationMode: HostOnly
 images:
-  - docker.io/kubesphere/frontend-forge-controller:main
-  - docker.io/kubesphere/frontend-forge-runner:main
-  - docker.io/kubesphere/frontend-extension-controller:main
-  - docker.io/kubesphere/frontend-forge-extension-api:main
-  - docker.io/kubesphere/frontend-forge-extension-packager:main
-  - docker.io/kubesphere/frontend-forge-extension-publisher:main
-  - docker.io/kubesphere/frontend-forge:main
-  - docker.io/kubespheredev/kube-webhook-certgen:v1.1.1
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge-controller:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge-runner:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-extension-controller:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge-extension-api:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge-extension-packager:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge-extension-publisher:main
+  - hub.kubesphere.com.cn/kubesphere/frontend-forge:main
+  - hub.kubesphere.com.cn/kubespheredev/kube-webhook-certgen:v1.1.1
