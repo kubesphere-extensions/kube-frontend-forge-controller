@@ -38,15 +38,16 @@ jobs:
 
           SAFE_SOURCE_REPO="$(printf '%s' "${SOURCE_REPO}" | tr -cd '[:alnum:]_-')"
           SAFE_REF_NAME="$(printf '%s' "${GITHUB_REF_NAME}" | tr -cd '[:alnum:]_.-')"
+          SHORT_SHA="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
           if [[ -z "${SAFE_SOURCE_REPO}" ]]; then
             echo "Failed to derive a safe branch name from SOURCE_REPO=${SOURCE_REPO}" >&2
             exit 1
           fi
           if [[ -z "${SAFE_REF_NAME}" ]]; then
-            SAFE_REF_NAME="$(printf '%s' "${GITHUB_SHA}" | cut -c1-12)"
+            SAFE_REF_NAME="${SHORT_SHA}"
           fi
 
-          SYNC_BRANCH="sync/${SAFE_SOURCE_REPO}-chart-${SAFE_REF_NAME}"
+          SYNC_BRANCH="sync/${SAFE_SOURCE_REPO}-chart-${SAFE_REF_NAME}-${SHORT_SHA}"
           SYNC_TITLE="[chart] Sync frontend-forge chart ${GITHUB_REF_NAME}"
           MESSAGE_FILE="${RUNNER_TEMP}/sync-chart-message.txt"
           if [[ -n "${RELEASE_URL}" ]]; then
@@ -87,7 +88,12 @@ jobs:
           fi
 
           git commit -F "${MESSAGE_FILE}"
-          git push origin "${SYNC_BRANCH}" --force-with-lease
+          git fetch origin "+refs/heads/${SYNC_BRANCH}:refs/remotes/origin/${SYNC_BRANCH}" || true
+          if REMOTE_SYNC_SHA="$(git rev-parse --verify "refs/remotes/origin/${SYNC_BRANCH}" 2>/dev/null)"; then
+            git push origin "${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:${REMOTE_SYNC_SHA}"
+          else
+            git push origin "${SYNC_BRANCH}" --force-with-lease="refs/heads/${SYNC_BRANCH}:"
+          fi
           echo "synced=true" >> "$GITHUB_OUTPUT"
 
       - if: steps.sync.outputs.synced == 'true'
