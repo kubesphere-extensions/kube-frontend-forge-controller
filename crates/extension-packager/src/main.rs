@@ -7,7 +7,7 @@ use frontend_forge_build_service_client::{
 };
 use frontend_forge_common::{
     ANNO_ARTIFACT_DIGEST, ANNO_ARTIFACT_FILENAME, ANNO_ARTIFACT_KEY, ANNO_SOURCE_HASH,
-    LABEL_ARTIFACT_KEY_SHORT, LABEL_FE_NAME, LABEL_FE_UID, LABEL_MANAGED_BY, LABEL_PACKAGE_KIND,
+    LABEL_ARTIFACT_KEY_SHORT, LABEL_FE_MANAGED_BY, LABEL_FE_NAME, LABEL_FE_UID, LABEL_PACKAGE_KIND,
     LABEL_SOURCE_HASH_SHORT, MANAGED_BY_VALUE, PACKAGE_KIND_VALUE, hash_label_value,
     manifest_content_and_hash,
 };
@@ -226,7 +226,10 @@ fn artifact_configmap(
             name: Some(cfg.artifact_configmap_name.clone()),
             namespace: Some(cfg.artifact_configmap_namespace.clone()),
             labels: Some(BTreeMap::from([
-                (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
+                (
+                    LABEL_FE_MANAGED_BY.to_string(),
+                    MANAGED_BY_VALUE.to_string(),
+                ),
                 (LABEL_FE_NAME.to_string(), cfg.fe_name.clone()),
                 (LABEL_FE_UID.to_string(), cfg.fe_uid.clone()),
                 (

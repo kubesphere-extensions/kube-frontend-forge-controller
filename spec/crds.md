@@ -179,11 +179,11 @@ Publish request annotations override spec target fields:
 
 | Annotation | Behavior |
 | --- | --- |
-| `frontend-forge.io/publish-request-id` | Triggers publish reconciliation. |
-| `frontend-forge.io/publish-artifact-digest` | Required requested artifact digest. |
-| `frontend-forge.io/publish-target-kind` | Optional target kind override. |
-| `frontend-forge.io/publish-target-namespace` | Optional target namespace override. |
-| `frontend-forge.io/publish-target-name` | Optional target name override. |
+| `frontend-forge.kubesphere.io/publish-request-id` | Triggers publish reconciliation. |
+| `frontend-forge.kubesphere.io/publish-artifact-digest` | Required requested artifact digest. |
+| `frontend-forge.kubesphere.io/publish-target-kind` | Optional target kind override. |
+| `frontend-forge.kubesphere.io/publish-target-namespace` | Optional target namespace override. |
+| `frontend-forge.kubesphere.io/publish-target-name` | Optional target name override. |
 
 ### Status Fields
 

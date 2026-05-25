@@ -99,8 +99,8 @@ cleanup_previous_run() {
     log "existing FrontendExtension found; deleting it and verifying related resources are removed"
     mkdir -p "$ARTIFACT_DIR/pre-delete"
     "${KUBECTL[@]}" get frontendextension "$FE_NAME" -o yaml > "$ARTIFACT_DIR/pre-delete/frontendextension.yaml"
-    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/pre-delete/jobs.yaml" 2>/dev/null || true
-    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/pre-delete/configmaps.yaml" 2>/dev/null || true
+    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/pre-delete/jobs.yaml" 2>/dev/null || true
+    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/pre-delete/configmaps.yaml" 2>/dev/null || true
 
     "${KUBECTL[@]}" delete frontendextension "$FE_NAME" --wait=true | tee "$ARTIFACT_DIR/delete-existing.log"
     wait_for_frontend_extension_deleted
@@ -113,15 +113,15 @@ cleanup_previous_run() {
 
 cleanup_orphaned_related_resources() {
   local orphan_jobs orphan_configmaps
-  orphan_jobs="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
-  orphan_configmaps="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
+  orphan_jobs="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
+  orphan_configmaps="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
   if [[ -n "$orphan_jobs$orphan_configmaps" ]]; then
     log "cleaning orphaned related resources because FrontendExtension $FE_NAME is absent"
     mkdir -p "$ARTIFACT_DIR/orphan-cleanup"
     printf '%s\n' "$orphan_jobs" > "$ARTIFACT_DIR/orphan-cleanup/jobs.txt"
     printf '%s\n' "$orphan_configmaps" > "$ARTIFACT_DIR/orphan-cleanup/configmaps.txt"
-    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" delete job -l "frontend-forge.io/fe-name=$FE_NAME" --ignore-not-found
-    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" delete configmap -l "frontend-forge.io/fe-name=$FE_NAME" --ignore-not-found
+    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" delete job -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" --ignore-not-found
+    "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" delete configmap -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" --ignore-not-found
     wait_for_related_resources_deleted
   fi
 }
@@ -142,8 +142,8 @@ wait_for_related_resources_deleted() {
   local deadline=$((SECONDS + TIMEOUT_SECONDS))
   local jobs configmaps
   while (( SECONDS < deadline )); do
-    jobs="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
-    configmaps="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
+    jobs="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
+    configmaps="$("${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o name 2>/dev/null || true)"
     if [[ -z "$jobs" && -z "$configmaps" ]]; then
       log "related Jobs and ConfigMaps for $FE_NAME are deleted"
       return 0
@@ -152,8 +152,8 @@ wait_for_related_resources_deleted() {
     sleep "$POLL_INTERVAL_SECONDS"
   done
 
-  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/delete-leftover-jobs.yaml" 2>/dev/null || true
-  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/delete-leftover-configmaps.yaml" 2>/dev/null || true
+  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/delete-leftover-jobs.yaml" 2>/dev/null || true
+  "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get configmap -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME" -o yaml > "$ARTIFACT_DIR/delete-leftover-configmaps.yaml" 2>/dev/null || true
   die "timed out waiting for related Jobs and ConfigMaps for $FE_NAME to be deleted"
 }
 
@@ -378,7 +378,7 @@ package_job_count_for_artifact_key() {
   artifact_key_short="$(hash_label_value "$artifact_key")"
   fe_uid="$(jsonpath "frontendextension/$FE_NAME" '{.metadata.uid}')"
   "${KUBECTL[@]}" -n "$FRONTEND_FORGE_NAMESPACE" get job \
-    -l "frontend-forge.io/fe-name=$FE_NAME,frontend-forge.kubesphere.io/fe-uid=$fe_uid,frontend-forge.kubesphere.io/artifact-key-short=$artifact_key_short" \
+    -l "frontend-forge.kubesphere.io/fe-name=$FE_NAME,frontend-forge.kubesphere.io/fe-uid=$fe_uid,frontend-forge.kubesphere.io/artifact-key-short=$artifact_key_short" \
     -o name 2>/dev/null | sed '/^$/d' | wc -l | tr -d ' '
 }
 

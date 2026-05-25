@@ -100,9 +100,9 @@ Migrator-created FE metadata:
 
 | Metadata | Value |
 | --- | --- |
-| Label `frontend-forge.io/managed-by` | `frontend-forge-fi-migrator` |
-| Annotation `frontend-forge.io/source-fi-name` | Source FI name |
-| Annotation `frontend-forge.io/source-fi-uid` | Source FI UID when present |
+| Label `frontend-forge.kubesphere.io/managed-by` | `frontend-forge-fi-migrator` |
+| Annotation `frontend-forge.kubesphere.io/source-fi-name` | Source FI name |
+| Annotation `frontend-forge.kubesphere.io/source-fi-uid` | Source FI UID when present |
 
 Existing FE behavior:
 
@@ -152,13 +152,13 @@ patches publish intent annotations directly onto the migrated FE after the FE
 create/patch response is returned by apiserver:
 
 ```yaml
-frontend-forge.io/publish-request-id: fi-migration-<fe-name>-<source-hash-prefix-12>
-frontend-forge.io/publish-request-generation: "<metadata.generation>"
-frontend-forge.io/publish-request-source-hash: <current FE source hash>
-frontend-forge.io/publish-artifact-digest: null
-frontend-forge.io/publish-target-kind: ConfigMap
-frontend-forge.io/publish-target-namespace: <target namespace>
-frontend-forge.io/publish-target-name: <target name>
+frontend-forge.kubesphere.io/publish-request-id: fi-migration-<fe-name>-<source-hash-prefix-12>
+frontend-forge.kubesphere.io/publish-request-generation: "<metadata.generation>"
+frontend-forge.kubesphere.io/publish-request-source-hash: <current FE source hash>
+frontend-forge.kubesphere.io/publish-artifact-digest: null
+frontend-forge.kubesphere.io/publish-target-kind: ConfigMap
+frontend-forge.kubesphere.io/publish-target-namespace: <target namespace>
+frontend-forge.kubesphere.io/publish-target-name: <target name>
 ```
 
 The FE controller converts this intent into a publish Job only after the matching

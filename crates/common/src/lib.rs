@@ -16,20 +16,23 @@ use snafu::{ResultExt, Snafu};
 pub const MANAGED_BY_VALUE: &str = "frontend-forge-builder-controller";
 pub const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
 pub const LABEL_FI_NAME: &str = "frontend-forge.io/fi-name";
-pub const LABEL_FE_NAME: &str = "frontend-forge.io/fe-name";
+pub const LABEL_FE_MANAGED_BY: &str = "frontend-forge.kubesphere.io/managed-by";
+pub const LABEL_FE_NAME: &str = "frontend-forge.kubesphere.io/fe-name";
 pub const LABEL_FE_UID: &str = "frontend-forge.kubesphere.io/fe-uid";
 pub const LABEL_ENABLED: &str = "frontend-forge.io/enabled";
 pub const LABEL_SPEC_HASH: &str = "frontend-forge.io/spec-hash";
-pub const LABEL_SOURCE_HASH: &str = "frontend-forge.io/source-hash";
+pub const LABEL_SOURCE_HASH: &str = "frontend-forge.kubesphere.io/source-hash";
 pub const LABEL_SOURCE_HASH_SHORT: &str = "frontend-forge.kubesphere.io/source-hash-short";
 pub const LABEL_ARTIFACT_KEY_SHORT: &str = "frontend-forge.kubesphere.io/artifact-key-short";
 pub const LABEL_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const LABEL_BUILD_KIND: &str = "frontend-forge.io/build-kind";
-pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.io/package-kind";
-pub const LABEL_PUBLISH_KIND: &str = "frontend-forge.io/publish-kind";
-pub const LABEL_UNPUBLISH_KIND: &str = "frontend-forge.io/unpublish-kind";
-pub const LABEL_PUBLISH_REQUEST_HASH: &str = "frontend-forge.io/publish-request-hash";
-pub const LABEL_UNPUBLISH_REQUEST_HASH: &str = "frontend-forge.io/unpublish-request-hash";
+pub const LABEL_FE_BUILD_KIND: &str = "frontend-forge.kubesphere.io/build-kind";
+pub const LABEL_PACKAGE_KIND: &str = "frontend-forge.kubesphere.io/package-kind";
+pub const LABEL_PUBLISH_KIND: &str = "frontend-forge.kubesphere.io/publish-kind";
+pub const LABEL_UNPUBLISH_KIND: &str = "frontend-forge.kubesphere.io/unpublish-kind";
+pub const LABEL_PUBLISH_REQUEST_HASH: &str = "frontend-forge.kubesphere.io/publish-request-hash";
+pub const LABEL_UNPUBLISH_REQUEST_HASH: &str =
+    "frontend-forge.kubesphere.io/unpublish-request-hash";
 pub const LABEL_FE_PACKAGE_STATUS: &str = "frontend-forge.kubesphere.io/package-state";
 pub const LABEL_FE_PUBLISH_STATUS: &str = "frontend-forge.kubesphere.io/publish-state";
 pub const LABEL_FE_PUBLISH_FRESH: &str = "frontend-forge.kubesphere.io/publish-fresh";
@@ -39,25 +42,31 @@ pub const ANNO_BUILD_JOB: &str = "frontend-forge.io/build-job";
 pub const ANNO_MANIFEST_HASH: &str = "frontend-forge.io/manifest-hash";
 pub const ANNO_MANIFEST_CONTENT: &str = "frontend-forge.io/manifest-content";
 pub const ANNO_OBSERVED_GENERATION: &str = "frontend-forge.io/observed-generation";
+pub const ANNO_FE_OBSERVED_GENERATION: &str = "frontend-forge.kubesphere.io/observed-generation";
 pub const ANNO_SOURCE_SPEC: &str = "frontend-forge.io/source-spec";
 pub const ANNO_SOURCE_SPEC_HASH: &str = "frontend-forge.io/source-spec-hash";
 pub const ANNO_SOURCE_GENERATION: &str = "frontend-forge.io/source-generation";
 pub const ANNO_REBUILD_TOKEN: &str = "frontend-forge.kubesphere.io/rebuild-token";
 pub const ANNO_SOURCE_HASH: &str = "frontend-forge.kubesphere.io/source-hash";
 pub const ANNO_ARTIFACT_KEY: &str = "frontend-forge.kubesphere.io/artifact-key";
-pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.io/artifact-digest";
-pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.io/artifact-filename";
-pub const ANNO_PUBLISH_REQUEST_ID: &str = "frontend-forge.io/publish-request-id";
-pub const ANNO_PUBLISH_REQUEST_GENERATION: &str = "frontend-forge.io/publish-request-generation";
-pub const ANNO_PUBLISH_REQUEST_SOURCE_HASH: &str = "frontend-forge.io/publish-request-source-hash";
-pub const ANNO_PUBLISH_ARTIFACT_DIGEST: &str = "frontend-forge.io/publish-artifact-digest";
-pub const ANNO_PUBLISH_TARGET_KIND: &str = "frontend-forge.io/publish-target-kind";
-pub const ANNO_PUBLISH_TARGET_NAMESPACE: &str = "frontend-forge.io/publish-target-namespace";
-pub const ANNO_PUBLISH_TARGET_NAME: &str = "frontend-forge.io/publish-target-name";
-pub const ANNO_UNPUBLISH_REQUEST_ID: &str = "frontend-forge.io/unpublish-request-id";
-pub const ANNO_UNPUBLISH_EXTENSION_NAME: &str = "frontend-forge.io/unpublish-extension-name";
+pub const ANNO_ARTIFACT_DIGEST: &str = "frontend-forge.kubesphere.io/artifact-digest";
+pub const ANNO_ARTIFACT_FILENAME: &str = "frontend-forge.kubesphere.io/artifact-filename";
+pub const ANNO_PUBLISH_REQUEST_ID: &str = "frontend-forge.kubesphere.io/publish-request-id";
+pub const ANNO_PUBLISH_REQUEST_GENERATION: &str =
+    "frontend-forge.kubesphere.io/publish-request-generation";
+pub const ANNO_PUBLISH_REQUEST_SOURCE_HASH: &str =
+    "frontend-forge.kubesphere.io/publish-request-source-hash";
+pub const ANNO_PUBLISH_ARTIFACT_DIGEST: &str =
+    "frontend-forge.kubesphere.io/publish-artifact-digest";
+pub const ANNO_PUBLISH_TARGET_KIND: &str = "frontend-forge.kubesphere.io/publish-target-kind";
+pub const ANNO_PUBLISH_TARGET_NAMESPACE: &str =
+    "frontend-forge.kubesphere.io/publish-target-namespace";
+pub const ANNO_PUBLISH_TARGET_NAME: &str = "frontend-forge.kubesphere.io/publish-target-name";
+pub const ANNO_UNPUBLISH_REQUEST_ID: &str = "frontend-forge.kubesphere.io/unpublish-request-id";
+pub const ANNO_UNPUBLISH_EXTENSION_NAME: &str =
+    "frontend-forge.kubesphere.io/unpublish-extension-name";
 pub const ANNO_DELETE_AFTER_UNPUBLISH_REQUEST_ID: &str =
-    "frontend-forge.io/delete-after-unpublish-request-id";
+    "frontend-forge.kubesphere.io/delete-after-unpublish-request-id";
 pub const BUILD_KIND_VALUE: &str = "frontend-forge";
 pub const PACKAGE_KIND_VALUE: &str = "frontend-extension-package";
 pub const PUBLISH_KIND_VALUE: &str = "frontend-extension-publish";

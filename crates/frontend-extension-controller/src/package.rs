@@ -106,7 +106,10 @@ pub(crate) fn make_package_job(
     let fe_name = fe.name_any();
     let fe_uid = frontend_extension_uid_label(fe);
     let mut labels = BTreeMap::from([
-        (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
+        (
+            LABEL_FE_MANAGED_BY.to_string(),
+            MANAGED_BY_VALUE.to_string(),
+        ),
         (LABEL_FE_NAME.to_string(), fe_name.clone()),
         (LABEL_FE_UID.to_string(), fe_uid.clone()),
         (
@@ -123,7 +126,7 @@ pub(crate) fn make_package_job(
         ),
     ]);
     labels.insert(
-        LABEL_BUILD_KIND.to_string(),
+        LABEL_FE_BUILD_KIND.to_string(),
         "frontend-extension-package".to_string(),
     );
 
@@ -131,7 +134,10 @@ pub(crate) fn make_package_job(
     annotations.insert(ANNO_SOURCE_HASH.to_string(), source_hash.to_string());
     annotations.insert(ANNO_ARTIFACT_KEY.to_string(), artifact_key.to_string());
     if let Some(generation) = fe.metadata.generation {
-        annotations.insert(ANNO_OBSERVED_GENERATION.to_string(), generation.to_string());
+        annotations.insert(
+            ANNO_FE_OBSERVED_GENERATION.to_string(),
+            generation.to_string(),
+        );
     }
 
     let env = vec![
