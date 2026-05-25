@@ -149,6 +149,7 @@ kubectl get frontendintegrations.frontend-forge.kubesphere.io demo-fi
 | `config/charts/frontend-forge` | 指向 Helm chart 的兼容 symlink，供 Helm 直装和脚本使用。 |
 | `config/samples` | FI/FE 示例 manifest。 |
 | `spec` | 与 Rust 类型、controller、route、chart 默认值对应的实现说明。 |
+| `skills/frontend-forge-fe-operations` | 仓库内置 FE package/download/publish/unpublish 操作 Codex skill。 |
 | `skills/frontend-forge-fi-operations` | 仓库内置 FI 操作 Codex skill。 |
 
 更细的 crate 和 Job 行为见 `spec/`。
@@ -179,10 +180,12 @@ cargo build --release -p frontend-forge-extension-publisher
 lefthook install
 ```
 
-注册仓库内置 Codex skill：
+注册仓库内置 Codex skills：
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/frontend-forge-fe-operations" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fe-operations"
 ln -s "$(pwd)/skills/frontend-forge-fi-operations" \
   "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
 ```
