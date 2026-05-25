@@ -149,8 +149,8 @@ Artifact annotations:
 | --- | --- |
 | `frontend-forge.kubesphere.io/source-hash` | Source hash. |
 | `frontend-forge.kubesphere.io/artifact-key` | Artifact key. |
-| `frontend-forge.io/artifact-digest` | Package digest. |
-| `frontend-forge.io/artifact-filename` | Package filename. |
+| `frontend-forge.kubesphere.io/artifact-digest` | Package digest. |
+| `frontend-forge.kubesphere.io/artifact-filename` | Package filename. |
 
 ## Package Contents
 

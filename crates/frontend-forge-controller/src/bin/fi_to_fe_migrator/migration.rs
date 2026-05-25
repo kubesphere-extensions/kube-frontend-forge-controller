@@ -118,7 +118,7 @@ pub(crate) fn ensure_existing_fe_is_managed_by_fi(
         .metadata
         .labels
         .as_ref()
-        .and_then(|labels| labels.get(LABEL_MANAGED_BY))
+        .and_then(|labels| labels.get(LABEL_FE_MANAGED_BY))
         .map(String::as_str);
     if managed_by != Some(MANAGED_BY_VALUE) {
         return Err(Error::Message {

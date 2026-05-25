@@ -158,7 +158,10 @@ pub(crate) fn make_unpublish_job(
     let fe_name = fe.name_any();
     let request_hash = format!("sha256:{}", sha256_hex(request.request_id.as_bytes()));
     let labels = BTreeMap::from([
-        (LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string()),
+        (
+            LABEL_FE_MANAGED_BY.to_string(),
+            MANAGED_BY_VALUE.to_string(),
+        ),
         (LABEL_FE_NAME.to_string(), fe_name.clone()),
         (
             LABEL_UNPUBLISH_KIND.to_string(),
@@ -181,7 +184,10 @@ pub(crate) fn make_unpublish_job(
         ),
     ]);
     if let Some(generation) = fe.metadata.generation {
-        annotations.insert(ANNO_OBSERVED_GENERATION.to_string(), generation.to_string());
+        annotations.insert(
+            ANNO_FE_OBSERVED_GENERATION.to_string(),
+            generation.to_string(),
+        );
     }
 
     let env = vec![

@@ -565,7 +565,6 @@ dependencies = [
  "reqwest",
  "serde",
  "snafu",
- "tokio",
 ]
 
 [[package]]
@@ -1305,7 +1304,6 @@ dependencies = [
  "kube-client",
  "kube-core",
  "kube-derive",
- "kube-runtime",
 ]
 
 [[package]]
@@ -2428,7 +2426,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

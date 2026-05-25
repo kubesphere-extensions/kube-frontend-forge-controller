@@ -127,7 +127,7 @@ Status: Implemented
 | FE package Jobs | Owner reference points to FE. |
 | FE publish/unpublish Jobs | Owner reference points to FE. |
 | FE artifact ConfigMaps | Owner reference points to FE. |
-| Migrated FE | Labeled `frontend-forge.io/managed-by=frontend-forge-fi-migrator`. |
+| Migrated FE | Labeled `frontend-forge.kubesphere.io/managed-by=frontend-forge-fi-migrator`. |
 
 ## Constraints
 

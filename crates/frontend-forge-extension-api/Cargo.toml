@@ -11,12 +11,12 @@ frontend-forge-api = { path = "../api" }
 frontend-forge-common = { path = "../common" }
 frontend-forge-extension-package-core = { path = "../extension-package-core" }
 k8s-openapi.workspace = true
-kube.workspace = true
+kube = { workspace = true, features = ["client", "ring", "rustls-tls"] }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 snafu.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
