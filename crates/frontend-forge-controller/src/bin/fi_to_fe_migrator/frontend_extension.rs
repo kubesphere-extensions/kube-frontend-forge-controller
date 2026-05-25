@@ -108,7 +108,10 @@ fn insert_frontend_page(
 }
 
 pub(crate) fn migrator_labels() -> BTreeMap<String, String> {
-    BTreeMap::from([(LABEL_MANAGED_BY.to_string(), MANAGED_BY_VALUE.to_string())])
+    BTreeMap::from([(
+        LABEL_FE_MANAGED_BY.to_string(),
+        MANAGED_BY_VALUE.to_string(),
+    )])
 }
 
 pub(crate) fn migrator_annotations(fi: &FrontendIntegration) -> BTreeMap<String, String> {

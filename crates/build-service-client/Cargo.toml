@@ -8,4 +8,3 @@ license.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 snafu.workspace = true
-tokio.workspace = true

@@ -85,7 +85,7 @@ fn frontend_extension_from_fi_copies_source_fields_and_defaults_package() {
     let fe = frontend_extension_from_fi(&fi, "fi-demo", &cfg());
 
     assert_eq!(
-        fe.metadata.labels.unwrap()[LABEL_MANAGED_BY],
+        fe.metadata.labels.unwrap()[LABEL_FE_MANAGED_BY],
         MANAGED_BY_VALUE
     );
     let annotations = fe.metadata.annotations.unwrap();

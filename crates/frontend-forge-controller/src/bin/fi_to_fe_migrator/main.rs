@@ -10,7 +10,7 @@ use frontend_forge_api::{
 use frontend_forge_common::{
     ANNO_PUBLISH_ARTIFACT_DIGEST, ANNO_PUBLISH_REQUEST_GENERATION, ANNO_PUBLISH_REQUEST_ID,
     ANNO_PUBLISH_REQUEST_SOURCE_HASH, ANNO_PUBLISH_TARGET_KIND, ANNO_PUBLISH_TARGET_NAME,
-    ANNO_PUBLISH_TARGET_NAMESPACE, sha256_hex,
+    ANNO_PUBLISH_TARGET_NAMESPACE, LABEL_FE_MANAGED_BY, sha256_hex,
 };
 use frontend_forge_extension_package_core::frontend_extension_source_hash;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
@@ -22,10 +22,9 @@ use serde_json::{Value, json};
 use snafu::Snafu;
 use tokio::time::{Instant, sleep};
 use tracing::{error, info, warn};
-const LABEL_MANAGED_BY: &str = "frontend-forge.io/managed-by";
 const MANAGED_BY_VALUE: &str = "frontend-forge-fi-migrator";
-const ANNO_SOURCE_FI_NAME: &str = "frontend-forge.io/source-fi-name";
-const ANNO_SOURCE_FI_UID: &str = "frontend-forge.io/source-fi-uid";
+const ANNO_SOURCE_FI_NAME: &str = "frontend-forge.kubesphere.io/source-fi-name";
+const ANNO_SOURCE_FI_UID: &str = "frontend-forge.kubesphere.io/source-fi-uid";
 const DEFAULT_PACKAGE_VERSION: &str = "0.1.0";
 const DEFAULT_SCHEMA_VERSION: &str = "v1";
 const DEFAULT_PACKAGE_ICON: &str = "./static/favicon.svg";
