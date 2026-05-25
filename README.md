@@ -155,6 +155,7 @@ Other useful samples:
 | `config/charts/frontend-forge` | Compatibility symlink to the Helm chart for direct Helm installs and scripts. |
 | `config/samples` | Example FI/FE manifests. |
 | `spec` | Implementation notes tied to Rust types, controllers, routes, and chart defaults. |
+| `skills/frontend-forge-fe-operations` | Repo-local Codex skill for FE package, download, publish, and unpublish operations. |
 | `skills/frontend-forge-fi-operations` | Repo-local Codex skill for FI operations. |
 
 More detailed crate and Job behavior is documented under `spec/`.
@@ -185,10 +186,12 @@ Install git hooks:
 lefthook install
 ```
 
-Register the repo-local skill for Codex:
+Register the repo-local skills for Codex:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/frontend-forge-fe-operations" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fe-operations"
 ln -s "$(pwd)/skills/frontend-forge-fi-operations" \
   "${CODEX_HOME:-$HOME/.codex}/skills/frontend-forge-fi-operations"
 ```
