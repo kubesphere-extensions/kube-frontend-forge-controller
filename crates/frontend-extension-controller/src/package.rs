@@ -127,7 +127,7 @@ pub(crate) fn make_package_job(
     ]);
     labels.insert(
         LABEL_FE_BUILD_KIND.to_string(),
-        "frontend-extension-package".to_string(),
+        PACKAGE_KIND_VALUE.to_string(),
     );
 
     let mut annotations = BTreeMap::new();
