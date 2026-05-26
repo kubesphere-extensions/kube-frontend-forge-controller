@@ -7,7 +7,6 @@ on:
     paths:
       - '.github/workflows/sync-skills.yml'
       - 'skills/frontend-forge-fe-operations/**'
-      - 'skills/frontend-forge-fi-operations/**'
   workflow_dispatch:
 
 permissions:
@@ -35,7 +34,6 @@ jobs:
 
           SKILL_NAMES=(
             frontend-forge-fe-operations
-            frontend-forge-fi-operations
           )
 
           for skill_name in "${SKILL_NAMES[@]}"; do
