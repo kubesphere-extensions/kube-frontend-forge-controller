@@ -132,11 +132,13 @@ FE API operations:
 KS_API=https://<kubesphere-host>
 FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions"
 curl -fS "$FE_API/<name>"
+curl -fS -u "user:password" "$FE_API/<name>"  # user runs this if /kapis returns 401/403
 curl -fS "$FE_API/<name>/publish"      # read publish status only
 curl -fS -X POST -H 'Content-Type: application/json' --data '{"requestId":"manual-1","expectedArtifactDigest":"sha256:<digest>"}' "$FE_API/<name>/publish"
 curl -fS "$FE_API/<name>/unpublish"    # read unpublish status only
 curl -fS -X POST -H 'Content-Type: application/json' --data '{"requestId":"manual-unpublish-1"}' "$FE_API/<name>/unpublish"
 curl -fS -X POST -H 'Content-Type: application/json' --data '{"unpublish":true}' "$FE_API/<name>/delete"
+curl -fS -u "user:password" -X POST -H 'Content-Type: application/json' --data '{"unpublish":true}' "$FE_API/<name>/delete"
 curl -fL "$FE_API/<name>/download" -o <name>.tgz
 ```
 
@@ -145,6 +147,7 @@ curl -fL "$FE_API/<name>/download" -o <name>.tgz
 - Do not use `-n` with `kubectl get fe`; `FrontendExtension` is cluster-scoped.
 - Use the FE HTTP API for publish, unpublish, download, and delete-with-unpublish when available. It validates artifact readiness, publish target, digest expectations, and idempotency.
 - For KubeSphere users, prefer `/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions`; use direct service port-forwarding mainly for local debugging.
+- If `/kapis` returns `401` or `403`, guide the user to run `curl -u "user:password" ...` or use their normal KubeSphere authenticated session. Do not ask them to paste credentials into the conversation.
 - Treat publish and unpublish annotations as implementation details written by the FE API. Inspect them for debugging, but do not make raw annotation patches the default workflow.
 - Directly patch publish/unpublish annotations only as a last-resort recovery step when the API is unavailable and the operator explicitly accepts the risk. Missing or stale generation, source hash, artifact digest, or target annotations can produce failed publish status.
 - Do not expect package creation to publish the extension. Packaging and publishing are separate flows.

@@ -88,6 +88,7 @@ Then download:
 KS_API=https://<kubesphere-host>
 FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions"
 curl -fL "$FE_API/<name>/download" -o <name>.tgz
+curl -fL -u "user:password" "$FE_API/<name>/download" -o <name>.tgz
 ```
 
 If the service name differs, discover it:
@@ -111,6 +112,10 @@ kubectl get fe <name> -o jsonpath='{.status.publish.phase}{" "}{.status.publish.
 KS_API=https://<kubesphere-host>
 FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions"
 curl -fS -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"unpublish":true}' \
+  "$FE_API/<name>/delete"
+curl -fS -u "user:password" -X POST \
   -H 'Content-Type: application/json' \
   --data '{"unpublish":true}' \
   "$FE_API/<name>/delete"
