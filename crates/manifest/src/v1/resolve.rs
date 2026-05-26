@@ -209,8 +209,9 @@ pub(crate) fn resolve_spec(
 
 fn page_title(page: &FrontendPageSpec, menu_display_name: &str) -> String {
     page.display_name
-        .clone()
-        .unwrap_or_else(|| menu_display_name.to_string())
+        .as_deref()
+        .unwrap_or(menu_display_name)
+        .to_string()
 }
 
 pub(crate) fn resolve_pages(
