@@ -30,6 +30,15 @@ export FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontende
 
 Use the user's existing browser/session token, kubeconfig proxy, or other environment-specific authentication method. Do not invent credentials.
 
+If `/kapis` returns `401` or `403`, treat it as an authentication or KubeSphere authorization issue before falling back to raw Kubernetes operations. Show the user a command they can run with their own credentials:
+
+```bash
+curl -fS -u "user:password" "$FE_API/<name>"
+curl -fS -u "user:password" "$FE_API/<name>/publish"
+```
+
+Use `curl -u "user:password"` only as an operator-facing example. Do not ask the user to send credentials back into the conversation.
+
 For local cluster debugging, port-forward the FE API service:
 
 ```bash
@@ -50,6 +59,7 @@ export FE_API=http://127.0.0.1:18080/apis/frontend-forge.kubesphere.io/v1alpha1/
 
 ```bash
 curl -fS "$FE_API"
+curl -fS -u "user:password" "$FE_API"
 curl -fS "$FE_API?labelSelector=frontend-forge.kubesphere.io/package-state=ready,frontend-forge.kubesphere.io/publish-state=not-published"
 curl -fS "$FE_API/<name>"
 ```
@@ -87,6 +97,7 @@ Check current publish status. This is read-only:
 
 ```bash
 curl -fS "$FE_API/<name>/publish"
+curl -fS -u "user:password" "$FE_API/<name>/publish"
 ```
 
 Publish current artifact:
@@ -105,6 +116,10 @@ Publish with digest protection. This is safer for manual operations because the 
 ```bash
 digest=$(kubectl get fe <name> -o jsonpath='{.status.artifact.digest}')
 curl -fS -X POST \
+  -H 'Content-Type: application/json' \
+  --data "{\"requestId\":\"manual-1\",\"expectedArtifactDigest\":\"${digest}\"}" \
+  "$FE_API/<name>/publish"
+curl -fS -u "user:password" -X POST \
   -H 'Content-Type: application/json' \
   --data "{\"requestId\":\"manual-1\",\"expectedArtifactDigest\":\"${digest}\"}" \
   "$FE_API/<name>/publish"
@@ -128,12 +143,17 @@ Check current unpublish status. This is read-only:
 
 ```bash
 curl -fS "$FE_API/<name>/unpublish"
+curl -fS -u "user:password" "$FE_API/<name>/unpublish"
 ```
 
 Trigger unpublish:
 
 ```bash
 curl -fS -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"requestId":"manual-unpublish-1"}' \
+  "$FE_API/<name>/unpublish"
+curl -fS -u "user:password" -X POST \
   -H 'Content-Type: application/json' \
   --data '{"requestId":"manual-unpublish-1"}' \
   "$FE_API/<name>/unpublish"
@@ -170,6 +190,10 @@ curl -fS -X POST \
   -H 'Content-Type: application/json' \
   --data '{"unpublish":true}' \
   "$FE_API/<name>/delete"
+curl -fS -u "user:password" -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"unpublish":true}' \
+  "$FE_API/<name>/delete"
 ```
 
 Expected behavior:
@@ -187,6 +211,17 @@ curl -fS -X POST \
   --data '{"unpublish":true}' \
   "$FE_API/<name>/delete"
 curl -fS "$FE_API/<name>/unpublish"
+```
+
+If KubeSphere requires basic auth for this route, the same flow can be shown to the user as:
+
+```bash
+curl -fS -u "user:password" "$FE_API/<name>/publish"
+curl -fS -u "user:password" -X POST \
+  -H 'Content-Type: application/json' \
+  --data '{"unpublish":true}' \
+  "$FE_API/<name>/delete"
+curl -fS -u "user:password" "$FE_API/<name>/unpublish"
 ```
 
 After a `202 Accepted` response, follow the unpublish Job from FE status until it succeeds and the FE is deleted.
