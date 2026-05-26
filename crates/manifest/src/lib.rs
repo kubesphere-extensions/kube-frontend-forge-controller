@@ -134,6 +134,7 @@ pub struct FrontendSecondaryMenuSpec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrontendPageSpec {
     pub key: String,
+    pub display_name: Option<String>,
     pub placements: Option<Vec<MenuPlacement>>,
     pub type_: PageType,
     pub crd_table: Option<CrdTablePageSpec>,
@@ -176,6 +177,7 @@ impl From<&FiPageSpec> for FrontendPageSpec {
     fn from(page: &FiPageSpec) -> Self {
         Self {
             key: page.key.clone(),
+            display_name: None,
             placements: None,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
@@ -199,6 +201,7 @@ impl From<&FrontendExtensionPageSpec> for FrontendPageSpec {
     fn from(page: &FrontendExtensionPageSpec) -> Self {
         Self {
             key: page.key.clone(),
+            display_name: page.display_name.clone(),
             placements: Some(page.placements.clone()),
             type_: page.type_,
             crd_table: page.crd_table.clone(),
