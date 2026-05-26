@@ -248,6 +248,7 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            displayName: Inspect Task List
             placements:
               - cluster
             type: iframe

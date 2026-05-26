@@ -183,6 +183,12 @@ pub struct FrontendExtensionSecondaryMenuSpec {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct FrontendExtensionPageSpec {
     pub key: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "displayName"
+    )]
+    pub display_name: Option<String>,
     #[schemars(length(min = 1))]
     pub placements: Vec<MenuPlacement>,
     #[serde(rename = "type")]
@@ -230,6 +236,7 @@ impl FrontendExtensionPageSpec {
     pub fn from_fi_page(page: &FiPageSpec, placements: Vec<MenuPlacement>) -> Self {
         Self {
             key: page.key.clone(),
+            display_name: None,
             placements,
             type_: page.type_,
             crd_table: page.crd_table.clone(),
@@ -588,6 +595,7 @@ spec:
             type: page
         pages:
           - key: inspecttasks
+            displayName: Inspect Task List
             placements:
               - cluster
             type: crdTable
@@ -651,6 +659,10 @@ spec:
         assert_eq!(
             inline.frontend.pages[0].placements,
             vec![MenuPlacement::Cluster]
+        );
+        assert_eq!(
+            inline.frontend.pages[0].display_name.as_deref(),
+            Some("Inspect Task List")
         );
         let resources = inline.extension_resources.unwrap();
         assert_eq!(resources.js_bundle.unwrap().name, "inspecttask");
@@ -745,6 +757,7 @@ spec:
         );
         assert!(page["properties"].get("placement").is_none());
         assert!(page["properties"].get("placements").is_some());
+        assert!(page["properties"].get("displayName").is_some());
         assert!(
             page["required"]
                 .as_array()

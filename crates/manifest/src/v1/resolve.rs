@@ -41,7 +41,7 @@ fn push_resolved_frontend_page(
 
 pub(crate) fn resolved_frontend_page(page: ResolvedPageBinding) -> ResolvedFrontendPage {
     ResolvedFrontendPage {
-        title: page.title,
+        title: page.page_title,
         placement: page.placement,
         route_suffix: page.route_suffix,
         action_key: page.page.key.clone(),
@@ -68,7 +68,8 @@ pub(crate) struct ResolvedOrganizationMenu {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedPageBinding {
-    pub(crate) title: String,
+    pub(crate) menu_title: String,
+    pub(crate) page_title: String,
     pub(crate) icon: Option<String>,
     pub(crate) placement: MenuPlacement,
     pub(crate) route_suffix: String,
@@ -124,8 +125,10 @@ pub(crate) fn resolve_spec(
                     &pages_by_key,
                     &mut bound_menu_routes,
                 )?;
+                let page_title = page_title(&page, &menu.display_name);
                 resolved.push(ResolvedTopMenu::Page(Box::new(ResolvedPageBinding {
-                    title: menu.display_name.clone(),
+                    menu_title: menu.display_name.clone(),
+                    page_title,
                     icon: menu.icon.clone(),
                     placement: menu.placement,
                     page_id_suffix: page_id_suffix(&route_suffix, &page_key, spec.require_page_key),
@@ -170,8 +173,10 @@ pub(crate) fn resolve_spec(
                         &pages_by_key,
                         &mut bound_menu_routes,
                     )?;
+                    let page_title = page_title(&page, &child.display_name);
                     children.push(ResolvedPageBinding {
-                        title: child.display_name.clone(),
+                        menu_title: child.display_name.clone(),
+                        page_title,
                         icon: child.icon.clone(),
                         placement: menu.placement,
                         page_id_suffix: page_id_suffix(
@@ -200,6 +205,12 @@ pub(crate) fn resolve_spec(
     }
 
     Ok(resolved)
+}
+
+fn page_title(page: &FrontendPageSpec, menu_display_name: &str) -> String {
+    page.display_name
+        .clone()
+        .unwrap_or_else(|| menu_display_name.to_string())
 }
 
 pub(crate) fn resolve_pages(

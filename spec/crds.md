@@ -134,10 +134,11 @@ FE menu fields are close to FI menu fields, with placement expanded to a list:
 | `placements` | array of `global` / `workspace` / `cluster` | primary | Required. Real menu entry placements. Each placement is expanded into an internal menu binding. |
 | `pageKey` | string | primary `type=page` and secondary | Required by renderer for page menus. It binds the menu to `pages[].key`. Multiple menus may point at the same `pageKey`, but the target page must include the menu placement. |
 
-FE page fields match FI page config fields with one addition:
+FE page fields match FI page config fields with FE-specific additions:
 
 | Field | Type | Behavior |
 | --- | --- | --- |
+| `displayName` | string | Optional page content title. Renderer falls back to the bound menu `displayName` when omitted; menu `displayName` remains the navigation title. |
 | `placements` | array of `global` / `workspace` / `cluster` | Required. Expected page capability placements. A menu can bind the page only when the page includes the menu placement. |
 
 ### Package Fields
