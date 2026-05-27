@@ -106,7 +106,7 @@ pub(crate) fn render_leaf_menu(page: &ResolvedPageBinding) -> Value {
     json!({
         "parent": page.parent,
         "name": page.menu_name,
-        "title": page.title,
+        "title": page.menu_title,
         "icon": menu_icon(page.icon.as_ref()),
         "order": 999,
     })
@@ -147,7 +147,7 @@ pub(crate) fn render_page(
                         key: page.page.key.clone(),
                         message: "type=iframe requires iframe config".to_string(),
                     })?;
-            Ok(iframe_page(&page_id, &page.title, &iframe.src))
+            Ok(iframe_page(&page_id, &page.page_title, &iframe.src))
         }
         PageType::CrdTable => {
             let crd_table = page.page.crd_table.as_ref().ok_or_else(|| {
@@ -159,7 +159,7 @@ pub(crate) fn render_page(
             })?;
             Ok(crd_page(
                 &page_id,
-                &page.title,
+                &page.page_title,
                 page.placement,
                 crd_table,
                 &crd_table.columns,

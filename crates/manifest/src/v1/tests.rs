@@ -308,6 +308,54 @@ spec:
 }
 
 #[test]
+fn fe_page_display_name_overrides_content_title_only() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: page-title-demo
+spec:
+  package:
+    name: page-title-demo
+    version: 0.1.0
+    displayName:
+      en: Page Title Demo
+    description:
+      en: Page Title Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Navigation Label
+            key: nav-label
+            pageKey: shared-page
+            placements:
+              - global
+            type: page
+        pages:
+          - key: shared-page
+            displayName: Content Title
+            placements:
+              - global
+            type: iframe
+            iframe:
+              src: http://example.test/shared
+"#,
+    )
+    .unwrap();
+
+    let manifest = render_v1_fe_manifest(&fe).unwrap();
+    let menus = manifest["menus"].as_array().unwrap();
+    let pages = manifest["pages"].as_array().unwrap();
+
+    assert_eq!(menus[0]["title"], "Navigation Label");
+    assert_eq!(pages[0]["componentsTree"]["meta"]["title"], "Content Title");
+}
+
+#[test]
 fn rejects_duplicate_fe_menu_routes() {
     let fe: FrontendExtension = serde_yaml::from_str(
         r#"

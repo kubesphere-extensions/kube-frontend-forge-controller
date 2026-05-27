@@ -118,11 +118,13 @@ Prefer the FE API for publish:
 KS_API=https://<kubesphere-host>
 FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions"
 curl -fS "$FE_API/<name>/publish"
+curl -fS -u "user:password" "$FE_API/<name>/publish"
 digest=$(kubectl get fe <name> -o jsonpath='{.status.artifact.digest}')
 curl -fS -X POST -H 'Content-Type: application/json' --data "{\"requestId\":\"manual-1\",\"expectedArtifactDigest\":\"${digest}\"}" "$FE_API/<name>/publish"
 ```
 
 `GET "$FE_API/<name>/publish"` is read-only; use it to inspect current publish status before or after the POST.
+If `/kapis` returns `401` or `403`, show the `curl -u "user:password"` form as a user-run command and treat the issue as KubeSphere authentication or authorization.
 
 Annotations are diagnostic evidence normally written by the API:
 
@@ -165,10 +167,12 @@ Prefer the FE API for unpublish:
 KS_API=https://<kubesphere-host>
 FE_API="$KS_API/kapis/frontend-forge-api.kubesphere.io/v1alpha1/frontendextensions"
 curl -fS "$FE_API/<name>/unpublish"
+curl -fS -u "user:password" "$FE_API/<name>/unpublish"
 curl -fS -X POST -H 'Content-Type: application/json' --data '{"requestId":"manual-unpublish-1"}' "$FE_API/<name>/unpublish"
 ```
 
 `GET "$FE_API/<name>/unpublish"` is read-only; use it to inspect current unpublish status before or after the POST.
+If `/kapis` returns `401` or `403`, show the `curl -u "user:password"` form as a user-run command and treat the issue as KubeSphere authentication or authorization.
 
 Annotations are diagnostic evidence normally written by the API:
 
