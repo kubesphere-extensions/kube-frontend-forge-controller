@@ -215,7 +215,7 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("the custom resource");
             format!(
-                "Open the {menu_level} \"{}\" to view `{resource}` resources.",
+                "Open the {menu_level} \"{}\" to manage `{resource}` resources.",
                 source.menu_title
             )
         }
@@ -226,7 +226,7 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("自定义");
             format!(
-                "进入{menu_level}「{}」，查看 `{resource}` 资源。",
+                "进入{menu_level}「{}」，管理 `{resource}` 资源。",
                 source.menu_title
             )
         }
@@ -238,7 +238,7 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
         }
         (PageType::Iframe, Locale::Zh) => {
             format!(
-                "进入{menu_level}「{}」，访问嵌入的第三方页面。",
+                "进入{menu_level}「{}」，可访问嵌入的第三方页面。",
                 source.menu_title
             )
         }

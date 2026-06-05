@@ -4,30 +4,27 @@
 ## 功能
 {% for integration in integrations %}
 
-### {{ loop.index }}：「{{ integration.title }}」（{{ integration.kind_label }}）
+### {{ loop.index }}. {{ integration.title }}（{{ integration.kind_label }}）
 
 {% if integration.kind == "crdTable" -%}
 通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源，用户可在平台中直接查看、管理和操作这些自定义资源，并复用 KubeSphere 的权限体系对资源访问进行控制。
 {% if integration.crd_resource %}
 
-集成 CRD 资源：
+- **集成资源：**  `{{ integration.crd_resource.plural }}.{{ integration.crd_resource.group }}`
 
-* API Version：`{{ integration.crd_resource.group }}/{{ integration.crd_resource.version }}`
-* Resource：`{{ integration.crd_resource.plural }}`
 {% endif %}
+
+- **菜单入口：** {{ integration.menu_entry_phrase }}
 {%- elif integration.kind == "iframe" -%}
 通过 IFrame 方式嵌入第三方页面。
 {% if integration.iframe_src %}
 
-嵌入地址：
+- **嵌入地址:** `{{ integration.iframe_src }}`
 
-```text
-{{ integration.iframe_src }}
-```
 {% endif %}
-{%- endif %}
 
-菜单入口：{{ integration.menu_entry_phrase }}
+- **菜单入口：** {{ integration.menu_entry_phrase }}
+{%- endif %}
 {% endfor %}
 
 ## 快速开始

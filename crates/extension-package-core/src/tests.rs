@@ -164,10 +164,10 @@ fn builds_extension_package_artifact_payload() {
         content.contains("Inspect Task is built with KubeSphere rapid integration capabilities")
     );
     assert!(content.contains("## Features"));
-    assert!(content.contains("### 1: \"Inspect Tasks\" (Page Integration)"));
+    assert!(content.contains("### 1. Inspect Tasks (Page Integration)"));
     assert!(content.contains("Embeds a third-party page through IFrame."));
-    assert!(content.contains("```text\nhttp://example.test\n```"));
-    assert!(content.contains("Menu entry: Cluster"));
+    assert!(content.contains("- **Embed URL:** `http://example.test`"));
+    assert!(content.contains("- **Menu entry:** Cluster"));
     assert!(content.contains("## Quick Start"));
 
     let readme_zh = artifact
@@ -179,10 +179,10 @@ fn builds_extension_package_artifact_payload() {
 
     assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建的扩展组件"));
     assert!(content.contains("## 功能"));
-    assert!(content.contains("### 1：「Inspect Tasks」（页面集成）"));
+    assert!(content.contains("### 1. Inspect Tasks（页面集成）"));
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
-    assert!(content.contains("```text\nhttp://example.test\n```"));
-    assert!(content.contains("菜单入口：集群"));
+    assert!(content.contains("- **嵌入地址:** `http://example.test`"));
+    assert!(content.contains("- **菜单入口：** 集群"));
     assert!(content.contains("## 快速开始"));
 
     let frontend_chart = artifact
@@ -237,22 +237,29 @@ spec:
             placements:
               - cluster
             type: page
-          - displayName: Demo2
-            key: demo2
-            pageKey: demo2
+          - displayName: Top 2
+            key: top2
             placements:
               - cluster
+            type: organization
+            children:
+              - displayName: Demo2
+                key: demo2
+                pageKey: demo2
+              - displayName: Demo3
+                key: demo3
+                pageKey: demo3
+          - displayName: Top 2
+            key: top2
+            placements:
               - workspace
-            type: page
-          - displayName: Demo3
-            key: demo3
-            pageKey: demo3
-            placements:
-              - cluster
-            type: page
+            type: organization
+            children:
+              - displayName: Demo2
+                key: demo2
+                pageKey: demo2
         pages:
           - key: demo1
-            displayName: Demo1 Page
             placements:
               - cluster
             type: crdTable
@@ -303,23 +310,22 @@ spec:
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
     assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建的扩展组件"));
-    assert!(content.contains("### 1：「Demo1 Page」（资源集成）"));
+    assert!(content.contains("### 1. Demo1（资源集成）"));
     assert!(content.contains("通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源"));
-    assert!(content.contains("* API Version：`sample.frontend-forge.io/v1alpha1`"));
-    assert!(content.contains("* Resource：`clusterreports`"));
-    assert!(content.contains("### 2：「Demo2」（资源集成）"));
-    assert!(content.contains("* Resource：`namespacewidgets`"));
-    assert!(content.contains("菜单入口：集群、企业空间"));
-    assert!(content.contains("### 3：「Demo3」（页面集成）"));
+    assert!(content.contains("- **集成资源：**  `clusterreports.sample.frontend-forge.io`"));
+    assert!(content.contains("- **菜单入口：** 集群"));
+    assert!(content.contains("### 2. Demo2（资源集成）"));
+    assert!(content.contains("- **集成资源：**  `namespacewidgets.sample.frontend-forge.io`"));
+    assert!(content.contains("- **菜单入口：** 集群、企业空间"));
+    assert!(content.contains("### 3. Demo3（页面集成）"));
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
-    assert!(content.contains("```text\nhttps://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik\n```"));
-    assert!(content.contains(
-        "扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Demo2」、「Demo3」 入口。"
-    ));
-    assert!(content.contains("1. 进入一级菜单「Demo1」，查看 `clusterreports` 资源。"));
-    assert!(!content.contains("进入「Demo1 Page」"));
-    assert!(content.contains("2. 进入一级菜单「Demo2」，查看 `namespacewidgets` 资源。"));
-    assert!(content.contains("3. 进入一级菜单「Demo3」，访问嵌入的第三方页面。"));
+    assert!(content.contains("- **嵌入地址:** `https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik`"));
+    assert!(
+        content.contains("扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Top 2」 入口。")
+    );
+    assert!(content.contains("1. 进入一级菜单「Demo1」，管理 `clusterreports` 资源。"));
+    assert!(content.contains("2. 进入二级菜单「Demo2」，管理 `namespacewidgets` 资源。"));
+    assert!(content.contains("3. 进入二级菜单「Demo3」，可访问嵌入的第三方页面。"));
     assert!(!content.contains("- \n"));
 }
 
@@ -384,8 +390,8 @@ spec:
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.contains("### 1：「Child Report Page」（资源集成）"));
-    assert!(content.contains("1. 进入二级菜单「Child Report」，查看 `childreports` 资源。"));
+    assert!(content.contains("### 1. Child Report Page（资源集成）"));
+    assert!(content.contains("1. 进入二级菜单「Child Report」，管理 `childreports` 资源。"));
     assert!(!content.contains("进入二级菜单「Child Report Page」"));
 }
 
