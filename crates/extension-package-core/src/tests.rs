@@ -1,4 +1,5 @@
 use frontend_forge_api::FrontendExtension;
+use serde_json::json;
 
 use super::*;
 
@@ -163,11 +164,14 @@ fn builds_extension_package_artifact_payload() {
         content.contains("Inspect Task is built with KubeSphere rapid integration capabilities")
     );
     assert!(content.contains("## Features"));
-    assert!(content.contains("### 1: \"Inspect Tasks\" (Page Integration)"));
+    assert!(content.contains("### 1. Inspect Tasks (Page Integration)"));
     assert!(content.contains("Embeds a third-party page through IFrame."));
-    assert!(content.contains("```text\nhttp://example.test\n```"));
-    assert!(content.contains("Menu entry: Cluster"));
+    assert!(content.contains("- **Embed URL:** `http://example.test`"));
+    assert!(content.contains("- **Menu entry:** Cluster"));
     assert!(content.contains("## Quick Start"));
+    assert!(content.contains(
+        "1. Open the top-level menu **Inspect Tasks** to access the embedded third-party page."
+    ));
 
     let readme_zh = artifact
         .files
@@ -176,12 +180,12 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建的扩展组件"));
     assert!(content.contains("## 功能"));
-    assert!(content.contains("### 1：「Inspect Tasks」（页面集成）"));
+    assert!(content.contains("### 1. Inspect Tasks（页面集成）"));
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
-    assert!(content.contains("```text\nhttp://example.test\n```"));
-    assert!(content.contains("菜单入口：集群"));
+    assert!(content.contains("- **嵌入地址:** `http://example.test`"));
+    assert!(content.contains("- **菜单入口：** 集群"));
     assert!(content.contains("## 快速开始"));
 
     let frontend_chart = artifact
@@ -236,19 +240,27 @@ spec:
             placements:
               - cluster
             type: page
-          - displayName: Demo2
-            key: demo2
-            pageKey: demo2
+          - displayName: Top 2
+            key: top2
             placements:
               - cluster
+            type: organization
+            children:
+              - displayName: Demo2
+                key: demo2
+                pageKey: demo2
+              - displayName: Demo3
+                key: demo3
+                pageKey: demo3
+          - displayName: Top 2
+            key: top2
+            placements:
               - workspace
-            type: page
-          - displayName: Demo3
-            key: demo3
-            pageKey: demo3
-            placements:
-              - cluster
-            type: page
+            type: organization
+            children:
+              - displayName: Demo2
+                key: demo2
+                pageKey: demo2
         pages:
           - key: demo1
             placements:
@@ -300,24 +312,90 @@ spec:
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建"));
-    assert!(content.contains("### 1：「Demo1」（资源集成）"));
+    assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建的扩展组件"));
+    assert!(content.contains("### 1. Demo1（资源集成）"));
     assert!(content.contains("通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源"));
-    assert!(content.contains("* API Version：`sample.frontend-forge.io/v1alpha1`"));
-    assert!(content.contains("* Resource：`clusterreports`"));
-    assert!(content.contains("### 2：「Demo2」（资源集成）"));
-    assert!(content.contains("* Resource：`namespacewidgets`"));
-    assert!(content.contains("菜单入口：集群、企业空间"));
-    assert!(content.contains("### 3：「Demo3」（页面集成）"));
+    assert!(content.contains("- **集成资源：**  `clusterreports.sample.frontend-forge.io`"));
+    assert!(content.contains("- **菜单入口：** 集群"));
+    assert!(content.contains("### 2. Demo2（资源集成）"));
+    assert!(content.contains("- **集成资源：**  `namespacewidgets.sample.frontend-forge.io`"));
+    assert!(content.contains("- **菜单入口：** 集群、企业空间"));
+    assert!(content.contains("### 3. Demo3（页面集成）"));
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
-    assert!(content.contains("```text\nhttps://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik\n```"));
-    assert!(content.contains(
-        "扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Demo2」、「Demo3」 入口。"
-    ));
-    assert!(content.contains("1. 进入「Demo1」，查看 `clusterreports` 资源。"));
-    assert!(content.contains("2. 进入「Demo2」，查看 `namespacewidgets` 资源。"));
-    assert!(content.contains("3. 进入「Demo3」，访问嵌入的第三方页面。"));
+    assert!(content.contains("- **嵌入地址:** `https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik`"));
+    assert!(
+        content.contains("扩展安装完成后，可在集群、企业空间看到菜单 **Demo1**、**Top 2** 入口。")
+    );
+    assert!(content.contains("1. 进入一级菜单 **Demo1**，管理 `clusterreports` 资源。"));
+    assert!(content.contains("2. 进入二级菜单 **Demo2**，管理 `namespacewidgets` 资源。"));
+    assert!(content.contains("3. 进入二级菜单 **Demo3**，可访问嵌入的第三方页面。"));
     assert!(!content.contains("- \n"));
+}
+
+#[test]
+fn readme_quick_start_describes_secondary_menus() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: nested
+spec:
+  package:
+    name: nested
+    version: 0.1.0
+    displayName:
+      zh: Nested
+    description:
+      zh: Nested
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Parent
+            key: parent
+            placements:
+              - cluster
+            type: organization
+            children:
+              - displayName: Child Report
+                key: child-report
+                pageKey: child-report
+        pages:
+          - key: child-report
+            displayName: Child Report Page
+            placements:
+              - cluster
+            type: crdTable
+            crdTable:
+              names:
+                plural: childreports
+              group: sample.frontend-forge.io
+              version: v1alpha1
+              scope: Cluster
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+    )
+    .unwrap();
+    let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+    let readme_zh = artifact
+        .files
+        .iter()
+        .find(|file| file.path == "README_zh.md")
+        .unwrap();
+    let content = std::str::from_utf8(&readme_zh.content).unwrap();
+
+    assert!(content.contains("### 1. Child Report Page（资源集成）"));
+    assert!(content.contains("1. 进入二级菜单 **Child Report**，管理 `childreports` 资源。"));
+    assert!(!content.contains("进入二级菜单 **Child Report Page**"));
 }
 
 #[test]
@@ -337,13 +415,72 @@ fn readme_template_receives_frontend_extension_cr_object() {
     assert_eq!(fe_cr["metadata"]["name"], "fe-inspecttask");
     assert_eq!(fe_cr["spec"]["package"]["name"], "inspecttask");
     assert!(fe_cr.get("status").is_none());
-    assert!(content.starts_with("巡检任务 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.starts_with("巡检任务 基于 KubeSphere 快速集成能力构建的扩展组件"));
 }
 
 #[test]
 fn readme_placement_phrase_handles_empty_placements() {
     assert_eq!(placement_phrase(&[], Locale::En), "**Unknown**");
     assert_eq!(placement_phrase(&[], Locale::Zh), "**未知**");
+}
+
+#[test]
+fn readme_template_supports_plain_string_display_name() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["package"]["displayName"] = json!("Plain Inspect Task");
+
+    let content =
+        render_readme_template("README.md.tpl", "inspecttask", &fe_cr, &pages, Locale::En).unwrap();
+
+    assert!(
+        content.starts_with(
+            "Plain Inspect Task is built with KubeSphere rapid integration capabilities"
+        )
+    );
+}
+
+#[test]
+fn readme_template_localizes_menu_display_name_maps() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["source"]["inline"]["frontend"]["menus"][0]["displayName"] =
+        json!({ "en": "Inspection", "zh": "巡检" });
+
+    let content = render_readme_template(
+        "README_zh.md.tpl",
+        "inspecttask",
+        &fe_cr,
+        &pages,
+        Locale::Zh,
+    )
+    .unwrap();
+
+    assert!(content.contains("菜单 **巡检** 入口。"));
+}
+
+#[test]
+fn readme_template_falls_back_to_menu_key_for_missing_display_name() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["source"]["inline"]["frontend"]["menus"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("displayName");
+
+    let content = render_readme_template(
+        "README_zh.md.tpl",
+        "inspecttask",
+        &fe_cr,
+        &pages,
+        Locale::Zh,
+    )
+    .unwrap();
+
+    assert!(content.contains("菜单 **inspecttasks** 入口。"));
 }
 
 #[test]

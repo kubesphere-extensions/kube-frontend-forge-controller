@@ -12,7 +12,7 @@ use frontend_forge_api::{
 };
 use frontend_forge_common::{CommonError, serializable_hash, sha256_hex};
 use frontend_forge_manifest::{
-    ManifestRenderError, ResolvedFrontendPage, resolve_frontend_extension_pages,
+    ManifestRenderError, ResolvedFrontendPage, ResolvedMenuLevel, resolve_frontend_extension_pages,
 };
 use include_dir::{Dir, include_dir};
 use kube::ResourceExt;

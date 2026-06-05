@@ -77,6 +77,8 @@ struct ReadmeCrdResource {
 struct ReadmeIntegrationSource {
     key: String,
     title: String,
+    menu_title: String,
+    menu_level: ResolvedMenuLevel,
     type_: PageType,
     placements: Vec<MenuPlacement>,
     crd_resource: Option<ReadmeCrdResource>,
@@ -165,6 +167,8 @@ fn readme_integration_sources(pages: &[ResolvedFrontendPage]) -> Vec<ReadmeInteg
         integrations.push(ReadmeIntegrationSource {
             key: page.page.key.clone(),
             title: page.title.clone(),
+            menu_title: page.menu_title.clone(),
+            menu_level: page.menu_level,
             type_: page.page.type_,
             placements: vec![page.placement],
             crd_resource: page.page.crd_table.as_ref().map(ReadmeCrdResource::from),
@@ -202,6 +206,7 @@ fn readme_integration_kind_label(type_: PageType, locale: Locale) -> &'static st
 }
 
 fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String {
+    let menu_level = menu_level_label(source.menu_level, locale);
     match (source.type_, locale) {
         (PageType::CrdTable, Locale::En) => {
             let resource = source
@@ -209,7 +214,10 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .as_ref()
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("the custom resource");
-            format!("Open \"{}\" to view `{resource}` resources.", source.title)
+            format!(
+                "Open the {menu_level} **{}** to manage `{resource}` resources.",
+                source.menu_title
+            )
         }
         (PageType::CrdTable, Locale::Zh) => {
             let resource = source
@@ -217,17 +225,32 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .as_ref()
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("自定义");
-            format!("进入「{}」，查看 `{resource}` 资源。", source.title)
+            format!(
+                "进入{menu_level} **{}**，管理 `{resource}` 资源。",
+                source.menu_title
+            )
         }
         (PageType::Iframe, Locale::En) => {
             format!(
-                "Open \"{}\" to access the embedded third-party page.",
-                source.title
+                "Open the {menu_level} **{}** to access the embedded third-party page.",
+                source.menu_title
             )
         }
         (PageType::Iframe, Locale::Zh) => {
-            format!("进入「{}」，访问嵌入的第三方页面。", source.title)
+            format!(
+                "进入{menu_level} **{}**，可访问嵌入的第三方页面。",
+                source.menu_title
+            )
         }
+    }
+}
+
+fn menu_level_label(menu_level: ResolvedMenuLevel, locale: Locale) -> &'static str {
+    match (menu_level, locale) {
+        (ResolvedMenuLevel::Primary, Locale::En) => "top-level menu",
+        (ResolvedMenuLevel::Primary, Locale::Zh) => "一级菜单",
+        (ResolvedMenuLevel::Secondary, Locale::En) => "secondary menu",
+        (ResolvedMenuLevel::Secondary, Locale::Zh) => "二级菜单",
     }
 }
 
@@ -277,10 +300,7 @@ fn menu_entry_phrase(placements: &[MenuPlacement], locale: Locale) -> String {
 }
 
 fn all_menu_entry_phrase(pages: &[ResolvedFrontendPage], locale: Locale) -> String {
-    let mut placements = Vec::new();
-    for page in pages {
-        push_unique_placement(&mut placements, page.placement);
-    }
+    let placements = pages.iter().map(|page| page.placement).collect::<Vec<_>>();
     menu_entry_phrase(&placements, locale)
 }
 
@@ -296,16 +316,24 @@ fn top_menu_phrase(fe_cr: &Value, locale: Locale) -> String {
     };
     let mut titles = Vec::new();
     for menu in menus {
-        if let Some(title) = menu.get("displayName").and_then(Value::as_str)
+        if let Some(title) = localized_map_text(menu.get("displayName"), locale)
+            .or_else(|| menu.get("key").and_then(Value::as_str).map(str::to_string))
             && !titles.contains(&title)
         {
             titles.push(title);
         }
     }
+    if titles.is_empty() {
+        return match locale {
+            Locale::En => "Unknown".to_string(),
+            Locale::Zh => "未知".to_string(),
+        };
+    }
+    let title_refs = titles.iter().map(String::as_str).collect::<Vec<_>>();
 
     match locale {
-        Locale::En => quote_phrase(titles, "\"", "\"", ", ", " and "),
-        Locale::Zh => quote_phrase(titles, "「", "」", "、", "、"),
+        Locale::En => quote_phrase(title_refs, "**", "**", ", ", " and "),
+        Locale::Zh => quote_phrase(title_refs, "**", "**", "、", "、"),
     }
 }
 
@@ -327,6 +355,9 @@ fn extension_display_name(fe_cr: &Value, locale: Locale) -> Option<String> {
 
 fn localized_map_text(value: Option<&Value>, locale: Locale) -> Option<String> {
     let value = value?;
+    if let Some(value) = value.as_str() {
+        return Some(value.to_string());
+    }
     let (preferred, fallback) = match locale {
         Locale::En => ("en", "zh"),
         Locale::Zh => ("zh", "en"),

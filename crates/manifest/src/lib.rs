@@ -106,10 +106,18 @@ pub struct FrontendRenderInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFrontendPage {
     pub title: String,
+    pub menu_title: String,
+    pub menu_level: ResolvedMenuLevel,
     pub placement: MenuPlacement,
     pub route_suffix: String,
     pub action_key: String,
     pub page: FrontendPageSpec,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolvedMenuLevel {
+    Primary,
+    Secondary,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -4,30 +4,27 @@
 ## Features
 {% for integration in integrations %}
 
-### {{ loop.index }}: "{{ integration.title }}" ({{ integration.kind_label }})
+### {{ loop.index }}. {{ integration.title }} ({{ integration.kind_label }})
 
 {% if integration.kind == "crdTable" -%}
 Extends platform resources through Kubernetes CRD (Custom Resource Definition). Users can view, manage, and operate these custom resources directly in the platform, and reuse KubeSphere's permission system to control resource access.
 {% if integration.crd_resource %}
 
-Integrated CRD resource:
+- **Integrated resource:** `{{ integration.crd_resource.plural }}.{{ integration.crd_resource.group }}`
 
-* API Version: `{{ integration.crd_resource.group }}/{{ integration.crd_resource.version }}`
-* Resource: `{{ integration.crd_resource.plural }}`
 {% endif %}
+
+- **Menu entry:** {{ integration.menu_entry_phrase }}
 {%- elif integration.kind == "iframe" -%}
 Embeds a third-party page through IFrame.
 {% if integration.iframe_src %}
 
-Embed URL:
+- **Embed URL:** `{{ integration.iframe_src }}`
 
-```text
-{{ integration.iframe_src }}
-```
 {% endif %}
-{%- endif %}
 
-Menu entry: {{ integration.menu_entry_phrase }}
+- **Menu entry:** {{ integration.menu_entry_phrase }}
+{%- endif %}
 {% endfor %}
 
 ## Quick Start
