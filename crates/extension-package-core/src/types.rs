@@ -28,6 +28,11 @@ pub enum ExtensionPackageError {
     TemplateMissing { path: &'static str },
     #[snafu(display("package template file {path} is not valid UTF-8"))]
     TemplateUtf8 { path: &'static str },
+    #[snafu(display("failed to render package template {path}: {source}"))]
+    RenderTemplate {
+        path: &'static str,
+        source: minijinja::Error,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -6,9 +6,9 @@ use std::{
 use chrono::{DateTime, Utc};
 use flate2::{Compression, GzBuilder};
 use frontend_forge_api::{
-    CrdScope, ExtensionChartsSpec, ExtensionDependencySpec, ExtensionMaintainerSpec,
-    ExtensionProviderSpec, FrontendExtension, FrontendExtensionFrontendSpec,
-    FrontendExtensionSourceType, MenuPlacement, PageType,
+    CrdScope, CrdTablePageSpec, ExtensionChartsSpec, ExtensionDependencySpec,
+    ExtensionMaintainerSpec, ExtensionProviderSpec, FrontendExtension,
+    FrontendExtensionFrontendSpec, FrontendExtensionSourceType, MenuPlacement, PageType,
 };
 use frontend_forge_common::{CommonError, serializable_hash, sha256_hex};
 use frontend_forge_manifest::{
