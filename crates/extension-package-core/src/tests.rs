@@ -159,9 +159,15 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme.content).unwrap();
 
-    assert!(content.contains("inspecttask\n\n## General Introduction"));
-    assert!(content.contains("## Integration Item 1: Inspect Tasks (Page Integration)"));
-    assert!(content.contains("- **Embed URL**: `http://example.test`"));
+    assert!(
+        content.contains("Inspect Task is built with KubeSphere rapid integration capabilities")
+    );
+    assert!(content.contains("## Features"));
+    assert!(content.contains("### 1: \"Inspect Tasks\" (Page Integration)"));
+    assert!(content.contains("Embeds a third-party page through IFrame."));
+    assert!(content.contains("```text\nhttp://example.test\n```"));
+    assert!(content.contains("Menu entry: Cluster"));
+    assert!(content.contains("## Quick Start"));
 
     let readme_zh = artifact
         .files
@@ -170,9 +176,13 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.contains("inspecttask\n\n## 通用介绍"));
-    assert!(content.contains("## 集成项 1：Inspect Tasks（页面集成）"));
-    assert!(content.contains("- **嵌入地址**: `http://example.test`"));
+    assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.contains("## 功能"));
+    assert!(content.contains("### 1：「Inspect Tasks」（页面集成）"));
+    assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
+    assert!(content.contains("```text\nhttp://example.test\n```"));
+    assert!(content.contains("菜单入口：集群"));
+    assert!(content.contains("## 快速开始"));
 
     let frontend_chart = artifact
         .files
@@ -290,21 +300,23 @@ spec:
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.starts_with("qqqq\n\n## 通用介绍"));
-    assert!(content.contains("## 集成项 1：Demo1（资源集成）"));
-    assert!(
-        content.contains("通过 **CRD（云原生声明式扩展）** 方式作用于 **集群（Cluster）** 级别。")
-    );
-    assert!(content.contains("- `clusterreports`（`sample.frontend-forge.io/v1alpha1`）"));
-    assert!(content.contains("## 集成项 2：Demo2（资源集成）"));
+    assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.contains("### 1：「Demo1」（资源集成）"));
+    assert!(content.contains("通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源"));
+    assert!(content.contains("* API Version：`sample.frontend-forge.io/v1alpha1`"));
+    assert!(content.contains("* Resource：`clusterreports`"));
+    assert!(content.contains("### 2：「Demo2」（资源集成）"));
+    assert!(content.contains("* Resource：`namespacewidgets`"));
+    assert!(content.contains("菜单入口：集群、企业空间"));
+    assert!(content.contains("### 3：「Demo3」（页面集成）"));
+    assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
+    assert!(content.contains("```text\nhttps://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik\n```"));
     assert!(content.contains(
-        "通过 **CRD（云原生声明式扩展）** 方式作用于 **集群（Cluster）** 和 \
-         **企业空间（Workspace）** 级别。"
+        "扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Demo2」、「Demo3」 入口。"
     ));
-    assert!(content.contains("- `namespacewidgets`（`sample.frontend-forge.io/v1alpha1`）"));
-    assert!(content.contains("## 集成项 3：Demo3（页面集成）"));
-    assert!(content.contains("通过 **IFrame（前端页面级嵌入）** 方式嵌入外部页面。"));
-    assert!(content.contains("- **嵌入地址**: `https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik`"));
+    assert!(content.contains("1. 进入「Demo1」，查看 `clusterreports` 资源。"));
+    assert!(content.contains("2. 进入「Demo2」，查看 `namespacewidgets` 资源。"));
+    assert!(content.contains("3. 进入「Demo3」，访问嵌入的第三方页面。"));
     assert!(!content.contains("- \n"));
 }
 
@@ -325,7 +337,7 @@ fn readme_template_receives_frontend_extension_cr_object() {
     assert_eq!(fe_cr["metadata"]["name"], "fe-inspecttask");
     assert_eq!(fe_cr["spec"]["package"]["name"], "inspecttask");
     assert!(fe_cr.get("status").is_none());
-    assert!(content.starts_with("inspecttask\n\n## 通用介绍"));
+    assert!(content.starts_with("巡检任务 基于 KubeSphere 快速集成能力构建"));
 }
 
 #[test]
