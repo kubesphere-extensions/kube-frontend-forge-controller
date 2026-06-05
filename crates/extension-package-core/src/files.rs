@@ -204,8 +204,8 @@ fn ordered_placements(placements: &[MenuPlacement]) -> Vec<MenuPlacement> {
     .collect()
 }
 
-fn placement_phrase(placements: &[MenuPlacement], locale: Locale) -> String {
-    let phrases = ordered_placements(placements)
+pub(crate) fn placement_phrase(placements: &[MenuPlacement], locale: Locale) -> String {
+    let phrases: Vec<&'static str> = ordered_placements(placements)
         .into_iter()
         .map(|placement| match locale {
             Locale::En => match placement {
@@ -222,6 +222,8 @@ fn placement_phrase(placements: &[MenuPlacement], locale: Locale) -> String {
         .collect();
 
     match locale {
+        Locale::En if phrases.is_empty() => "**Unknown**".to_string(),
+        Locale::Zh if phrases.is_empty() => "**未知**".to_string(),
         Locale::En => join_phrases(phrases, ", ", " and "),
         Locale::Zh => join_phrases(phrases, "、", " 和 "),
     }

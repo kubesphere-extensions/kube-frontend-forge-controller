@@ -329,6 +329,12 @@ fn readme_template_receives_frontend_extension_cr_object() {
 }
 
 #[test]
+fn readme_placement_phrase_handles_empty_placements() {
+    assert_eq!(placement_phrase(&[], Locale::En), "**Unknown**");
+    assert_eq!(placement_phrase(&[], Locale::Zh), "**未知**");
+}
+
+#[test]
 fn frontend_configmap_loads_index_js_from_chart_file() {
     let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
     let artifact = build_extension_package(
