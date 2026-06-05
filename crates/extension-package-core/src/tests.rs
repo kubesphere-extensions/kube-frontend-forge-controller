@@ -252,6 +252,7 @@ spec:
             type: page
         pages:
           - key: demo1
+            displayName: Demo1 Page
             placements:
               - cluster
             type: crdTable
@@ -302,7 +303,7 @@ spec:
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
     assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建的扩展组件"));
-    assert!(content.contains("### 1：「Demo1」（资源集成）"));
+    assert!(content.contains("### 1：「Demo1 Page」（资源集成）"));
     assert!(content.contains("通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源"));
     assert!(content.contains("* API Version：`sample.frontend-forge.io/v1alpha1`"));
     assert!(content.contains("* Resource：`clusterreports`"));
@@ -315,10 +316,77 @@ spec:
     assert!(content.contains(
         "扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Demo2」、「Demo3」 入口。"
     ));
-    assert!(content.contains("1. 进入「Demo1」，查看 `clusterreports` 资源。"));
-    assert!(content.contains("2. 进入「Demo2」，查看 `namespacewidgets` 资源。"));
-    assert!(content.contains("3. 进入「Demo3」，访问嵌入的第三方页面。"));
+    assert!(content.contains("1. 进入一级菜单「Demo1」，查看 `clusterreports` 资源。"));
+    assert!(!content.contains("进入「Demo1 Page」"));
+    assert!(content.contains("2. 进入一级菜单「Demo2」，查看 `namespacewidgets` 资源。"));
+    assert!(content.contains("3. 进入一级菜单「Demo3」，访问嵌入的第三方页面。"));
     assert!(!content.contains("- \n"));
+}
+
+#[test]
+fn readme_quick_start_describes_secondary_menus() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: nested
+spec:
+  package:
+    name: nested
+    version: 0.1.0
+    displayName:
+      zh: Nested
+    description:
+      zh: Nested
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Parent
+            key: parent
+            placements:
+              - cluster
+            type: organization
+            children:
+              - displayName: Child Report
+                key: child-report
+                pageKey: child-report
+        pages:
+          - key: child-report
+            displayName: Child Report Page
+            placements:
+              - cluster
+            type: crdTable
+            crdTable:
+              names:
+                plural: childreports
+              group: sample.frontend-forge.io
+              version: v1alpha1
+              scope: Cluster
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+    )
+    .unwrap();
+    let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+    let readme_zh = artifact
+        .files
+        .iter()
+        .find(|file| file.path == "README_zh.md")
+        .unwrap();
+    let content = std::str::from_utf8(&readme_zh.content).unwrap();
+
+    assert!(content.contains("### 1：「Child Report Page」（资源集成）"));
+    assert!(content.contains("1. 进入二级菜单「Child Report」，查看 `childreports` 资源。"));
+    assert!(!content.contains("进入二级菜单「Child Report Page」"));
 }
 
 #[test]

@@ -3,7 +3,10 @@ use frontend_forge_api::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::{FrontendPageSpec, FrontendRenderInput, ManifestRenderError, ResolvedFrontendPage};
+use crate::{
+    FrontendPageSpec, FrontendRenderInput, ManifestRenderError, ResolvedFrontendPage,
+    ResolvedMenuLevel,
+};
 
 mod columns;
 mod pages;

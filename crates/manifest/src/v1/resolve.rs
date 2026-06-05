@@ -42,6 +42,8 @@ fn push_resolved_frontend_page(
 pub(crate) fn resolved_frontend_page(page: ResolvedPageBinding) -> ResolvedFrontendPage {
     ResolvedFrontendPage {
         title: page.page_title,
+        menu_title: page.menu_title,
+        menu_level: page.menu_level,
         placement: page.placement,
         route_suffix: page.route_suffix,
         action_key: page.page.key.clone(),
@@ -69,6 +71,7 @@ pub(crate) struct ResolvedOrganizationMenu {
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedPageBinding {
     pub(crate) menu_title: String,
+    pub(crate) menu_level: ResolvedMenuLevel,
     pub(crate) page_title: String,
     pub(crate) icon: Option<String>,
     pub(crate) placement: MenuPlacement,
@@ -128,6 +131,7 @@ pub(crate) fn resolve_spec(
                 let page_title = page_title(&page, &menu.display_name);
                 resolved.push(ResolvedTopMenu::Page(Box::new(ResolvedPageBinding {
                     menu_title: menu.display_name.clone(),
+                    menu_level: ResolvedMenuLevel::Primary,
                     page_title,
                     icon: menu.icon.clone(),
                     placement: menu.placement,
@@ -176,6 +180,7 @@ pub(crate) fn resolve_spec(
                     let page_title = page_title(&page, &child.display_name);
                     children.push(ResolvedPageBinding {
                         menu_title: child.display_name.clone(),
+                        menu_level: ResolvedMenuLevel::Secondary,
                         page_title,
                         icon: child.icon.clone(),
                         placement: menu.placement,
