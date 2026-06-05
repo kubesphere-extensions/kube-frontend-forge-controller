@@ -1,5 +1,5 @@
 {#- `fe_cr` contains the complete FrontendExtension CR object for future template extensions: fe_cr.metadata, fe_cr.spec, fe_cr.status. -#}
-{{ extension_display_name }} 基于 KubeSphere 快速集成能力构建，通过 Kubernetes CRD 资源集成与页面集成两种模式，可根据业务场景快速扩展平台功能，为用户提供统一的使用与管理体验。
+{{ extension_display_name }} 基于 KubeSphere 快速集成能力构建的扩展组件，通过 Kubernetes CRD 资源集成与页面集成两种模式，可根据业务场景快速扩展平台功能，为用户提供统一的使用与管理体验。
 
 ## 功能
 {% for integration in integrations %}

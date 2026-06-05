@@ -177,7 +177,7 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.contains("巡检任务 基于 KubeSphere 快速集成能力构建的扩展组件"));
     assert!(content.contains("## 功能"));
     assert!(content.contains("### 1：「Inspect Tasks」（页面集成）"));
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
@@ -301,7 +301,7 @@ spec:
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.starts_with("qqqq 基于 KubeSphere 快速集成能力构建的扩展组件"));
     assert!(content.contains("### 1：「Demo1」（资源集成）"));
     assert!(content.contains("通过 Kubernetes CRD（Custom Resource Definition）方式扩展平台资源"));
     assert!(content.contains("* API Version：`sample.frontend-forge.io/v1alpha1`"));
@@ -338,7 +338,7 @@ fn readme_template_receives_frontend_extension_cr_object() {
     assert_eq!(fe_cr["metadata"]["name"], "fe-inspecttask");
     assert_eq!(fe_cr["spec"]["package"]["name"], "inspecttask");
     assert!(fe_cr.get("status").is_none());
-    assert!(content.starts_with("巡检任务 基于 KubeSphere 快速集成能力构建"));
+    assert!(content.starts_with("巡检任务 基于 KubeSphere 快速集成能力构建的扩展组件"));
 }
 
 #[test]
