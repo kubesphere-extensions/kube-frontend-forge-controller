@@ -681,6 +681,7 @@ name = "frontend-forge-manifest"
 version = "0.1.0"
 dependencies = [
  "frontend-forge-api",
+ "frontend-forge-common",
  "kube",
  "serde_json",
  "serde_yaml",
