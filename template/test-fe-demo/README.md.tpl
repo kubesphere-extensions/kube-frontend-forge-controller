@@ -1,26 +1,39 @@
 {#- `fe_cr` contains the complete FrontendExtension CR object for future template extensions: fe_cr.metadata, fe_cr.spec, fe_cr.status. -#}
-{{ package_name }}
+{{ extension_display_name }} is built with KubeSphere rapid integration capabilities. It supports Kubernetes CRD resource integration and page integration, allowing platform features to be extended quickly for different business scenarios while providing a unified user and management experience.
 
-## General Introduction
-
-This extension is built with platform integration capabilities and integrates with the platform to provide a unified user and management experience.
+## Features
 {% for integration in integrations %}
 
----
-
-## Integration Item {{ loop.index }}: {{ integration.title }} ({{ integration.kind_label }})
+### {{ loop.index }}: "{{ integration.title }}" ({{ integration.kind_label }})
 
 {% if integration.kind == "crdTable" -%}
-Uses **CRD (cloud-native declarative extension)** integration at the {{ integration.placement_phrase }} scope.
+Extends platform resources through Kubernetes CRD (Custom Resource Definition). Users can view, manage, and operate these custom resources directly in the platform, and reuse KubeSphere's permission system to control resource access.
 {% if integration.crd_resource %}
 
-- `{{ integration.crd_resource.plural }}` (`{{ integration.crd_resource.group }}/{{ integration.crd_resource.version }}`)
+Integrated CRD resource:
+
+* API Version: `{{ integration.crd_resource.group }}/{{ integration.crd_resource.version }}`
+* Resource: `{{ integration.crd_resource.plural }}`
 {% endif %}
 {%- elif integration.kind == "iframe" -%}
-Uses **IFrame (frontend page-level embedding)** integration to embed an external page.
+Embeds a third-party page through IFrame.
 {% if integration.iframe_src %}
 
-- **Embed URL**: `{{ integration.iframe_src }}`
+Embed URL:
+
+```text
+{{ integration.iframe_src }}
+```
 {% endif %}
 {%- endif %}
+
+Menu entry: {{ integration.menu_entry_phrase }}
+{% endfor %}
+
+## Quick Start
+
+After the extension is installed, the {{ top_menu_phrase }} menu entry is available in {{ all_menu_entry_phrase }}.
+{% for integration in integrations %}
+
+{{ loop.index }}. {{ integration.quick_start_text }}
 {% endfor %}
