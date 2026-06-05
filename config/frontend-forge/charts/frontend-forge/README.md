@@ -49,6 +49,8 @@ CRD group `frontend-forge.kubesphere.io`, because KubeSphere serves CRDs with
 The chart creates `ConfigMap/ksbuilder-publish-config` in the release namespace
 by default. `FrontendExtension.spec.publishPolicy.defaultTargetRef` can point at
 this ConfigMap so publisher Jobs have a default `ksbuilder publish` target.
+If the referenced target ConfigMap or Secret does not exist, the publisher treats
+it as empty target data and still runs `ksbuilder`.
 
 ```yaml
 publishTargetConfig:
