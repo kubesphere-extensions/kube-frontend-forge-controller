@@ -169,6 +169,9 @@ fn builds_extension_package_artifact_payload() {
     assert!(content.contains("- **Embed URL:** `http://example.test`"));
     assert!(content.contains("- **Menu entry:** Cluster"));
     assert!(content.contains("## Quick Start"));
+    assert!(content.contains(
+        "1. Open the top-level menu **Inspect Tasks** to access the embedded third-party page."
+    ));
 
     let readme_zh = artifact
         .files
@@ -321,11 +324,11 @@ spec:
     assert!(content.contains("通过 IFrame 方式嵌入第三方页面。"));
     assert!(content.contains("- **嵌入地址:** `https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik`"));
     assert!(
-        content.contains("扩展安装完成后，可在集群、企业空间看到菜单 「Demo1」、「Top 2」 入口。")
+        content.contains("扩展安装完成后，可在集群、企业空间看到菜单 **Demo1**、**Top 2** 入口。")
     );
-    assert!(content.contains("1. 进入一级菜单「Demo1」，管理 `clusterreports` 资源。"));
-    assert!(content.contains("2. 进入二级菜单「Demo2」，管理 `namespacewidgets` 资源。"));
-    assert!(content.contains("3. 进入二级菜单「Demo3」，可访问嵌入的第三方页面。"));
+    assert!(content.contains("1. 进入一级菜单 **Demo1**，管理 `clusterreports` 资源。"));
+    assert!(content.contains("2. 进入二级菜单 **Demo2**，管理 `namespacewidgets` 资源。"));
+    assert!(content.contains("3. 进入二级菜单 **Demo3**，可访问嵌入的第三方页面。"));
     assert!(!content.contains("- \n"));
 }
 
@@ -391,8 +394,8 @@ spec:
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
     assert!(content.contains("### 1. Child Report Page（资源集成）"));
-    assert!(content.contains("1. 进入二级菜单「Child Report」，管理 `childreports` 资源。"));
-    assert!(!content.contains("进入二级菜单「Child Report Page」"));
+    assert!(content.contains("1. 进入二级菜单 **Child Report**，管理 `childreports` 资源。"));
+    assert!(!content.contains("进入二级菜单 **Child Report Page**"));
 }
 
 #[test]
@@ -455,7 +458,7 @@ fn readme_template_localizes_menu_display_name_maps() {
     )
     .unwrap();
 
-    assert!(content.contains("菜单 「巡检」 入口。"));
+    assert!(content.contains("菜单 **巡检** 入口。"));
 }
 
 #[test]
@@ -477,7 +480,7 @@ fn readme_template_falls_back_to_menu_key_for_missing_display_name() {
     )
     .unwrap();
 
-    assert!(content.contains("菜单 「inspecttasks」 入口。"));
+    assert!(content.contains("菜单 **inspecttasks** 入口。"));
 }
 
 #[test]

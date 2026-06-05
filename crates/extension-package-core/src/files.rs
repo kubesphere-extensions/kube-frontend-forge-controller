@@ -215,7 +215,7 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("the custom resource");
             format!(
-                "Open the {menu_level} \"{}\" to manage `{resource}` resources.",
+                "Open the {menu_level} **{}** to manage `{resource}` resources.",
                 source.menu_title
             )
         }
@@ -226,19 +226,19 @@ fn quick_start_text(source: &ReadmeIntegrationSource, locale: Locale) -> String 
                 .map(|resource| resource.plural.as_str())
                 .unwrap_or("自定义");
             format!(
-                "进入{menu_level}「{}」，管理 `{resource}` 资源。",
+                "进入{menu_level} **{}**，管理 `{resource}` 资源。",
                 source.menu_title
             )
         }
         (PageType::Iframe, Locale::En) => {
             format!(
-                "Open the {menu_level} \"{}\" to access the embedded third-party page.",
+                "Open the {menu_level} **{}** to access the embedded third-party page.",
                 source.menu_title
             )
         }
         (PageType::Iframe, Locale::Zh) => {
             format!(
-                "进入{menu_level}「{}」，可访问嵌入的第三方页面。",
+                "进入{menu_level} **{}**，可访问嵌入的第三方页面。",
                 source.menu_title
             )
         }
@@ -332,8 +332,8 @@ fn top_menu_phrase(fe_cr: &Value, locale: Locale) -> String {
     let title_refs = titles.iter().map(String::as_str).collect::<Vec<_>>();
 
     match locale {
-        Locale::En => quote_phrase(title_refs, "\"", "\"", ", ", " and "),
-        Locale::Zh => quote_phrase(title_refs, "「", "」", "、", "、"),
+        Locale::En => quote_phrase(title_refs, "**", "**", ", ", " and "),
+        Locale::Zh => quote_phrase(title_refs, "**", "**", "、", "、"),
     }
 }
 
