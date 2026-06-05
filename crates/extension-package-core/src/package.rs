@@ -60,13 +60,16 @@ pub(crate) fn package_files(
     let package_name = frontend_extension_package_name(fe);
     let helper_chart_name = helper_chart_name(&package_name);
     let pages = resolve_frontend_extension_pages(fe).context(RenderManifestSnafu)?;
+    let fe_cr = serde_json::to_value(fe).context(SerializeJsonSnafu {
+        name: "FrontendExtension README template variable",
+    })?;
 
     Ok(vec![
         yaml_file("extension.yaml", &package_metadata)?,
         template_text_file("permissions.yaml", "permissions.yaml")?,
         yaml_file("values.yaml", &root_values(fe, &helper_chart_name))?,
-        readme_file(&package_name),
-        readme_zh_file(&package_name),
+        readme_file(&package_name, &fe_cr, &pages)?,
+        readme_zh_file(&package_name, &fe_cr, &pages)?,
         template_binary_file("static/favicon.svg", "static/favicon.svg")?,
         yaml_file(
             "charts/frontend/Chart.yaml",

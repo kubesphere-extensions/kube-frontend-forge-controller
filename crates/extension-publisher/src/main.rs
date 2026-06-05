@@ -16,7 +16,7 @@ use k8s_openapi::{
 };
 use kube::{Api, Client};
 use snafu::{ResultExt, Snafu};
-use tracing::info;
+use tracing::{info, warn};
 
 const FALLBACK_IN_CLUSTER_KUBECONFIG_PATH: &str = "/root/.kube/config";
 
@@ -401,13 +401,23 @@ async fn load_publish_target(
     match kind.as_str() {
         "ConfigMap" => {
             let api = Api::<ConfigMap>::namespaced(client.clone(), &namespace);
-            let cm = api
-                .get(name)
-                .await
-                .with_context(|_| GetTargetConfigMapSnafu {
-                    namespace: namespace.clone(),
-                    name: name.clone(),
-                })?;
+            let cm = match api.get(name).await {
+                Ok(cm) => cm,
+                Err(err) if is_kube_not_found(&err) => {
+                    warn!(
+                        namespace = %namespace,
+                        name = %name,
+                        "publish target ConfigMap not found; continuing without target data"
+                    );
+                    return Ok(None);
+                }
+                Err(err) => {
+                    return Err(err).with_context(|_| GetTargetConfigMapSnafu {
+                        namespace: namespace.clone(),
+                        name: name.clone(),
+                    });
+                }
+            };
             let values = cm
                 .data
                 .unwrap_or_default()
@@ -424,10 +434,23 @@ async fn load_publish_target(
         }
         "Secret" => {
             let api = Api::<Secret>::namespaced(client.clone(), &namespace);
-            let secret = api.get(name).await.with_context(|_| GetTargetSecretSnafu {
-                namespace: namespace.clone(),
-                name: name.clone(),
-            })?;
+            let secret = match api.get(name).await {
+                Ok(secret) => secret,
+                Err(err) if is_kube_not_found(&err) => {
+                    warn!(
+                        namespace = %namespace,
+                        name = %name,
+                        "publish target Secret not found; continuing without target data"
+                    );
+                    return Ok(None);
+                }
+                Err(err) => {
+                    return Err(err).with_context(|_| GetTargetSecretSnafu {
+                        namespace: namespace.clone(),
+                        name: name.clone(),
+                    });
+                }
+            };
             let values = secret
                 .data
                 .unwrap_or_default()
@@ -438,6 +461,10 @@ async fn load_publish_target(
         }
         _ => Err(Error::UnsupportedTargetKind { kind }),
     }
+}
+
+fn is_kube_not_found(err: &kube::Error) -> bool {
+    matches!(err, kube::Error::Api(status) if status.code == 404)
 }
 
 fn write_publish_target_data(
@@ -808,6 +835,32 @@ mod tests {
     }
 
     #[test]
+    fn builds_ksbuilder_publish_args_without_target_data() {
+        let cfg = PublisherConfig {
+            action: PublisherAction::Publish,
+            fe_name: "inspecttask".to_string(),
+            request_id: "request-1".to_string(),
+            artifact_digest: Some("sha256:artifact".to_string()),
+            artifact_configmap_namespace: "extension-frontend-forge".to_string(),
+            artifact_configmap_name: Some("fe-inspecttask-a1b2c3d4".to_string()),
+            artifact_configmap_key: "package.tgz".to_string(),
+            artifact_filename: "inspecttask-0.1.0.tgz".to_string(),
+            unpublish_extension_name: None,
+            target_kind: None,
+            target_namespace: None,
+            target_name: None,
+            workdir: PathBuf::from("/tmp/frontend-forge-publish-test"),
+            ksbuilder_bin: "ksbuilder".to_string(),
+            publish_args: vec!["--kubeconfig".to_string(), "kubeconfig".to_string()],
+        };
+
+        assert_eq!(
+            ksbuilder_publish_args(&cfg, Path::new("/work/package"), None),
+            vec!["publish", "/work/package", "--kubeconfig", "kubeconfig"]
+        );
+    }
+
+    #[test]
     fn builds_ksbuilder_unpublish_args_with_extension_name_first() {
         let cfg = PublisherConfig {
             action: PublisherAction::Unpublish,
@@ -846,6 +899,15 @@ mod tests {
                 "https://example.test",
             ]
         );
+    }
+
+    #[test]
+    fn detects_kubernetes_not_found_errors() {
+        let not_found = kube_api_error(404);
+        let forbidden = kube_api_error(403);
+
+        assert!(is_kube_not_found(&not_found));
+        assert!(!is_kube_not_found(&forbidden));
     }
 
     #[test]
@@ -913,5 +975,12 @@ mod tests {
         }
         let encoder = archive.into_inner().expect("finish test tar");
         encoder.finish().expect("finish gzip")
+    }
+
+    fn kube_api_error(code: u16) -> kube::Error {
+        kube::Error::Api(Box::new(kube::core::Status {
+            code,
+            ..Default::default()
+        }))
     }
 }

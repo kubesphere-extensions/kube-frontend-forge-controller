@@ -11,4 +11,5 @@ serde_json.workspace = true
 snafu.workspace = true
 
 [dev-dependencies]
+frontend-forge-common = { path = "../common" }
 serde_yaml.workspace = true

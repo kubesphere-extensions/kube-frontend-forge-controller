@@ -55,6 +55,8 @@ service at that address, set an external URL, or enable the local/e2e stub.
 Publish Jobs read `FrontendExtension.spec.publishPolicy.defaultTargetRef`. The
 chart creates `ConfigMap/ksbuilder-publish-config` in the release namespace by
 default so FE publish has a target config available immediately after install.
+If the referenced target ConfigMap or Secret does not exist, the publisher treats
+it as empty target data and still runs `ksbuilder`.
 
 ## Quick Install
 

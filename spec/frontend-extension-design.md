@@ -437,7 +437,7 @@ Flow:
 | Prepare workdir | Uses `PUBLISH_WORKDIR` or `/tmp/frontend-extension-publish-<request-hash>`. |
 | Write archive | Writes artifact package using `ARTIFACT_FILENAME`. |
 | Unpack archive | Extracts tarball into `<workdir>/package` using safe child paths. |
-| Load target | Reads target ConfigMap `data` + `binaryData`, or Secret `data`. |
+| Load target | Reads target ConfigMap `data` + `binaryData`, or Secret `data`; missing target ConfigMap/Secret is treated as empty target data. |
 | Write target data | Writes non-special keys under `.frontend-forge-publish-target`. |
 | Env target data | Keys `env.<NAME>` become process env `<NAME>`. |
 | Args target data | Key `args` is split by whitespace and appended to publish args. |

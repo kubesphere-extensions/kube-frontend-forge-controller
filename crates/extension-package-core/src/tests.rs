@@ -159,10 +159,9 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme.content).unwrap();
 
-    assert!(
-        content.contains("This is a inspecttask extension, which is shown in more detail here")
-    );
-    assert!(content.contains("Markdown syntax"));
+    assert!(content.contains("inspecttask\n\n## General Introduction"));
+    assert!(content.contains("## Integration Item 1: Inspect Tasks (Page Integration)"));
+    assert!(content.contains("- **Embed URL**: `http://example.test`"));
 
     let readme_zh = artifact
         .files
@@ -171,8 +170,9 @@ fn builds_extension_package_artifact_payload() {
         .unwrap();
     let content = std::str::from_utf8(&readme_zh.content).unwrap();
 
-    assert!(content.contains("这是一个inspecttask扩展组件"));
-    assert!(content.contains("Markdown 语法"));
+    assert!(content.contains("inspecttask\n\n## 通用介绍"));
+    assert!(content.contains("## 集成项 1：Inspect Tasks（页面集成）"));
+    assert!(content.contains("- **嵌入地址**: `http://example.test`"));
 
     let frontend_chart = artifact
         .files
@@ -195,6 +195,143 @@ fn builds_extension_package_artifact_payload() {
     assert!(content.contains("kind: Role"));
     assert!(content.contains("- 'categories'"));
     assert!(content.contains("- 'roletemplates'"));
+}
+
+#[test]
+fn readme_zh_describes_generated_integrations() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: qqqq
+spec:
+  package:
+    name: qqqq
+    version: 0.1.0
+    displayName:
+      zh: qqqq
+    description:
+      zh: qqqq
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Demo1
+            key: demo1
+            pageKey: demo1
+            placements:
+              - cluster
+            type: page
+          - displayName: Demo2
+            key: demo2
+            pageKey: demo2
+            placements:
+              - cluster
+              - workspace
+            type: page
+          - displayName: Demo3
+            key: demo3
+            pageKey: demo3
+            placements:
+              - cluster
+            type: page
+        pages:
+          - key: demo1
+            placements:
+              - cluster
+            type: crdTable
+            crdTable:
+              names:
+                plural: clusterreports
+              group: sample.frontend-forge.io
+              version: v1alpha1
+              scope: Cluster
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+          - key: demo2
+            placements:
+              - cluster
+              - workspace
+            type: crdTable
+            crdTable:
+              names:
+                plural: namespacewidgets
+              group: sample.frontend-forge.io
+              version: v1alpha1
+              scope: Namespaced
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+          - key: demo3
+            placements:
+              - cluster
+            type: iframe
+            iframe:
+              src: https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik
+"#,
+    )
+    .unwrap();
+    let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+    let readme_zh = artifact
+        .files
+        .iter()
+        .find(|file| file.path == "README_zh.md")
+        .unwrap();
+    let content = std::str::from_utf8(&readme_zh.content).unwrap();
+
+    assert!(content.starts_with("qqqq\n\n## 通用介绍"));
+    assert!(content.contains("## 集成项 1：Demo1（资源集成）"));
+    assert!(
+        content.contains("通过 **CRD（云原生声明式扩展）** 方式作用于 **集群（Cluster）** 级别。")
+    );
+    assert!(content.contains("- `clusterreports`（`sample.frontend-forge.io/v1alpha1`）"));
+    assert!(content.contains("## 集成项 2：Demo2（资源集成）"));
+    assert!(content.contains(
+        "通过 **CRD（云原生声明式扩展）** 方式作用于 **集群（Cluster）** 和 \
+         **企业空间（Workspace）** 级别。"
+    ));
+    assert!(content.contains("- `namespacewidgets`（`sample.frontend-forge.io/v1alpha1`）"));
+    assert!(content.contains("## 集成项 3：Demo3（页面集成）"));
+    assert!(content.contains("通过 **IFrame（前端页面级嵌入）** 方式嵌入外部页面。"));
+    assert!(content.contains("- **嵌入地址**: `https://www.openstreetmap.org/export/embed.html?bbox=-0.004017949104309083%2C51.47612752641776%2C0.00030577182769775396%2C51.478569861898606&layer=mapnik`"));
+    assert!(!content.contains("- \n"));
+}
+
+#[test]
+fn readme_template_receives_frontend_extension_cr_object() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let fe_cr = serde_json::to_value(&fe).unwrap();
+    let content = render_readme_template(
+        "README_zh.md.tpl",
+        "inspecttask",
+        &fe_cr,
+        &pages,
+        Locale::Zh,
+    )
+    .unwrap();
+
+    assert_eq!(fe_cr["metadata"]["name"], "fe-inspecttask");
+    assert_eq!(fe_cr["spec"]["package"]["name"], "inspecttask");
+    assert!(fe_cr.get("status").is_none());
+    assert!(content.starts_with("inspecttask\n\n## 通用介绍"));
+}
+
+#[test]
+fn readme_placement_phrase_handles_empty_placements() {
+    assert_eq!(placement_phrase(&[], Locale::En), "**Unknown**");
+    assert_eq!(placement_phrase(&[], Locale::Zh), "**未知**");
 }
 
 #[test]

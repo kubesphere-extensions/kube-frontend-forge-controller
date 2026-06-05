@@ -50,7 +50,8 @@ FE packaging 和 FI runtime build 都会调用 `BUILD_SERVICE_BASE_URL`。在 ch
 
 Publish Job 会读取 `FrontendExtension.spec.publishPolicy.defaultTargetRef`。
 chart 默认在 release namespace 创建 `ConfigMap/ksbuilder-publish-config`，确保安装后
-FE publish 立即有可用的发布目标配置。
+FE publish 立即有可用的发布目标配置。如果引用的 ConfigMap 或 Secret 不存在，
+publisher 会按空发布目标数据处理，并继续运行 `ksbuilder`。
 
 ## 快速安装
 
