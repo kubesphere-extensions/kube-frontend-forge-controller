@@ -453,6 +453,28 @@ fn readme_template_localizes_menu_display_name_maps() {
 }
 
 #[test]
+fn readme_template_falls_back_to_menu_key_for_missing_display_name() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["source"]["inline"]["frontend"]["menus"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("displayName");
+
+    let content = render_readme_template(
+        "README_zh.md.tpl",
+        "inspecttask",
+        &fe_cr,
+        &pages,
+        Locale::Zh,
+    )
+    .unwrap();
+
+    assert!(content.contains("菜单 「inspecttasks」 入口。"));
+}
+
+#[test]
 fn frontend_configmap_loads_index_js_from_chart_file() {
     let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
     let artifact = build_extension_package(

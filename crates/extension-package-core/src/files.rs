@@ -317,10 +317,17 @@ fn top_menu_phrase(fe_cr: &Value, locale: Locale) -> String {
     let mut titles = Vec::new();
     for menu in menus {
         if let Some(title) = localized_map_text(menu.get("displayName"), locale)
+            .or_else(|| menu.get("key").and_then(Value::as_str).map(str::to_string))
             && !titles.contains(&title)
         {
             titles.push(title);
         }
+    }
+    if titles.is_empty() {
+        return match locale {
+            Locale::En => "Unknown".to_string(),
+            Locale::Zh => "未知".to_string(),
+        };
     }
     let title_refs = titles.iter().map(String::as_str).collect::<Vec<_>>();
 
