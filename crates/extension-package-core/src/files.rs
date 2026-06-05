@@ -277,10 +277,7 @@ fn menu_entry_phrase(placements: &[MenuPlacement], locale: Locale) -> String {
 }
 
 fn all_menu_entry_phrase(pages: &[ResolvedFrontendPage], locale: Locale) -> String {
-    let mut placements = Vec::new();
-    for page in pages {
-        push_unique_placement(&mut placements, page.placement);
-    }
+    let placements = pages.iter().map(|page| page.placement).collect::<Vec<_>>();
     menu_entry_phrase(&placements, locale)
 }
 
@@ -296,16 +293,17 @@ fn top_menu_phrase(fe_cr: &Value, locale: Locale) -> String {
     };
     let mut titles = Vec::new();
     for menu in menus {
-        if let Some(title) = menu.get("displayName").and_then(Value::as_str)
+        if let Some(title) = localized_map_text(menu.get("displayName"), locale)
             && !titles.contains(&title)
         {
             titles.push(title);
         }
     }
+    let title_refs = titles.iter().map(String::as_str).collect::<Vec<_>>();
 
     match locale {
-        Locale::En => quote_phrase(titles, "\"", "\"", ", ", " and "),
-        Locale::Zh => quote_phrase(titles, "「", "」", "、", "、"),
+        Locale::En => quote_phrase(title_refs, "\"", "\"", ", ", " and "),
+        Locale::Zh => quote_phrase(title_refs, "「", "」", "、", "、"),
     }
 }
 
@@ -327,6 +325,9 @@ fn extension_display_name(fe_cr: &Value, locale: Locale) -> Option<String> {
 
 fn localized_map_text(value: Option<&Value>, locale: Locale) -> Option<String> {
     let value = value?;
+    if let Some(value) = value.as_str() {
+        return Some(value.to_string());
+    }
     let (preferred, fallback) = match locale {
         Locale::En => ("en", "zh"),
         Locale::Zh => ("zh", "en"),

@@ -1,4 +1,5 @@
 use frontend_forge_api::FrontendExtension;
+use serde_json::json;
 
 use super::*;
 
@@ -344,6 +345,43 @@ fn readme_template_receives_frontend_extension_cr_object() {
 fn readme_placement_phrase_handles_empty_placements() {
     assert_eq!(placement_phrase(&[], Locale::En), "**Unknown**");
     assert_eq!(placement_phrase(&[], Locale::Zh), "**未知**");
+}
+
+#[test]
+fn readme_template_supports_plain_string_display_name() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["package"]["displayName"] = json!("Plain Inspect Task");
+
+    let content =
+        render_readme_template("README.md.tpl", "inspecttask", &fe_cr, &pages, Locale::En).unwrap();
+
+    assert!(
+        content.starts_with(
+            "Plain Inspect Task is built with KubeSphere rapid integration capabilities"
+        )
+    );
+}
+
+#[test]
+fn readme_template_localizes_menu_display_name_maps() {
+    let fe = sample_fe();
+    let pages = resolve_frontend_extension_pages(&fe).unwrap();
+    let mut fe_cr = serde_json::to_value(&fe).unwrap();
+    fe_cr["spec"]["source"]["inline"]["frontend"]["menus"][0]["displayName"] =
+        json!({ "en": "Inspection", "zh": "巡检" });
+
+    let content = render_readme_template(
+        "README_zh.md.tpl",
+        "inspecttask",
+        &fe_cr,
+        &pages,
+        Locale::Zh,
+    )
+    .unwrap();
+
+    assert!(content.contains("菜单 「巡检」 入口。"));
 }
 
 #[test]
