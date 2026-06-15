@@ -170,9 +170,7 @@ pub(crate) fn retained_publish_for_artifact_key(
     fe: &FrontendExtension,
     artifact_key: &str,
 ) -> Option<PublishStatus> {
-    let Some(publish) = retained_publish(fe) else {
-        return Some(PublishStatus::default());
-    };
+    let publish = retained_publish(fe)?;
 
     let retained_artifact_key = fe
         .status
@@ -187,7 +185,7 @@ pub(crate) fn retained_publish_for_artifact_key(
         return Some(publish);
     }
 
-    Some(PublishStatus::default())
+    None
 }
 
 pub(crate) fn retained_publish(fe: &FrontendExtension) -> Option<PublishStatus> {

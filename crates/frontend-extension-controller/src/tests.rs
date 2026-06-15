@@ -351,12 +351,12 @@ fn non_terminal_publish_status_is_reset_when_artifact_changes() {
         ..Default::default()
     });
 
-    let retained = retained_publish_for_artifact_key(&fe, "sha256:newkey").unwrap();
-    assert_eq!(retained.phase, PublishPhase::NotRequested);
+    let retained = retained_publish_for_artifact_key(&fe, "sha256:newkey");
+    assert!(retained.is_none());
 
     let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Ready,
-        publish: Some(retained),
+        publish: retained,
         ..Default::default()
     });
     assert_eq!(
