@@ -168,9 +168,24 @@ pub(crate) fn failed_fe_status(
 
 pub(crate) fn retained_publish_for_artifact_key(
     fe: &FrontendExtension,
-    _artifact_key: &str,
+    artifact_key: &str,
 ) -> Option<PublishStatus> {
-    retained_publish(fe).or_else(|| Some(PublishStatus::default()))
+    let publish = retained_publish(fe)?;
+
+    let retained_artifact_key = fe
+        .status
+        .as_ref()
+        .and_then(|status| status.artifact.as_ref())
+        .and_then(|artifact| artifact.artifact_key.as_deref());
+    if retained_artifact_key == Some(artifact_key) {
+        return Some(publish);
+    }
+
+    if matches!(publish.phase, PublishPhase::Succeeded) && publish.active {
+        return Some(publish);
+    }
+
+    None
 }
 
 pub(crate) fn retained_publish(fe: &FrontendExtension) -> Option<PublishStatus> {

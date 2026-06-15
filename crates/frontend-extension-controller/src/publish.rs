@@ -31,11 +31,7 @@ pub(crate) async fn sync_publish(
 ) -> Result<PublishSync, Error> {
     let Some(request_id) = publish_request_id(fe) else {
         return Ok(PublishSync {
-            status: Some(current_publish_for_artifact(
-                fe,
-                &artifact.digest,
-                artifact_key,
-            )),
+            status: current_publish_for_artifact(fe, artifact_key),
             should_requeue: false,
         });
     };
@@ -50,7 +46,7 @@ pub(crate) async fn sync_publish(
         Ok(request) => request,
         Err(PublishRequestError::Stale) => {
             return Ok(PublishSync {
-                status: retained_publish(fe),
+                status: retained_publish_for_artifact_key(fe, artifact_key),
                 should_requeue: false,
             });
         }
@@ -276,10 +272,9 @@ pub(crate) fn failed_publish_status(
 
 pub(crate) fn current_publish_for_artifact(
     fe: &FrontendExtension,
-    _artifact_digest: &str,
-    _artifact_key: &str,
-) -> PublishStatus {
-    retained_publish(fe).unwrap_or_default()
+    artifact_key: &str,
+) -> Option<PublishStatus> {
+    retained_publish_for_artifact_key(fe, artifact_key)
 }
 
 pub(crate) fn publish_already_finished(

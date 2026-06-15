@@ -271,7 +271,7 @@ fn artifact_configmap_requires_matching_artifact_key_annotation() {
 }
 
 #[test]
-fn publish_status_is_retained_when_artifact_changes() {
+fn active_succeeded_publish_status_is_retained_when_artifact_changes() {
     let mut fe = sample_fe();
     fe.status = Some(FrontendExtensionStatus {
         phase: FrontendExtensionPhase::Ready,
@@ -314,6 +314,55 @@ fn publish_status_is_retained_when_artifact_changes() {
     let retained = retained_publish_for_artifact_key(&fe, "sha256:newkey").unwrap();
     assert_eq!(retained.phase, PublishPhase::Succeeded);
     assert_eq!(retained.artifact_digest.as_deref(), Some("sha256:artifact"));
+}
+
+#[test]
+fn non_terminal_publish_status_is_reset_when_artifact_changes() {
+    let mut fe = sample_fe();
+    fe.status = Some(FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        observed_generation: Some(7),
+        observed_source_hash: Some("sha256:source".to_string()),
+        observed_rebuild_token: Some("token-1".to_string()),
+        artifact: Some(ExtensionArtifactStatus {
+            storage: ArtifactStorageStatus {
+                kind: ArtifactStorageKind::ConfigMap,
+                ref_: NamespacedResourceRef {
+                    namespace: "extension-frontend-forge".to_string(),
+                    name: "fe-inspecttask-d46b92fa1234".to_string(),
+                    uid: None,
+                },
+                key: PACKAGE_KEY.to_string(),
+            },
+            digest: "sha256:artifact".to_string(),
+            size_bytes: 1,
+            media_type: "application/gzip".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            generated_at: Utc::now(),
+            source_hash: "sha256:source".to_string(),
+            artifact_key: Some("sha256:artifactkey".to_string()),
+        }),
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Running,
+            request_id: Some("request-1".to_string()),
+            artifact_digest: Some("sha256:artifact".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    let retained = retained_publish_for_artifact_key(&fe, "sha256:newkey");
+    assert!(retained.is_none());
+
+    let labels = frontend_extension_status_labels(&FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        publish: retained,
+        ..Default::default()
+    });
+    assert_eq!(
+        labels[LABEL_FE_PUBLISH_STATUS],
+        FE_PUBLISH_STATUS_NOT_PUBLISHED
+    );
 }
 
 #[test]
