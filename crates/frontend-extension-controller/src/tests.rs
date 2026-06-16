@@ -395,6 +395,113 @@ fn publish_request_accepts_waiting_intent_for_matching_generation_and_source() {
 }
 
 #[test]
+fn pending_publish_for_current_source_allows_digestless_waiting_request() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([
+        (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
+        (ANNO_PUBLISH_REQUEST_GENERATION.to_string(), "7".to_string()),
+        (
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            "sha256:source".to_string(),
+        ),
+    ]));
+
+    let publish = pending_publish_for_current_source(&fe, Some(7), "sha256:source").unwrap();
+
+    assert_eq!(publish.phase, PublishPhase::Pending);
+    assert_eq!(publish.request_id.as_deref(), Some("request-1"));
+    assert!(publish.artifact_digest.is_none());
+}
+
+#[test]
+fn pending_publish_for_current_source_ignores_digest_bound_request() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([
+        (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
+        (ANNO_PUBLISH_REQUEST_GENERATION.to_string(), "7".to_string()),
+        (
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            "sha256:source".to_string(),
+        ),
+        (
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            "sha256:old-artifact".to_string(),
+        ),
+    ]));
+
+    assert!(pending_publish_for_current_source(&fe, Some(7), "sha256:source").is_none());
+}
+
+#[test]
+fn packaging_status_does_not_publish_for_digest_bound_request() {
+    let mut fe = sample_fe();
+    fe.metadata.annotations = Some(BTreeMap::from([
+        (ANNO_PUBLISH_REQUEST_ID.to_string(), "request-1".to_string()),
+        (ANNO_PUBLISH_REQUEST_GENERATION.to_string(), "7".to_string()),
+        (
+            ANNO_PUBLISH_REQUEST_SOURCE_HASH.to_string(),
+            "sha256:source".to_string(),
+        ),
+        (
+            ANNO_PUBLISH_ARTIFACT_DIGEST.to_string(),
+            "sha256:old-artifact".to_string(),
+        ),
+    ]));
+    fe.status = Some(FrontendExtensionStatus {
+        phase: FrontendExtensionPhase::Ready,
+        artifact: Some(ExtensionArtifactStatus {
+            storage: ArtifactStorageStatus {
+                kind: ArtifactStorageKind::ConfigMap,
+                ref_: NamespacedResourceRef {
+                    namespace: "extension-frontend-forge".to_string(),
+                    name: "fe-inspecttask-old".to_string(),
+                    uid: None,
+                },
+                key: PACKAGE_KEY.to_string(),
+            },
+            digest: "sha256:old-artifact".to_string(),
+            size_bytes: 1,
+            media_type: "application/gzip".to_string(),
+            filename: "inspecttask-0.1.0.tgz".to_string(),
+            generated_at: Utc::now(),
+            source_hash: "sha256:source".to_string(),
+            artifact_key: Some("sha256:old-artifact-key".to_string()),
+        }),
+        publish: Some(PublishStatus {
+            phase: PublishPhase::Pending,
+            request_id: Some("request-1".to_string()),
+            artifact_digest: Some("sha256:old-artifact".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let job = Job {
+        metadata: ObjectMeta {
+            name: Some("fe-inspecttask-package-new-a1".to_string()),
+            namespace: Some("extension-frontend-forge".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let status = packaging_fe_status(
+        &fe,
+        "sha256:source",
+        "new-rebuild-token",
+        "sha256:new-artifact-key",
+        &job,
+        "Package job in progress",
+    );
+    let labels = frontend_extension_status_labels(&status);
+
+    assert!(status.publish.is_none());
+    assert_eq!(
+        labels[LABEL_FE_PUBLISH_STATUS],
+        FE_PUBLISH_STATUS_NOT_PUBLISHED
+    );
+}
+
+#[test]
 fn publish_request_ignores_stale_waiting_intent() {
     let mut fe = sample_fe();
     fe.metadata.annotations = Some(BTreeMap::from([

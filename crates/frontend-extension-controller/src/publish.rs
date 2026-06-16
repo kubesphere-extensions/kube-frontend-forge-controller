@@ -188,13 +188,15 @@ pub(crate) fn pending_publish_for_current_source(
 ) -> Option<PublishStatus> {
     let request_id = publish_request_id(fe)?;
     let requested_source_hash = publish_request_source_hash(fe)?;
-    let artifact_digest = fe
+    let has_artifact_digest = fe
         .metadata
         .annotations
         .as_ref()
         .and_then(|annos| annos.get(ANNO_PUBLISH_ARTIFACT_DIGEST))
-        .filter(|digest| !digest.is_empty())
-        .cloned();
+        .is_some_and(|digest| !digest.is_empty());
+    if has_artifact_digest {
+        return None;
+    }
 
     if publish_request_generation(fe)
         .is_some_and(|generation| Some(generation) != current_generation)
@@ -208,7 +210,6 @@ pub(crate) fn pending_publish_for_current_source(
     Some(PublishStatus {
         phase: PublishPhase::Pending,
         request_id: Some(request_id.to_string()),
-        artifact_digest,
         ..Default::default()
     })
 }
