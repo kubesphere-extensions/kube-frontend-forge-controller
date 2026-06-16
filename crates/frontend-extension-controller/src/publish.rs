@@ -195,6 +195,9 @@ pub(crate) fn pending_publish_for_current_source(
         .and_then(|annos| annos.get(ANNO_PUBLISH_ARTIFACT_DIGEST))
         .filter(|digest| !digest.is_empty())
         .cloned();
+    if artifact_digest.is_some() {
+        return None;
+    }
 
     if publish_request_generation(fe)
         .is_some_and(|generation| Some(generation) != current_generation)
@@ -208,7 +211,6 @@ pub(crate) fn pending_publish_for_current_source(
     Some(PublishStatus {
         phase: PublishPhase::Pending,
         request_id: Some(request_id.to_string()),
-        artifact_digest,
         ..Default::default()
     })
 }
