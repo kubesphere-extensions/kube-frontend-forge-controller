@@ -16,6 +16,10 @@ spec:
       labels:
         {{- include "frontend-forge.componentLabels" (dict "root" . "component" "build-service") | nindent 8 }}
     spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: frontend-forge-build-service
           image: {{ include "frontend-forge.image" (dict "root" . "image" .Values.buildService.image) | quote }}

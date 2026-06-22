@@ -79,6 +79,10 @@ spec:
   ttlSecondsAfterFinished: {{ .Values.webhook.certgen.ttlSecondsAfterFinished }}
   template:
     spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
       restartPolicy: OnFailure
       containers:
@@ -110,6 +114,10 @@ spec:
   ttlSecondsAfterFinished: {{ .Values.webhook.certgen.ttlSecondsAfterFinished }}
   template:
     spec:
+      {{- with (default .Values.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "frontend-forge.webhookCertgenServiceAccountName" . }}
       restartPolicy: OnFailure
       containers:
