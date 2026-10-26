@@ -137,7 +137,9 @@ pub(crate) fn role_template_contributions(
 ) -> Vec<RoleTemplateContribution> {
     match page.page.type_ {
         PageType::CrdTable => crd_table_role_template_contributions(page),
-        PageType::Iframe => iframe_role_template_contributions(page),
+        PageType::Iframe => iframe_role_template_contribution(page)
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -147,46 +149,46 @@ pub(crate) fn crd_table_role_template_contributions(
     let Some(crd) = page.page.crd_table.as_ref() else {
         return Vec::new();
     };
+    let scope = crd_role_scope(page.placement, crd.scope);
     let action_key = crd
         .auth_key
         .clone()
         .unwrap_or_else(|| page.action_key.clone());
 
-    crd_role_scopes(page.placement, crd.scope)
-        .iter()
-        .flat_map(|&scope| {
-            [
-                (RoleAction::View, view_verbs()),
-                (RoleAction::Manage, manage_verbs()),
-            ]
-            .into_iter()
-            .map(move |(action, verbs)| (scope, action, verbs))
-        })
-        .map(|(scope, action, verbs)| RoleTemplateContribution {
+    vec![
+        RoleTemplateContribution {
             scope,
-            action,
+            action: RoleAction::View,
             action_key: action_key.clone(),
             rule: Some(GeneratedRule {
                 api_group: crd.group.clone(),
                 resource: crd.names.plural.clone(),
-                verbs,
+                verbs: view_verbs(),
             }),
-        })
-        .collect()
+        },
+        RoleTemplateContribution {
+            scope,
+            action: RoleAction::Manage,
+            action_key,
+            rule: Some(GeneratedRule {
+                api_group: crd.group.clone(),
+                resource: crd.names.plural.clone(),
+                verbs: manage_verbs(),
+            }),
+        },
+    ]
 }
 
-pub(crate) fn iframe_role_template_contributions(
+pub(crate) fn iframe_role_template_contribution(
     page: &ResolvedFrontendPage,
-) -> Vec<RoleTemplateContribution> {
-    iframe_role_scopes(page.placement)
-        .iter()
-        .map(|&scope| RoleTemplateContribution {
-            scope,
-            action: RoleAction::View,
-            action_key: page.action_key.clone(),
-            rule: None,
-        })
-        .collect()
+) -> Option<RoleTemplateContribution> {
+    let scope = iframe_role_scope(page.placement)?;
+    Some(RoleTemplateContribution {
+        scope,
+        action: RoleAction::View,
+        action_key: page.action_key.clone(),
+        rule: None,
+    })
 }
 
 pub(crate) fn add_role_rule(
@@ -211,29 +213,22 @@ pub(crate) fn manage_verbs() -> Vec<String> {
     vec!["*".to_string()]
 }
 
-/// Workspace pages operate on resources in the workspace's projects, so they
-/// contribute to both workspace roles and project (namespace) roles.
-const WORKSPACE_ROLE_SCOPES: &[RoleScope] = &[RoleScope::Workspace, RoleScope::Namespace];
-
-pub(crate) const fn crd_role_scopes(
-    placement: MenuPlacement,
-    crd_scope: CrdScope,
-) -> &'static [RoleScope] {
+pub(crate) const fn crd_role_scope(placement: MenuPlacement, crd_scope: CrdScope) -> RoleScope {
     match placement {
-        MenuPlacement::Cluster => &[RoleScope::Cluster],
-        MenuPlacement::Workspace => WORKSPACE_ROLE_SCOPES,
+        MenuPlacement::Cluster => RoleScope::Cluster,
+        MenuPlacement::Workspace => RoleScope::Namespace,
         MenuPlacement::Global => match crd_scope {
-            CrdScope::Cluster => &[RoleScope::Cluster],
-            CrdScope::Namespaced => &[RoleScope::Namespace],
+            CrdScope::Cluster => RoleScope::Cluster,
+            CrdScope::Namespaced => RoleScope::Namespace,
         },
     }
 }
 
-pub(crate) const fn iframe_role_scopes(placement: MenuPlacement) -> &'static [RoleScope] {
+pub(crate) const fn iframe_role_scope(placement: MenuPlacement) -> Option<RoleScope> {
     match placement {
-        MenuPlacement::Cluster => &[RoleScope::Cluster],
-        MenuPlacement::Workspace => WORKSPACE_ROLE_SCOPES,
-        MenuPlacement::Global => &[],
+        MenuPlacement::Cluster => Some(RoleScope::Cluster),
+        MenuPlacement::Workspace => Some(RoleScope::Workspace),
+        MenuPlacement::Global => None,
     }
 }
 
