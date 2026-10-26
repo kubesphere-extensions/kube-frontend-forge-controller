@@ -188,7 +188,7 @@ RoleTemplate input comes from resolved FE frontend pages.
 | `crdTable`, placement `global`, CRD scope `Cluster` | cluster | CRD verbs `get,list,watch` | CRD verbs `*` |
 | `crdTable`, placement `global`, CRD scope `Namespaced` | namespace | CRD verbs `get,list,watch` | CRD verbs `*` |
 | `iframe`, placement `cluster` | cluster | action key only, no Kubernetes rule | none |
-| `iframe`, placement `workspace` | namespace | action key only, no Kubernetes rule | none |
+| `iframe`, placement `workspace` | workspace | action key only, no Kubernetes rule | none |
 | `iframe`, placement `global` | none | no RoleTemplate contribution | none |
 
 Action key:
@@ -201,7 +201,10 @@ Generated Category names:
 | Scope | Category |
 | --- | --- |
 | cluster | `cluster-fe-management` |
+| workspace | `workspace-fe-management` |
 | namespace | `namespace-fe-management` |
+
+Workspace `crdTable` pages act on resources in the selected project and the console gates their actions on project rules, so they stay namespace-scoped. Workspace `iframe` pages have no project context, so they are workspace-scoped and assignable in workspace roles.
 
 Manage RoleTemplate depends on corresponding view RoleTemplate.
 

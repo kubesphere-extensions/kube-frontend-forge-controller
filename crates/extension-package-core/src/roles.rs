@@ -3,8 +3,15 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum RoleScope {
     Cluster,
+    Workspace,
     Namespace,
 }
+
+const ROLE_SCOPES: [RoleScope; 3] = [
+    RoleScope::Cluster,
+    RoleScope::Workspace,
+    RoleScope::Namespace,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum RoleAction {
@@ -29,6 +36,8 @@ pub(crate) struct RoleTemplateAggregate {
 pub(crate) struct RoleTemplateAggregates {
     cluster_view: RoleTemplateAggregate,
     cluster_manage: RoleTemplateAggregate,
+    workspace_view: RoleTemplateAggregate,
+    workspace_manage: RoleTemplateAggregate,
     namespace_view: RoleTemplateAggregate,
     namespace_manage: RoleTemplateAggregate,
 }
@@ -48,57 +57,42 @@ pub(crate) fn role_template_template(
     let aggregates = role_template_aggregates(pages);
     let mut out = String::from("{{- if .Values.roleTemplate.enabled }}\n");
 
-    if aggregates.has_scope(RoleScope::Cluster) {
-        out.push_str(&category_template(
-            RoleScope::Cluster,
-            "cluster-fe-management",
-            "Quick Integration",
-            "快速集成",
-        ));
+    for scope in ROLE_SCOPES {
+        if aggregates.has_scope(scope) {
+            out.push_str(&category_template(
+                scope,
+                &role_category_name(scope),
+                "Quick Integration",
+                "快速集成",
+            ));
+        }
+        for action in [RoleAction::View, RoleAction::Manage] {
+            append_role_template(
+                &mut out,
+                package_name,
+                scope,
+                action,
+                aggregates.aggregate(scope, action),
+            )?;
+        }
     }
-    append_role_template(
-        &mut out,
-        package_name,
-        RoleScope::Cluster,
-        RoleAction::View,
-        &aggregates.cluster_view,
-    )?;
-    append_role_template(
-        &mut out,
-        package_name,
-        RoleScope::Cluster,
-        RoleAction::Manage,
-        &aggregates.cluster_manage,
-    )?;
-
-    if aggregates.has_scope(RoleScope::Namespace) {
-        out.push_str(&category_template(
-            RoleScope::Namespace,
-            "namespace-fe-management",
-            "Quick Integration",
-            "快速集成",
-        ));
-    }
-    append_role_template(
-        &mut out,
-        package_name,
-        RoleScope::Namespace,
-        RoleAction::View,
-        &aggregates.namespace_view,
-    )?;
-    append_role_template(
-        &mut out,
-        package_name,
-        RoleScope::Namespace,
-        RoleAction::Manage,
-        &aggregates.namespace_manage,
-    )?;
 
     out.push_str("{{- end }}\n");
     Ok(out)
 }
 
 impl RoleTemplateAggregates {
+    const fn aggregate(&self, scope: RoleScope, action: RoleAction) -> &RoleTemplateAggregate {
+        match (scope, action) {
+            (RoleScope::Cluster, RoleAction::View) => &self.cluster_view,
+            (RoleScope::Cluster, RoleAction::Manage) => &self.cluster_manage,
+            (RoleScope::Workspace, RoleAction::View) => &self.workspace_view,
+            (RoleScope::Workspace, RoleAction::Manage) => &self.workspace_manage,
+            (RoleScope::Namespace, RoleAction::View) => &self.namespace_view,
+            (RoleScope::Namespace, RoleAction::Manage) => &self.namespace_manage,
+        }
+    }
+
     const fn aggregate_mut(
         &mut self,
         scope: RoleScope,
@@ -107,18 +101,16 @@ impl RoleTemplateAggregates {
         match (scope, action) {
             (RoleScope::Cluster, RoleAction::View) => &mut self.cluster_view,
             (RoleScope::Cluster, RoleAction::Manage) => &mut self.cluster_manage,
+            (RoleScope::Workspace, RoleAction::View) => &mut self.workspace_view,
+            (RoleScope::Workspace, RoleAction::Manage) => &mut self.workspace_manage,
             (RoleScope::Namespace, RoleAction::View) => &mut self.namespace_view,
             (RoleScope::Namespace, RoleAction::Manage) => &mut self.namespace_manage,
         }
     }
 
     fn has_scope(&self, scope: RoleScope) -> bool {
-        match scope {
-            RoleScope::Cluster => !self.cluster_view.is_empty() || !self.cluster_manage.is_empty(),
-            RoleScope::Namespace => {
-                !self.namespace_view.is_empty() || !self.namespace_manage.is_empty()
-            }
-        }
+        !self.aggregate(scope, RoleAction::View).is_empty()
+            || !self.aggregate(scope, RoleAction::Manage).is_empty()
     }
 }
 
@@ -235,7 +227,7 @@ pub(crate) const fn crd_role_scope(placement: MenuPlacement, crd_scope: CrdScope
 pub(crate) const fn iframe_role_scope(placement: MenuPlacement) -> Option<RoleScope> {
     match placement {
         MenuPlacement::Cluster => Some(RoleScope::Cluster),
-        MenuPlacement::Workspace => Some(RoleScope::Namespace),
+        MenuPlacement::Workspace => Some(RoleScope::Workspace),
         MenuPlacement::Global => None,
     }
 }
@@ -285,7 +277,7 @@ pub(crate) fn append_role_template(
     let scope_name = role_scope_name(scope);
     let action_name = role_action_name(action);
     let role_name = format!("{scope_name}-{action_name}-{package_name}");
-    let category = format!("{scope_name}-fe-management");
+    let category = role_category_name(scope);
     let annotation = role_action_annotation(&aggregate.action_keys, action)?;
     let dependency = if action == RoleAction::Manage {
         Some(format!("{scope_name}-view-{package_name}"))
@@ -348,7 +340,12 @@ pub(crate) fn append_role_labels(
         (RoleScope::Namespace, RoleAction::Manage) => {
             out.push_str("    iam.kubesphere.io/aggregate-to-operator: \"\"\n");
         }
-        (RoleScope::Cluster, RoleAction::Manage) => {}
+        (RoleScope::Workspace, RoleAction::View) => {
+            out.push_str("    iam.kubesphere.io/aggregate-to-self-provisioner: \"\"\n");
+            out.push_str("    iam.kubesphere.io/aggregate-to-viewer: \"\"\n");
+            out.push_str("    iam.kubesphere.io/aggregate-to-regular: \"\"\n");
+        }
+        (RoleScope::Cluster | RoleScope::Workspace, RoleAction::Manage) => {}
     }
     out.push_str(&format!("    iam.kubesphere.io/category: {category}\n"));
     out.push_str(&format!(
@@ -374,6 +371,10 @@ pub(crate) fn append_role_description(
         (RoleScope::Cluster, RoleAction::Manage) => {
             out.push_str(&format!("    en: Manage {package_name}.\n"));
             out.push_str(&format!("    zh: 管理 {package_name}。\n"));
+        }
+        (RoleScope::Workspace, RoleAction::Manage) => {
+            out.push_str(&format!("    en: Workspace {package_name} management.\n"));
+            out.push_str(&format!("    zh: 企业空间 {package_name} 管理。\n"));
         }
         (RoleScope::Namespace, RoleAction::Manage) => {
             out.push_str(&format!("    en: Namespace {package_name} management.\n"));
@@ -420,8 +421,13 @@ pub(crate) fn append_rules(out: &mut String, rules: &BTreeSet<GeneratedRule>) {
 pub(crate) const fn role_scope_name(scope: RoleScope) -> &'static str {
     match scope {
         RoleScope::Cluster => "cluster",
+        RoleScope::Workspace => "workspace",
         RoleScope::Namespace => "namespace",
     }
+}
+
+pub(crate) fn role_category_name(scope: RoleScope) -> String {
+    format!("{}-fe-management", role_scope_name(scope))
 }
 
 pub(crate) const fn role_action_name(action: RoleAction) -> &'static str {

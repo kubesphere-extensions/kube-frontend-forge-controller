@@ -768,6 +768,96 @@ spec:
 }
 
 #[test]
+fn workspace_iframe_pages_generate_workspace_scoped_role_templates() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: ws-mixed
+spec:
+  package:
+    name: ws-mixed
+    version: 0.1.0
+    displayName:
+      en: Workspace Mixed
+    description:
+      en: Workspace Mixed
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Workspace Frame
+            key: workspace-frame
+            pageKey: workspace-frame
+            placements:
+              - workspace
+            type: page
+          - displayName: Workspace Reports
+            key: workspace-reports
+            pageKey: workspace-reports
+            placements:
+              - workspace
+            type: page
+        pages:
+          - key: workspace-frame
+            placements:
+              - workspace
+            type: iframe
+            iframe:
+              src: http://example.test
+          - key: workspace-reports
+            placements:
+              - workspace
+            type: crdTable
+            crdTable:
+              group: reports.kubesphere.io
+              version: v1alpha1
+              scope: Namespaced
+              names:
+                kind: Report
+                plural: reports
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+    )
+    .unwrap();
+    let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+    let template = artifact
+        .files
+        .iter()
+        .find(|file| file.path == "charts/ws-mixed-helper/templates/roleTemplate.yaml")
+        .unwrap();
+    let content = std::str::from_utf8(&template.content).unwrap();
+
+    assert!(content.contains("name: workspace-fe-management"));
+    assert!(content.contains("iam.kubesphere.io/scope: workspace"));
+    assert!(content.contains("iam.kubesphere.io/category: workspace-fe-management"));
+    assert!(content.contains("name: workspace-view-ws-mixed"));
+    assert!(
+        content.contains(r#"iam.kubesphere.io/role-template-rules: '{"workspace-frame":"view"}'"#)
+    );
+    assert!(content.contains("iam.kubesphere.io/aggregate-to-self-provisioner: \"\""));
+    assert!(content.contains("iam.kubesphere.io/aggregate-to-regular: \"\""));
+    assert!(!content.contains("name: workspace-manage-ws-mixed"));
+    assert!(content.contains("name: namespace-view-ws-mixed"));
+    assert!(content.contains("name: namespace-manage-ws-mixed"));
+    assert!(
+        content
+            .contains(r#"iam.kubesphere.io/role-template-rules: '{"workspace-reports":"view"}'"#)
+    );
+    assert!(!content.contains(r#""workspace-frame":"view","#));
+    assert!(!content.contains("cluster-fe-management"));
+}
+
+#[test]
 fn role_template_scope_resolution_matches_page_rules() {
     assert_eq!(
         crd_role_scope(MenuPlacement::Cluster, CrdScope::Namespaced),
@@ -791,7 +881,7 @@ fn role_template_scope_resolution_matches_page_rules() {
     );
     assert_eq!(
         iframe_role_scope(MenuPlacement::Workspace),
-        Some(RoleScope::Namespace)
+        Some(RoleScope::Workspace)
     );
     assert_eq!(iframe_role_scope(MenuPlacement::Global), None);
 }
