@@ -97,6 +97,10 @@ pub struct FrontendRenderInput {
     pub description: Option<String>,
     pub schema_version: Option<String>,
     pub route_namespace: String,
+    /// KubeSphere extension name the rendered bundle is installed as. When set,
+    /// menus and workspace cluster selectors are limited to clusters where the
+    /// extension is installed.
+    pub extension_module: Option<String>,
     pub locales: BTreeMap<String, BTreeMap<String, String>>,
     pub menus: Vec<FrontendMenuSpec>,
     pub pages: Vec<FrontendPageSpec>,
@@ -230,6 +234,7 @@ impl FrontendRenderInput {
                 .and_then(|a| a.get("kubesphere.io/description").cloned()),
             schema_version: fi.spec.engine_version().map(ToString::to_string),
             route_namespace: "frontendintegrations".to_string(),
+            extension_module: None,
             locales: fi.spec.locales.clone(),
             menus: fi.spec.menus.iter().map(FrontendMenuSpec::from).collect(),
             pages: fi.spec.pages.iter().map(FrontendPageSpec::from).collect(),
@@ -252,6 +257,7 @@ impl FrontendRenderInput {
                     description: localized_text(&fe.spec.package.description),
                     schema_version: Some(inline.schema_version.clone()),
                     route_namespace: "frontendextensions".to_string(),
+                    extension_module: Some(frontend_extension_package_name(fe)),
                     locales: inline.frontend.locales.clone(),
                     menus: frontend_extension_menus(&inline.frontend.menus, &fe.name_any())?,
                     pages: inline

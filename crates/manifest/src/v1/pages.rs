@@ -32,12 +32,13 @@ pub(crate) fn crd_page(
     page_id: &str,
     display_name: &str,
     placement: MenuPlacement,
+    module: Option<&str>,
     crd: &CrdTablePageSpec,
     columns: &[ColumnSpec],
 ) -> Value {
     let columns_config = transform_columns(columns);
     let page_state_type = crd_page_state_type(placement);
-    let page_state_config = crd_page_state_config(page_id, placement, crd);
+    let page_state_config = crd_page_state_config(page_id, placement, module, crd);
     let auth_key = crd.auth_key.as_deref().unwrap_or("");
 
     json!({
@@ -126,12 +127,17 @@ pub(crate) const fn crd_page_state_type(placement: MenuPlacement) -> &'static st
 pub(crate) fn crd_page_state_config(
     page_id: &str,
     placement: MenuPlacement,
+    module: Option<&str>,
     crd: &CrdTablePageSpec,
 ) -> Value {
     let mut config = Map::new();
     config.insert("PAGE_ID".to_string(), json!(page_id));
     config.insert("CRD_CONFIG".to_string(), crd_page_config(crd));
-    if placement != MenuPlacement::Workspace {
+    if placement == MenuPlacement::Workspace {
+        if let Some(module) = module {
+            config.insert("CLUSTER_MODULE".to_string(), json!(module));
+        }
+    } else {
         config.insert("SCOPE".to_string(), json!(crd_page_scope(crd)));
     }
     config.insert("HOOK_NAME".to_string(), json!("useCrdPageState"));
