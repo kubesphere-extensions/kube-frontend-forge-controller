@@ -765,35 +765,107 @@ spec:
     assert!(!content.contains("    - *\n"));
     assert!(content.contains("iam.kubesphere.io/dependencies: '[\"cluster-view-mixed\"]'"));
     assert!(content.contains("iam.kubesphere.io/dependencies: '[\"namespace-view-mixed\"]'"));
+    assert!(content.contains("iam.kubesphere.io/dependencies: '[\"workspace-view-mixed\"]'"));
+}
+
+#[test]
+fn workspace_pages_generate_workspace_scoped_role_templates() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: ws-reports
+spec:
+  package:
+    name: ws-reports
+    version: 0.1.0
+    displayName:
+      en: Workspace Reports
+    description:
+      en: Workspace Reports
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Workspace Reports
+            key: workspace-reports
+            pageKey: workspace-reports
+            placements:
+              - workspace
+            type: page
+        pages:
+          - key: workspace-reports
+            placements:
+              - workspace
+            type: crdTable
+            crdTable:
+              group: reports.kubesphere.io
+              version: v1alpha1
+              scope: Namespaced
+              names:
+                kind: Report
+                plural: reports
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+    )
+    .unwrap();
+    let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
+    let template = artifact
+        .files
+        .iter()
+        .find(|file| file.path == "charts/ws-reports-helper/templates/roleTemplate.yaml")
+        .unwrap();
+    let content = std::str::from_utf8(&template.content).unwrap();
+
+    assert!(content.contains("name: workspace-fe-management"));
+    assert!(content.contains("iam.kubesphere.io/scope: workspace"));
+    assert!(content.contains("iam.kubesphere.io/category: workspace-fe-management"));
+    assert!(content.contains("name: workspace-view-ws-reports"));
+    assert!(content.contains("name: workspace-manage-ws-reports"));
+    assert!(content.contains("iam.kubesphere.io/aggregate-to-self-provisioner: \"\""));
+    assert!(content.contains("iam.kubesphere.io/aggregate-to-regular: \"\""));
+    assert!(content.contains("iam.kubesphere.io/dependencies: '[\"workspace-view-ws-reports\"]'"));
+    assert!(content.contains("name: namespace-view-ws-reports"));
+    assert!(content.contains("name: namespace-manage-ws-reports"));
+    assert!(!content.contains("cluster-fe-management"));
 }
 
 #[test]
 fn role_template_scope_resolution_matches_page_rules() {
     assert_eq!(
-        crd_role_scope(MenuPlacement::Cluster, CrdScope::Namespaced),
-        RoleScope::Cluster
+        crd_role_scopes(MenuPlacement::Cluster, CrdScope::Namespaced),
+        &[RoleScope::Cluster]
     );
     assert_eq!(
-        crd_role_scope(MenuPlacement::Workspace, CrdScope::Cluster),
-        RoleScope::Namespace
+        crd_role_scopes(MenuPlacement::Workspace, CrdScope::Cluster),
+        &[RoleScope::Workspace, RoleScope::Namespace]
     );
     assert_eq!(
-        crd_role_scope(MenuPlacement::Global, CrdScope::Cluster),
-        RoleScope::Cluster
+        crd_role_scopes(MenuPlacement::Global, CrdScope::Cluster),
+        &[RoleScope::Cluster]
     );
     assert_eq!(
-        crd_role_scope(MenuPlacement::Global, CrdScope::Namespaced),
-        RoleScope::Namespace
+        crd_role_scopes(MenuPlacement::Global, CrdScope::Namespaced),
+        &[RoleScope::Namespace]
     );
     assert_eq!(
-        iframe_role_scope(MenuPlacement::Cluster),
-        Some(RoleScope::Cluster)
+        iframe_role_scopes(MenuPlacement::Cluster),
+        &[RoleScope::Cluster]
     );
     assert_eq!(
-        iframe_role_scope(MenuPlacement::Workspace),
-        Some(RoleScope::Namespace)
+        iframe_role_scopes(MenuPlacement::Workspace),
+        &[RoleScope::Workspace, RoleScope::Namespace]
     );
-    assert_eq!(iframe_role_scope(MenuPlacement::Global), None);
+    assert!(iframe_role_scopes(MenuPlacement::Global).is_empty());
 }
 
 #[test]
