@@ -86,6 +86,137 @@ spec:
         "test-workspace-workspace-tasks"
     );
     assert!(workspace_page_state["config"].get("SCOPE").is_none());
+    assert!(
+        workspace_page_state["config"]
+            .get("CLUSTER_MODULE")
+            .is_none()
+    );
+
+    // FrontendIntegrations ship inside the frontend-forge bundle, so their
+    // menus are not limited by an extension module.
+    for menu in manifest["menus"].as_array().unwrap() {
+        assert!(menu.get("clusterModule").is_none());
+        assert!(menu.get("workspaceModule").is_none());
+    }
+}
+
+#[test]
+fn limits_fe_menus_and_workspace_clusters_to_installed_clusters() {
+    let fe: FrontendExtension = serde_yaml::from_str(
+        r#"
+apiVersion: frontend-forge.kubesphere.io/v1alpha1
+kind: FrontendExtension
+metadata:
+  name: module-demo
+spec:
+  package:
+    name: module-demo-pkg
+    version: 0.1.0
+    displayName:
+      en: Module Demo
+    description:
+      en: Module Demo
+  source:
+    type: Inline
+    inline:
+      schemaVersion: v1
+      frontend:
+        menus:
+          - displayName: Tasks
+            key: tasks
+            pageKey: tasks
+            placements:
+              - cluster
+              - workspace
+              - global
+            type: page
+          - displayName: Group
+            key: group
+            placements:
+              - cluster
+            type: organization
+            children:
+              - displayName: Nested
+                key: nested
+                pageKey: tasks
+                type: page
+        pages:
+          - key: tasks
+            placements:
+              - cluster
+              - workspace
+              - global
+            type: crdTable
+            crdTable:
+              group: kubesphere.io
+              version: v1alpha1
+              scope: Namespaced
+              names:
+                kind: Task
+                plural: tasks
+              columns:
+                - key: name
+                  title: NAME
+                  render:
+                    type: text
+                    path: metadata.name
+"#,
+    )
+    .unwrap();
+
+    let manifest = render_v1_fe_manifest(&fe).unwrap();
+    let menus = manifest["menus"].as_array().unwrap();
+    let menu = |parent: &str, name_suffix: &str| {
+        menus
+            .iter()
+            .find(|menu| {
+                menu["parent"] == parent && menu["name"].as_str().unwrap().ends_with(name_suffix)
+            })
+            .unwrap_or_else(|| panic!("menu {parent} {name_suffix} not found in {menus:?}"))
+    };
+
+    let cluster_menu = menu("cluster", "/tasks");
+    assert_eq!(cluster_menu["clusterModule"], "module-demo-pkg");
+    assert!(cluster_menu.get("workspaceModule").is_none());
+
+    let workspace_menu = menu("workspace", "/tasks");
+    assert_eq!(workspace_menu["workspaceModule"], "module-demo-pkg");
+    assert!(workspace_menu.get("clusterModule").is_none());
+
+    let global_menu = menu("global", "/tasks");
+    assert!(global_menu.get("clusterModule").is_none());
+    assert!(global_menu.get("workspaceModule").is_none());
+
+    let org_menu = menu("cluster", "/group");
+    assert_eq!(org_menu["clusterModule"], "module-demo-pkg");
+    let nested_menu = menus
+        .iter()
+        .find(|menu| menu["parent"].as_str().unwrap().starts_with("cluster."))
+        .unwrap();
+    assert_eq!(nested_menu["clusterModule"], "module-demo-pkg");
+
+    let pages = manifest["pages"].as_array().unwrap();
+    let page_state = |placement: &str| {
+        pages
+            .iter()
+            .find(|page| page["id"] == format!("module-demo-pkg-{placement}-tasks"))
+            .map(|page| &page["componentsTree"]["dataSources"][1])
+            .unwrap_or_else(|| panic!("{placement} page not found"))
+    };
+    assert_eq!(
+        page_state("workspace")["config"]["CLUSTER_MODULE"],
+        "module-demo-pkg"
+    );
+    assert!(
+        page_state("cluster")["config"]
+            .get("CLUSTER_MODULE")
+            .is_none()
+    );
+    assert!(
+        page_state("global")["config"]
+            .get("CLUSTER_MODULE")
+            .is_none()
+    );
 }
 
 #[test]

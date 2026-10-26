@@ -9,6 +9,7 @@ pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, Manifest
         .clone()
         .unwrap_or_else(|| fi_name.clone());
     let resolved_menus = resolve_spec(input, &fi_name, &input.route_namespace)?;
+    let module = input.extension_module.as_deref();
 
     let mut routes = Vec::new();
     let mut menus = Vec::new();
@@ -18,16 +19,22 @@ pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, Manifest
     for menu in resolved_menus {
         match menu {
             ResolvedTopMenu::Page(page) => {
-                menus.push(render_leaf_menu(&page));
+                menus.push(render_leaf_menu(&page, module));
                 routes.push(render_route(&input.route_namespace, &fi_name, &page));
-                push_rendered_page(&fi_name, &page, &mut pages, &mut rendered_page_ids)?;
+                push_rendered_page(&fi_name, &page, module, &mut pages, &mut rendered_page_ids)?;
             }
             ResolvedTopMenu::Organization { menu, children } => {
-                menus.push(render_organization_menu(&menu));
+                menus.push(render_organization_menu(&menu, module));
                 for child in children {
-                    menus.push(render_leaf_menu(&child));
+                    menus.push(render_leaf_menu(&child, module));
                     routes.push(render_route(&input.route_namespace, &fi_name, &child));
-                    push_rendered_page(&fi_name, &child, &mut pages, &mut rendered_page_ids)?;
+                    push_rendered_page(
+                        &fi_name,
+                        &child,
+                        module,
+                        &mut pages,
+                        &mut rendered_page_ids,
+                    )?;
                 }
             }
         }
@@ -59,12 +66,13 @@ pub fn render_v1_manifest(input: &FrontendRenderInput) -> Result<Value, Manifest
 fn push_rendered_page(
     fi_name: &str,
     page: &ResolvedPageBinding,
+    module: Option<&str>,
     pages: &mut Vec<Value>,
     rendered_page_ids: &mut HashSet<String>,
 ) -> Result<(), ManifestRenderError> {
     let page_id = page_id_for_suffix(fi_name, page.placement, &page.page_id_suffix);
     if rendered_page_ids.insert(page_id) {
-        pages.push(render_page(fi_name, page)?);
+        pages.push(render_page(fi_name, page, module)?);
     }
     Ok(())
 }
@@ -102,24 +110,46 @@ pub(crate) fn render_route(
     })
 }
 
-pub(crate) fn render_leaf_menu(page: &ResolvedPageBinding) -> Value {
-    json!({
+pub(crate) fn render_leaf_menu(page: &ResolvedPageBinding, module: Option<&str>) -> Value {
+    let mut menu = json!({
         "parent": page.parent,
         "name": page.menu_name,
         "title": page.menu_title,
         "icon": menu_icon(page.icon.as_ref()),
         "order": 999,
-    })
+    });
+    insert_menu_module(&mut menu, page.placement, module);
+    menu
 }
 
-pub(crate) fn render_organization_menu(menu: &ResolvedOrganizationMenu) -> Value {
-    json!({
+pub(crate) fn render_organization_menu(
+    menu: &ResolvedOrganizationMenu,
+    module: Option<&str>,
+) -> Value {
+    let mut rendered = json!({
         "parent": menu.placement.as_str(),
         "name": menu.name,
         "title": menu.title,
         "icon": menu_icon(menu.icon.as_ref()),
         "order": 999,
-    })
+    });
+    insert_menu_module(&mut rendered, menu.placement, module);
+    rendered
+}
+
+/// Hide cluster/workspace menus where the extension is not installed. The
+/// console checks `clusterModule` against the current cluster and
+/// `workspaceModule` against the workspace's clusters.
+pub(crate) fn insert_menu_module(menu: &mut Value, placement: MenuPlacement, module: Option<&str>) {
+    let Some(module) = module else {
+        return;
+    };
+    let key = match placement {
+        MenuPlacement::Cluster => "clusterModule",
+        MenuPlacement::Workspace => "workspaceModule",
+        MenuPlacement::Global => return,
+    };
+    menu[key] = json!(module);
 }
 
 pub(crate) fn menu_icon(icon: Option<&String>) -> &str {
@@ -133,6 +163,7 @@ pub(crate) fn route_tail(route_namespace: &str, fi_name: &str, suffix: &str) -> 
 pub(crate) fn render_page(
     fi_name: &str,
     page: &ResolvedPageBinding,
+    module: Option<&str>,
 ) -> Result<Value, ManifestRenderError> {
     let page_id = page_id_for_suffix(fi_name, page.placement, &page.page_id_suffix);
 
@@ -161,6 +192,7 @@ pub(crate) fn render_page(
                 &page_id,
                 &page.page_title,
                 page.placement,
+                module,
                 crd_table,
                 &crd_table.columns,
             ))
