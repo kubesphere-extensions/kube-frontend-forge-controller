@@ -171,7 +171,7 @@ Generated files include:
 | `charts/frontend/templates/*` | Embedded frontend chart templates. |
 | `charts/<package>-helper/Chart.yaml` | Generated helper chart metadata. |
 | `charts/<package>-helper/values.yaml` | Embedded helper values template. |
-| `charts/<package>-helper/templates/roleTemplate.yaml` | Generated RoleTemplate template. |
+| `charts/<package>-helper/templates/roleTemplate.yaml` | Generated RoleTemplate template plus the shared Category installer hook. |
 
 `extension.yaml` uses API version `kubesphere.io/v1alpha1`.
 
@@ -203,6 +203,8 @@ Generated Category names:
 | cluster | `cluster-fe-management` |
 | workspace | `workspace-fe-management` |
 | namespace | `namespace-fe-management` |
+
+Categories are shared by every generated extension on a cluster, so the helper chart does not render them as Helm release resources. A release-owned shared Category carries the first release's `meta.helm.sh/release-name`, and every other agent release that installs concurrently fails with `invalid ownership metadata`. Instead, when a `lookup` finds any used Category missing, the helper chart renders `pre-install,pre-upgrade` hooks: a `<package>-fe-category` ServiceAccount, ClusterRole, ClusterRoleBinding, and Job. The Job runs `kubectl apply --server-side --field-manager=frontend-forge-category` for the used Categories, an idempotent create-or-update that concurrent releases converge on. Hook resources are deleted after success and Categories stay after uninstall. The Job image defaults to `kubesphere/kubectl:v1.27.16` (the image ks-core uses), configurable under `roleTemplate.categoryInstaller.image`; the registry falls back to `global.imageRegistry`, then `docker.io`. `permissions.yaml` grants the Helm executor `clusterroles` and `clusterrolebindings` so it can create the hook RBAC.
 
 Workspace `crdTable` pages act on resources in the selected project and the console gates their actions on project rules, so they stay namespace-scoped. Workspace `iframe` pages have no project context, so they are workspace-scoped and assignable in workspace roles.
 

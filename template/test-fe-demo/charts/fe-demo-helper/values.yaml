@@ -5,3 +5,13 @@
 
 roleTemplate:
   enabled: true
+  # Shared role Categories are applied by a pre-install/pre-upgrade hook Job
+  # instead of being Helm release resources, so concurrent extension releases
+  # never race on Helm ownership. The registry falls back to
+  # global.imageRegistry, then docker.io.
+  categoryInstaller:
+    image:
+      registry: ""
+      repository: kubesphere/kubectl
+      tag: v1.27.16
+      pullPolicy: IfNotPresent
