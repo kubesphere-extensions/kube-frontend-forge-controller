@@ -1,21 +1,114 @@
 {{- if .Values.roleTemplate.enabled }}
+{{- $missingCategory := false }}
+{{- if not (lookup "iam.kubesphere.io/v1beta1" "Category" "" "cluster-fe-management") }}
+{{- $missingCategory = true }}
+{{- end }}
+{{- if not (lookup "iam.kubesphere.io/v1beta1" "Category" "" "namespace-fe-management") }}
+{{- $missingCategory = true }}
+{{- end }}
+{{- if $missingCategory }}
+{{- $global := .Values.global | default dict }}
+{{- $image := .Values.roleTemplate.categoryInstaller.image }}
+{{- $registry := $image.registry | default (dig "imageRegistry" "" $global) | default "docker.io" }}
 ---
-{{- $existing := lookup "iam.kubesphere.io/v1beta1" "Category" "" "cluster-fe-management" -}}
-
-{{- if not $existing }}
-apiVersion: iam.kubesphere.io/v1beta1
-kind: Category
+apiVersion: v1
+kind: ServiceAccount
 metadata:
-  name: cluster-fe-management
+  name: fe-demo-fe-category
+  namespace: {{ .Release.Namespace }}
   annotations:
-    "helm.sh/resource-policy": keep
-  labels:
-    iam.kubesphere.io/scope: cluster
-    kubesphere.io/managed: "true"
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fe-demo-fe-category
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups:
+      - iam.kubesphere.io
+    resources:
+      - categories
+    verbs:
+      - get
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fe-demo-fe-category
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fe-demo-fe-category
+subjects:
+  - kind: ServiceAccount
+    name: fe-demo-fe-category
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fe-demo-fe-category
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
-  displayName:
-    en: Quick Integration
-    zh: 快速集成
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: fe-demo-fe-category
+      {{- with (dig "imagePullSecrets" (list) $global) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: apply-categories
+          image: {{ printf "%s/%s:%s" $registry $image.repository $image.tag | quote }}
+          imagePullPolicy: {{ $image.pullPolicy }}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              kubectl apply --server-side --force-conflicts --field-manager=frontend-forge-category -f - <<'EOF'
+              ---
+              apiVersion: iam.kubesphere.io/v1beta1
+              kind: Category
+              metadata:
+                name: cluster-fe-management
+                labels:
+                  iam.kubesphere.io/scope: cluster
+                  kubesphere.io/managed: "true"
+              spec:
+                displayName:
+                  en: Quick Integration
+                  zh: 快速集成
+              ---
+              apiVersion: iam.kubesphere.io/v1beta1
+              kind: Category
+              metadata:
+                name: namespace-fe-management
+                labels:
+                  iam.kubesphere.io/scope: namespace
+                  kubesphere.io/managed: "true"
+              spec:
+                displayName:
+                  en: Quick Integration
+                  zh: 快速集成
+              EOF
 {{- end }}
 ---
 apiVersion: iam.kubesphere.io/v1beta1
@@ -72,24 +165,6 @@ spec:
     verbs:
     - '*'
 
----
-{{- $existing := lookup "iam.kubesphere.io/v1beta1" "Category" "" "namespace-fe-management" -}}
-
-{{- if not $existing }}
-apiVersion: iam.kubesphere.io/v1beta1
-kind: Category
-metadata:
-  name: namespace-fe-management
-  labels:
-    iam.kubesphere.io/scope: namespace
-    kubesphere.io/managed: 'true'
-  annotations:
-    "helm.sh/resource-policy": keep
-spec:
-  displayName:
-    en: Quick Integration
-    zh: 快速集成
-{{- end }}
 ---
 apiVersion: iam.kubesphere.io/v1beta1
 kind: RoleTemplate

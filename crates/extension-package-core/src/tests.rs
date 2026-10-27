@@ -937,3 +937,160 @@ spec:
         "{{- if .Values.roleTemplate.enabled }}\n{{- end }}"
     );
 }
+
+fn package_file<'a>(artifact: &'a ExtensionPackageArtifact, path: &str) -> &'a str {
+    let file = artifact
+        .files
+        .iter()
+        .find(|file| file.path == path)
+        .unwrap();
+    std::str::from_utf8(&file.content).unwrap()
+}
+
+/// Extract the Category manifests the installer Job pipes into `kubectl apply`.
+fn category_installer_manifests(template: &str) -> Vec<Value> {
+    const INDENT: &str = "              ";
+    let marker = "<<'EOF'\n";
+    let start = template.find(marker).unwrap() + marker.len();
+    let end = start + template[start..].find(&format!("{INDENT}EOF\n")).unwrap();
+    let body = template[start..end]
+        .lines()
+        .map(|line| line.strip_prefix(INDENT).unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    serde_yaml::Deserializer::from_str(&body)
+        .map(|doc| Value::deserialize(doc).unwrap())
+        .collect()
+}
+
+#[test]
+fn role_categories_are_applied_by_hook_job_instead_of_release_resources() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let artifact =
+        build_extension_package(&sample_fe(), generated_at, "console.log('ok');").unwrap();
+    let content = package_file(
+        &artifact,
+        "charts/inspecttask-helper/templates/roleTemplate.yaml",
+    );
+
+    // A shared Category rendered as a release resource is adopted by whichever
+    // release creates it first, and concurrent releases then fail Helm's
+    // ownership check. It must only be created by the hook Job.
+    assert!(!content.contains("\nkind: Category\n"));
+    assert!(!content.contains("helm.sh/resource-policy"));
+    assert!(content.contains(
+        r#"{{- if not (lookup "iam.kubesphere.io/v1beta1" "Category" "" "cluster-fe-management") }}"#
+    ));
+    assert!(!content.contains("workspace-fe-management"));
+    assert!(!content.contains("namespace-fe-management\")"));
+    assert!(content.contains("{{- if $missingCategory }}"));
+
+    for kind in ["ServiceAccount", "ClusterRole", "ClusterRoleBinding", "Job"] {
+        assert!(content.contains(&format!(
+            "\nkind: {kind}\nmetadata:\n  name: inspecttask-fe-category\n"
+        )));
+    }
+    assert_eq!(
+        content
+            .matches(r#""helm.sh/hook": pre-install,pre-upgrade"#)
+            .count(),
+        4
+    );
+    assert_eq!(
+        content
+            .matches(r#""helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded"#)
+            .count(),
+        4
+    );
+    assert!(content.contains(
+        "kubectl apply --server-side --force-conflicts --field-manager=frontend-forge-category -f \
+         - <<'EOF'"
+    ));
+    assert!(content.contains("iam.kubesphere.io/category: cluster-fe-management"));
+
+    assert_eq!(
+        category_installer_manifests(content),
+        vec![json!({
+            "apiVersion": "iam.kubesphere.io/v1beta1",
+            "kind": "Category",
+            "metadata": {
+                "name": "cluster-fe-management",
+                "labels": {
+                    "iam.kubesphere.io/scope": "cluster",
+                    "kubesphere.io/managed": "true",
+                },
+            },
+            "spec": {
+                "displayName": {
+                    "en": "Quick Integration",
+                    "zh": "快速集成",
+                },
+            },
+        })]
+    );
+
+    let helper_values: Value = serde_yaml::from_str(package_file(
+        &artifact,
+        "charts/inspecttask-helper/values.yaml",
+    ))
+    .unwrap();
+    assert_eq!(
+        helper_values["roleTemplate"]["categoryInstaller"]["image"],
+        json!({
+            "registry": "",
+            "repository": "kubesphere/kubectl",
+            "tag": "v1.27.16",
+            "pullPolicy": "IfNotPresent",
+        })
+    );
+
+    let permissions = package_file(&artifact, "permissions.yaml");
+    assert!(permissions.contains("- 'clusterroles'"));
+    assert!(permissions.contains("- 'clusterrolebindings'"));
+}
+
+#[test]
+fn category_installer_applies_each_used_scope_once() {
+    let content = category_installer_template("mixed", &[RoleScope::Cluster, RoleScope::Namespace]);
+
+    assert_eq!(content.matches("(lookup ").count(), 2);
+    assert!(content.contains(r#""Category" "" "cluster-fe-management") }}"#));
+    assert!(content.contains(r#""Category" "" "namespace-fe-management") }}"#));
+    let categories = category_installer_manifests(&content)
+        .into_iter()
+        .map(|category| {
+            (
+                category["metadata"]["name"].as_str().unwrap().to_string(),
+                category["metadata"]["labels"]["iam.kubesphere.io/scope"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        categories,
+        vec![
+            ("cluster-fe-management".to_string(), "cluster".to_string()),
+            (
+                "namespace-fe-management".to_string(),
+                "namespace".to_string()
+            ),
+        ]
+    );
+
+    assert_eq!(category_installer_template("mixed", &[]), "");
+}
+
+#[test]
+fn category_installer_name_fits_job_name_limit() {
+    assert_eq!(category_installer_name("mixed"), "mixed-fe-category");
+
+    let name = category_installer_name(&"a".repeat(80));
+    assert_eq!(name.len(), 63);
+    assert!(name.ends_with("-fe-category"));
+
+    // Truncation must not leave a dangling separator before the suffix.
+    let name = category_installer_name(&format!("{}-tail", "a".repeat(50)));
+    assert_eq!(name, format!("{}-fe-category", "a".repeat(50)));
+}
