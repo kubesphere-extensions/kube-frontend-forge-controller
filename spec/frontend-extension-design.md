@@ -169,6 +169,7 @@ Generated files include:
 | `charts/frontend/values.yaml` | Embedded package template. |
 | `charts/frontend/scripts/index.js` | Build-service selected bundle content. |
 | `charts/frontend/templates/*` | Embedded frontend chart templates. |
+| `charts/frontend/templates/roleTemplate.yaml` | Generated host-side workspace/namespace RoleTemplates plus their Category installer hook. |
 | `charts/<package>-helper/Chart.yaml` | Generated helper chart metadata. |
 | `charts/<package>-helper/values.yaml` | Embedded helper values template. |
 | `charts/<package>-helper/templates/roleTemplate.yaml` | Generated RoleTemplate template plus the shared Category installer hook. |
@@ -204,7 +205,19 @@ Generated Category names:
 | workspace | `workspace-fe-management` |
 | namespace | `namespace-fe-management` |
 
-Categories are shared by every generated extension on a cluster, so the helper chart does not render them as Helm release resources. A release-owned shared Category carries the first release's `meta.helm.sh/release-name`, and every other agent release that installs concurrently fails with `invalid ownership metadata`. Instead, when a `lookup` finds any used Category missing, the helper chart renders `pre-install,pre-upgrade` hooks: a `<package>-fe-category` ServiceAccount, ClusterRole, ClusterRoleBinding, and Job. The Job runs `kubectl apply --server-side --field-manager=frontend-forge-category` for the used Categories, an idempotent create-or-update that concurrent releases converge on. Hook resources are deleted after success and Categories stay after uninstall. The Job image defaults to `kubesphere/kubectl:v1.27.16` (the image ks-core uses), configurable under `roleTemplate.categoryInstaller.image`; the registry falls back to `global.imageRegistry`, then `docker.io`. `permissions.yaml` grants the Helm executor `clusterroles` and `clusterrolebindings` so it can create the hook RBAC.
+RoleTemplates are not synced between clusters, so each one is installed on the cluster that reads it. KubeSphere installs the `extension`-tagged `frontend` chart once on the host and the `agent`-tagged helper chart on every scheduled cluster, which may not include the host:
+
+| Scope | Read by | `frontend` chart (host) | helper chart (agent) |
+| --- | --- | --- | --- |
+| cluster | console and ClusterRoles on each cluster | none | always |
+| workspace | console and WorkspaceRoles on the host | when absent or owned by this release | on the host, when absent or owned by this release |
+| namespace | console on the host; Roles on the project's cluster | when absent or owned by this release | when absent or owned by this release |
+
+On the host, the extension release and the host agent release would otherwise render the same RoleTemplate and the second would fail Helm's ownership check. A `lookup` guard renders a shared RoleTemplate only when it is absent or its `meta.helm.sh/release-name` is the current release, so whichever release installs first owns it. KubeSphere installs agents only after the extension release is deployed, so on new installs the extension release owns them; packages generated before this split left them owned by the host agent, which keeps them across upgrades. The helper chart reads the host role from `global.clusterInfo.role`, which KubeSphere sets for agent releases, and stops installing workspace RoleTemplates on member clusters.
+
+Each chart installs the Categories of the scopes it renders: the `frontend` chart installs `workspace-fe-management` and `namespace-fe-management`, the helper chart installs `cluster-fe-management` and `namespace-fe-management`.
+
+Categories are shared by every generated extension on a cluster, so neither chart renders them as Helm release resources. A release-owned shared Category carries the first release's `meta.helm.sh/release-name`, and every other agent release that installs concurrently fails with `invalid ownership metadata`. Instead, when a `lookup` finds any used Category missing, the chart renders `pre-install,pre-upgrade` hooks: a ServiceAccount, ClusterRole, ClusterRoleBinding, and Job named `<package>-fe-category` in the helper chart and `<package>-fe-ext-category` in the `frontend` chart, since both releases share a namespace on the host. The Job runs `kubectl apply --server-side --field-manager=frontend-forge-category` for the used Categories, an idempotent create-or-update that concurrent releases converge on. Hook resources are deleted after success and Categories stay after uninstall. The Job image defaults to `kubesphere/kubectl:v1.27.16` (the image ks-core uses), configurable under `roleTemplate.categoryInstaller.image`; the registry falls back to `global.imageRegistry`, then `docker.io`. `permissions.yaml` grants the Helm executor `clusterroles` and `clusterrolebindings` so it can create the hook RBAC.
 
 Workspace `crdTable` pages act on resources in the selected project and the console gates their actions on project rules, so they stay namespace-scoped. Workspace `iframe` pages have no project context, so they are workspace-scoped and assignable in workspace roles.
 
