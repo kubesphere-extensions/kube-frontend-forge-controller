@@ -830,14 +830,13 @@ spec:
     )
     .unwrap();
     let artifact = build_extension_package(&fe, generated_at, "console.log('ok');").unwrap();
-    let template = artifact
-        .files
-        .iter()
-        .find(|file| file.path == "charts/ws-mixed-helper/templates/roleTemplate.yaml")
-        .unwrap();
-    let content = std::str::from_utf8(&template.content).unwrap();
 
+    // The console lists workspace and namespace RoleTemplates from the host,
+    // so the host-only extension chart installs them and their Categories.
+    let content = package_file(&artifact, "charts/frontend/templates/roleTemplate.yaml");
+    assert!(content.contains("name: ws-mixed-fe-ext-category"));
     assert!(content.contains("name: workspace-fe-management"));
+    assert!(content.contains("name: namespace-fe-management"));
     assert!(content.contains("iam.kubesphere.io/scope: workspace"));
     assert!(content.contains("iam.kubesphere.io/category: workspace-fe-management"));
     assert!(content.contains("name: workspace-view-ws-mixed"));
@@ -855,6 +854,58 @@ spec:
     );
     assert!(!content.contains(r#""workspace-frame":"view","#));
     assert!(!content.contains("cluster-fe-management"));
+    assert!(!content.contains(r#"(dig "clusterInfo" "role" "" $global)"#));
+    assert_eq!(
+        content
+            .matches(
+                r#"{{- if or (not $roleTemplate) (eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" $roleTemplate) .Release.Name) }}"#
+            )
+            .count(),
+        3
+    );
+
+    // Agents install namespace RoleTemplates where projects aggregate them,
+    // and keep workspace RoleTemplates only where an older host agent owns
+    // them.
+    let content = package_file(
+        &artifact,
+        "charts/ws-mixed-helper/templates/roleTemplate.yaml",
+    );
+    assert!(content.contains("name: ws-mixed-fe-category"));
+    assert!(content.contains("name: namespace-fe-management"));
+    assert!(!content.contains("name: workspace-fe-management"));
+    assert!(content.contains("name: namespace-view-ws-mixed"));
+    assert!(content.contains("name: namespace-manage-ws-mixed"));
+    assert!(content.contains("name: workspace-view-ws-mixed"));
+    assert!(content.contains(
+        r#"{{- if and (eq (dig "clusterInfo" "role" "" $global) "host") (or (not $roleTemplate) (eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" $roleTemplate) .Release.Name)) }}"#
+    ));
+}
+
+#[test]
+fn cluster_role_templates_stay_in_the_agent_chart() {
+    let generated_at = DateTime::from_timestamp(1_775_200_000, 0).unwrap();
+    let artifact =
+        build_extension_package(&sample_fe(), generated_at, "console.log('ok');").unwrap();
+
+    assert_eq!(
+        package_file(&artifact, "charts/frontend/templates/roleTemplate.yaml").trim(),
+        "{{- if .Values.roleTemplate.enabled }}\n{{- end }}"
+    );
+    let content = package_file(
+        &artifact,
+        "charts/inspecttask-helper/templates/roleTemplate.yaml",
+    );
+    assert!(content.contains("name: cluster-view-inspecttask"));
+    assert!(!content.contains("$roleTemplate"));
+
+    let frontend_values: Value =
+        serde_yaml::from_str(package_file(&artifact, "charts/frontend/values.yaml")).unwrap();
+    assert_eq!(frontend_values["roleTemplate"]["enabled"], json!(true));
+    assert_eq!(
+        frontend_values["roleTemplate"]["categoryInstaller"]["image"]["repository"],
+        json!("kubesphere/kubectl")
+    );
 }
 
 #[test]
@@ -1051,7 +1102,11 @@ fn role_categories_are_applied_by_hook_job_instead_of_release_resources() {
 
 #[test]
 fn category_installer_applies_each_used_scope_once() {
-    let content = category_installer_template("mixed", &[RoleScope::Cluster, RoleScope::Namespace]);
+    let content = category_installer_template(
+        RoleTemplateChart::Agent,
+        "mixed",
+        &[RoleScope::Cluster, RoleScope::Namespace],
+    );
 
     assert_eq!(content.matches("(lookup ").count(), 2);
     assert!(content.contains(r#""Category" "" "cluster-fe-management") }}"#));
@@ -1079,18 +1134,27 @@ fn category_installer_applies_each_used_scope_once() {
         ]
     );
 
-    assert_eq!(category_installer_template("mixed", &[]), "");
+    assert_eq!(
+        category_installer_template(RoleTemplateChart::Agent, "mixed", &[]),
+        ""
+    );
 }
 
 #[test]
 fn category_installer_name_fits_job_name_limit() {
-    assert_eq!(category_installer_name("mixed"), "mixed-fe-category");
+    assert_eq!(
+        category_installer_name(RoleTemplateChart::Agent, "mixed"),
+        "mixed-fe-category"
+    );
 
-    let name = category_installer_name(&"a".repeat(80));
+    let name = category_installer_name(RoleTemplateChart::Agent, &"a".repeat(80));
     assert_eq!(name.len(), 63);
     assert!(name.ends_with("-fe-category"));
 
     // Truncation must not leave a dangling separator before the suffix.
-    let name = category_installer_name(&format!("{}-tail", "a".repeat(50)));
+    let name = category_installer_name(
+        RoleTemplateChart::Agent,
+        &format!("{}-tail", "a".repeat(50)),
+    );
     assert_eq!(name, format!("{}-fe-category", "a".repeat(50)));
 }

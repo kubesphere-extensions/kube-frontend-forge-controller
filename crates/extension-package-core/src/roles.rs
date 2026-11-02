@@ -50,25 +50,108 @@ pub(crate) struct RoleTemplateContribution {
     rule: Option<GeneratedRule>,
 }
 
+/// The extension package chart a roleTemplate.yaml is rendered into.
+///
+/// KubeSphere installs the `extension`-tagged `frontend` chart once on the
+/// host cluster and the `agent`-tagged helper chart on every cluster the
+/// extension is scheduled to, which may not include the host. RoleTemplates
+/// are not synced between clusters, so each one must be installed where it is
+/// read:
+///
+/// - The console lists workspace and namespace RoleTemplates from the host
+///   cluster, so the extension chart installs them there.
+/// - Namespace Roles aggregate RoleTemplates on the cluster the project lives
+///   on, so the agent chart installs namespace RoleTemplates too.
+/// - Cluster RoleTemplates are listed and aggregated on each cluster, so only
+///   the agent chart installs them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RoleTemplateChart {
+    Extension,
+    Agent,
+}
+
+/// When a chart renders a RoleTemplate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RoleTemplateGuard {
+    Always,
+    /// Render only when the RoleTemplate is absent or owned by this release.
+    /// On the host, the extension release and an agent release both want the
+    /// same RoleTemplate; whichever installs first owns it and the other skips
+    /// it instead of failing Helm's ownership check. Packages generated before
+    /// the extension chart carried RoleTemplates left them owned by the host
+    /// agent, which keeps them across upgrades.
+    Unowned,
+    /// Like `Unowned`, but only on the host cluster. The agent chart keeps
+    /// workspace RoleTemplates it already owns on the host from older packages
+    /// and stops installing them on member clusters.
+    UnownedOnHost,
+}
+
+impl RoleTemplateChart {
+    const fn guard(self, scope: RoleScope) -> Option<RoleTemplateGuard> {
+        match (self, scope) {
+            (Self::Extension, RoleScope::Cluster) => None,
+            (Self::Extension, RoleScope::Workspace | RoleScope::Namespace)
+            | (Self::Agent, RoleScope::Namespace) => Some(RoleTemplateGuard::Unowned),
+            (Self::Agent, RoleScope::Workspace) => Some(RoleTemplateGuard::UnownedOnHost),
+            (Self::Agent, RoleScope::Cluster) => Some(RoleTemplateGuard::Always),
+        }
+    }
+
+    /// Scopes whose Category this chart installs.
+    const fn installs_category(self, scope: RoleScope) -> bool {
+        matches!(
+            (self, scope),
+            (Self::Extension, RoleScope::Workspace | RoleScope::Namespace)
+                | (Self::Agent, RoleScope::Cluster | RoleScope::Namespace)
+        )
+    }
+
+    /// Hook resource name suffix. The extension release and the host agent
+    /// release share a namespace, so their category installers need distinct
+    /// names.
+    const fn category_installer_suffix(self) -> &'static str {
+        match self {
+            Self::Extension => "-fe-ext-category",
+            Self::Agent => "-fe-category",
+        }
+    }
+}
+
 pub(crate) fn role_template_template(
+    chart: RoleTemplateChart,
     package_name: &str,
     pages: &[ResolvedFrontendPage],
 ) -> Result<String, ExtensionPackageError> {
     let aggregates = role_template_aggregates(pages);
     let category_scopes = ROLE_SCOPES
         .into_iter()
-        .filter(|scope| aggregates.has_scope(*scope))
+        .filter(|scope| chart.installs_category(*scope) && aggregates.has_scope(*scope))
         .collect::<Vec<_>>();
     let mut out = String::from("{{- if .Values.roleTemplate.enabled }}\n");
-    out.push_str(&category_installer_template(package_name, &category_scopes));
+    if ROLE_SCOPES
+        .into_iter()
+        .any(|scope| chart.guard(scope).is_some() && aggregates.has_scope(scope))
+    {
+        out.push_str("{{- $global := .Values.global | default dict }}\n");
+    }
+    out.push_str(&category_installer_template(
+        chart,
+        package_name,
+        &category_scopes,
+    ));
 
     for scope in ROLE_SCOPES {
+        let Some(guard) = chart.guard(scope) else {
+            continue;
+        };
         for action in [RoleAction::View, RoleAction::Manage] {
             append_role_template(
                 &mut out,
                 package_name,
                 scope,
                 action,
+                guard,
                 aggregates.aggregate(scope, action),
             )?;
         }
@@ -269,12 +352,16 @@ spec:
 /// create-or-update, so concurrent Jobs from different releases converge on
 /// the same object, and hook resources are never adopted by a release. The
 /// `lookup` guard skips the Job once every Category exists.
-pub(crate) fn category_installer_template(package_name: &str, scopes: &[RoleScope]) -> String {
+pub(crate) fn category_installer_template(
+    chart: RoleTemplateChart,
+    package_name: &str,
+    scopes: &[RoleScope],
+) -> String {
     if scopes.is_empty() {
         return String::new();
     }
 
-    let name = category_installer_name(package_name);
+    let name = category_installer_name(chart, package_name);
     let mut out = String::from("{{- $missingCategory := false }}\n");
     let mut manifests = String::new();
     for scope in scopes {
@@ -295,7 +382,6 @@ pub(crate) fn category_installer_template(package_name: &str, scopes: &[RoleScop
 
     out.push_str(&format!(
         r#"{{{{- if $missingCategory }}}}
-{{{{- $global := .Values.global | default dict }}}}
 {{{{- $image := .Values.roleTemplate.categoryInstaller.image }}}}
 {{{{- $registry := $image.registry | default (dig "imageRegistry" "" $global) | default "docker.io" }}}}
 ---
@@ -379,13 +465,13 @@ spec:
     out
 }
 
-pub(crate) fn category_installer_name(package_name: &str) -> String {
-    const SUFFIX: &str = "-fe-category";
+pub(crate) fn category_installer_name(chart: RoleTemplateChart, package_name: &str) -> String {
+    let suffix = chart.category_installer_suffix();
     let prefix = package_name
         .chars()
-        .take(MAX_JOB_NAME_LEN - SUFFIX.len())
+        .take(MAX_JOB_NAME_LEN - suffix.len())
         .collect::<String>();
-    format!("{}{SUFFIX}", prefix.trim_end_matches('-'))
+    format!("{}{suffix}", prefix.trim_end_matches('-'))
 }
 
 fn indent_lines(text: &str, width: usize) -> String {
@@ -406,6 +492,7 @@ pub(crate) fn append_role_template(
     package_name: &str,
     scope: RoleScope,
     action: RoleAction,
+    guard: RoleTemplateGuard,
     aggregate: &RoleTemplateAggregate,
 ) -> Result<(), ExtensionPackageError> {
     if aggregate.is_empty() {
@@ -422,6 +509,23 @@ pub(crate) fn append_role_template(
     } else {
         None
     };
+
+    if guard != RoleTemplateGuard::Always {
+        out.push_str(&format!(
+            "{{{{- $roleTemplate := lookup \"iam.kubesphere.io/v1beta1\" \"RoleTemplate\" \"\" \
+             \"{role_name}\" }}}}\n"
+        ));
+        let unowned = "or (not $roleTemplate) (eq (dig \"metadata\" \"annotations\" \
+                       \"meta.helm.sh/release-name\" \"\" $roleTemplate) .Release.Name)";
+        if guard == RoleTemplateGuard::UnownedOnHost {
+            out.push_str(&format!(
+                "{{{{- if and (eq (dig \"clusterInfo\" \"role\" \"\" $global) \"host\") \
+                 ({unowned}) }}}}\n"
+            ));
+        } else {
+            out.push_str(&format!("{{{{- if {unowned} }}}}\n"));
+        }
+    }
 
     out.push_str("---\n");
     out.push_str("apiVersion: iam.kubesphere.io/v1beta1\n");
@@ -444,6 +548,9 @@ pub(crate) fn append_role_template(
     append_role_description(out, package_name, scope, action);
     append_role_display_name(out, package_name, action);
     append_rules(out, &aggregate.rules);
+    if guard != RoleTemplateGuard::Always {
+        out.push_str("{{- end }}\n");
+    }
     Ok(())
 }
 

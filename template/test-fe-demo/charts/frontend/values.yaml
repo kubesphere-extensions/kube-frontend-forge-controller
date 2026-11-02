@@ -1,2 +1,18 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+
+# Workspace and namespace RoleTemplates are installed on the host cluster with
+# the extension, because the console lists them from the host even when the
+# agent is only installed on member clusters.
+roleTemplate:
+  enabled: true
+  # Shared role Categories are applied by a pre-install/pre-upgrade hook Job
+  # instead of being Helm release resources, so concurrent extension releases
+  # never race on Helm ownership. The registry falls back to
+  # global.imageRegistry, then docker.io.
+  categoryInstaller:
+    image:
+      registry: ""
+      repository: kubesphere/kubectl
+      tag: v1.27.16
+      pullPolicy: IfNotPresent

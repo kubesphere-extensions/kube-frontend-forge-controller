@@ -89,6 +89,10 @@ pub(crate) fn package_files(
             "charts/frontend/templates/helps.tpl",
             "charts/frontend/templates/helps.tpl",
         )?,
+        text_file(
+            "charts/frontend/templates/roleTemplate.yaml",
+            &role_template_template(RoleTemplateChart::Extension, &package_name, &pages)?,
+        ),
         yaml_file(
             &format!("charts/{helper_chart_name}/Chart.yaml"),
             &helper_chart(fe, &helper_chart_name),
@@ -99,7 +103,7 @@ pub(crate) fn package_files(
         )?,
         text_file(
             &format!("charts/{helper_chart_name}/templates/roleTemplate.yaml"),
-            &role_template_template(&package_name, &pages)?,
+            &role_template_template(RoleTemplateChart::Agent, &package_name, &pages)?,
         ),
     ])
 }

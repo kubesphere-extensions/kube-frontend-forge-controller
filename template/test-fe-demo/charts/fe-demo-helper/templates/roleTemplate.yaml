@@ -1,4 +1,5 @@
 {{- if .Values.roleTemplate.enabled }}
+{{- $global := .Values.global | default dict }}
 {{- $missingCategory := false }}
 {{- if not (lookup "iam.kubesphere.io/v1beta1" "Category" "" "cluster-fe-management") }}
 {{- $missingCategory = true }}
@@ -7,7 +8,6 @@
 {{- $missingCategory = true }}
 {{- end }}
 {{- if $missingCategory }}
-{{- $global := .Values.global | default dict }}
 {{- $image := .Values.roleTemplate.categoryInstaller.image }}
 {{- $registry := $image.registry | default (dig "imageRegistry" "" $global) | default "docker.io" }}
 ---
@@ -164,6 +164,8 @@ spec:
     - '*'
     verbs:
     - '*'
+{{- $roleTemplate := lookup "iam.kubesphere.io/v1beta1" "RoleTemplate" "" "namespace-view-fe-demo" }}
+{{- if or (not $roleTemplate) (eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" $roleTemplate) .Release.Name) }}
 
 ---
 apiVersion: iam.kubesphere.io/v1beta1
@@ -194,6 +196,10 @@ spec:
     - get
     - list
     - watch
+{{- end }}
+{{- $roleTemplate := lookup "iam.kubesphere.io/v1beta1" "RoleTemplate" "" "namespace-manage-fe-demo" }}
+{{- if or (not $roleTemplate) (eq (dig "metadata" "annotations" "meta.helm.sh/release-name" "" $roleTemplate) .Release.Name) }}
+
 ---
 apiVersion: iam.kubesphere.io/v1beta1
 kind: RoleTemplate
@@ -221,4 +227,5 @@ spec:
     - '*'
     verbs:
     - '*'
+{{- end }}
 {{- end }}
